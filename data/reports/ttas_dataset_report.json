@@ -1,0 +1,3660 @@
+{
+  "inputs": {
+    "config": "configs/ttas_dataset.json",
+    "dataset_root": "/project/rrg-csubakan/lovenya/datasets/ttas/extracted",
+    "source_manifest": "/project/rrg-csubakan/lovenya/datasets/ttas/extracted/ttas/22k_samples_clean_manual_meta_clean.jsonl",
+    "canonical_manifest": "data/manifests/ttas_clean_normalized.jsonl",
+    "global_seed": 1337,
+    "split_ratio": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    }
+  },
+  "split_policy": {
+    "intended_ratio": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    },
+    "stratified_by": [
+      "speaker_gender",
+      "speaker_emotion_bucket"
+    ],
+    "rare_label_handling": "speaker_emotion labels with fewer than 20 total examples are grouped into 'other' for stratified splitting. Raw emotion labels are still reported individually.",
+    "speaker_emotion_rare_threshold": 20,
+    "rare_bucket": "other",
+    "common_emotions": [
+      "angry",
+      "annoyed",
+      "anxious",
+      "concerned",
+      "determined",
+      "excited",
+      "frustrated",
+      "happy",
+      "nervous",
+      "neutral",
+      "panicked",
+      "playful",
+      "sad",
+      "scared",
+      "stressed",
+      "urgent",
+      "worried"
+    ],
+    "rare_emotions_bucketed_for_split": {
+      "exasperated": 12,
+      "neutral with urgency": 12,
+      "calm": 8,
+      "cautious": 8,
+      "alert": 7,
+      "impatient": 6,
+      "surprised": 6,
+      "tense": 5,
+      "curious": 3,
+      "irritated": 3,
+      "alarmed": 2,
+      "apologetic": 2,
+      "cheerful": 2,
+      "empathetic": 2,
+      "fearful": 2,
+      "gentle": 2,
+      "neutral with frustration": 2,
+      "neutral with irritation": 2,
+      "playful exasperation": 2,
+      "startled": 2,
+      "amused": 1,
+      "angry/energetic": 1,
+      "cheerful but frustrated": 1,
+      "desperate": 1,
+      "fear": 1,
+      "gentle concern": 1,
+      "hurried": 1,
+      "mildly frustrated": 1,
+      "neutral with concern": 1,
+      "neutral with impatience": 1,
+      "neutral with mild frustration": 1,
+      "neutral/concerned": 1,
+      "nostalgic": 1,
+      "sad/compassionate": 1,
+      "soothing": 1,
+      "startled then neutral": 1,
+      "terrified": 1,
+      "triumphant": 1
+    }
+  },
+  "manifest_validation": {
+    "rows": 22780,
+    "json_errors": [],
+    "duplicate_sample_ids": {},
+    "malformed_relative_path_count": 0,
+    "malformed_relative_paths": [],
+    "path_existence_checked": true,
+    "missing_audio_paths": 0,
+    "missing_speech_paths": 0,
+    "missing_or_malformed_examples": []
+  },
+  "split_validation": {
+    "manifest_rows": 22780,
+    "rows_across_splits": 22780,
+    "duplicate_audio_files_across_splits": {},
+    "missing_from_splits_count": 0,
+    "missing_from_splits_examples": [],
+    "extra_in_splits_count": 0,
+    "extra_in_splits_examples": []
+  },
+  "split_counts": {
+    "train": {
+      "rows": 18226,
+      "percent_of_dataset": 80.0088,
+      "json_errors": []
+    },
+    "val": {
+      "rows": 2277,
+      "percent_of_dataset": 9.9956,
+      "json_errors": []
+    },
+    "test": {
+      "rows": 2277,
+      "percent_of_dataset": 9.9956,
+      "json_errors": []
+    }
+  },
+  "proportionality": {
+    "summary": "The split is proportional by speaker_gender plus bucketed speaker_emotion, within integer rounding. Raw rare emotion labels were grouped into the 'other' bucket for splitting, so those individual rare labels are reported but were not independently balanced.",
+    "speaker_gender": {
+      "largest_count_deltas_from_expected": [
+        {
+          "label": "male",
+          "total": 16278,
+          "max_abs_delta_from_expected": 1.6,
+          "splits": {
+            "train": {
+              "count": 13024,
+              "percent_of_label": 80.0098,
+              "expected_count": 13022.4,
+              "delta_from_expected": 1.6
+            },
+            "val": {
+              "count": 1627,
+              "percent_of_label": 9.9951,
+              "expected_count": 1627.8,
+              "delta_from_expected": -0.8
+            },
+            "test": {
+              "count": 1627,
+              "percent_of_label": 9.9951,
+              "expected_count": 1627.8,
+              "delta_from_expected": -0.8
+            }
+          }
+        },
+        {
+          "label": "female",
+          "total": 6502,
+          "max_abs_delta_from_expected": 0.4,
+          "splits": {
+            "train": {
+              "count": 5202,
+              "percent_of_label": 80.0062,
+              "expected_count": 5201.6,
+              "delta_from_expected": 0.4
+            },
+            "val": {
+              "count": 650,
+              "percent_of_label": 9.9969,
+              "expected_count": 650.2,
+              "delta_from_expected": -0.2
+            },
+            "test": {
+              "count": 650,
+              "percent_of_label": 9.9969,
+              "expected_count": 650.2,
+              "delta_from_expected": -0.2
+            }
+          }
+        }
+      ],
+      "note": "Deltas are expected because split counts are integers."
+    },
+    "speaker_emotion_bucket": {
+      "largest_count_deltas_from_expected": [
+        {
+          "label": "excited",
+          "total": 208,
+          "max_abs_delta_from_expected": 1.6,
+          "splits": {
+            "train": {
+              "count": 168,
+              "percent_of_label": 80.7692,
+              "expected_count": 166.4,
+              "delta_from_expected": 1.6
+            },
+            "val": {
+              "count": 20,
+              "percent_of_label": 9.6154,
+              "expected_count": 20.8,
+              "delta_from_expected": -0.8
+            },
+            "test": {
+              "count": 20,
+              "percent_of_label": 9.6154,
+              "expected_count": 20.8,
+              "delta_from_expected": -0.8
+            }
+          }
+        },
+        {
+          "label": "other",
+          "total": 108,
+          "max_abs_delta_from_expected": 1.6,
+          "splits": {
+            "train": {
+              "count": 88,
+              "percent_of_label": 81.4815,
+              "expected_count": 86.4,
+              "delta_from_expected": 1.6
+            },
+            "val": {
+              "count": 10,
+              "percent_of_label": 9.2593,
+              "expected_count": 10.8,
+              "delta_from_expected": -0.8
+            },
+            "test": {
+              "count": 10,
+              "percent_of_label": 9.2593,
+              "expected_count": 10.8,
+              "delta_from_expected": -0.8
+            }
+          }
+        },
+        {
+          "label": "panicked",
+          "total": 38,
+          "max_abs_delta_from_expected": 1.6,
+          "splits": {
+            "train": {
+              "count": 32,
+              "percent_of_label": 84.2105,
+              "expected_count": 30.4,
+              "delta_from_expected": 1.6
+            },
+            "val": {
+              "count": 3,
+              "percent_of_label": 7.8947,
+              "expected_count": 3.8,
+              "delta_from_expected": -0.8
+            },
+            "test": {
+              "count": 3,
+              "percent_of_label": 7.8947,
+              "expected_count": 3.8,
+              "delta_from_expected": -0.8
+            }
+          }
+        },
+        {
+          "label": "angry",
+          "total": 4033,
+          "max_abs_delta_from_expected": 1.4,
+          "splits": {
+            "train": {
+              "count": 3225,
+              "percent_of_label": 79.9653,
+              "expected_count": 3226.4,
+              "delta_from_expected": -1.4
+            },
+            "val": {
+              "count": 404,
+              "percent_of_label": 10.0174,
+              "expected_count": 403.3,
+              "delta_from_expected": 0.7
+            },
+            "test": {
+              "count": 404,
+              "percent_of_label": 10.0174,
+              "expected_count": 403.3,
+              "delta_from_expected": 0.7
+            }
+          }
+        },
+        {
+          "label": "nervous",
+          "total": 23,
+          "max_abs_delta_from_expected": 1.4,
+          "splits": {
+            "train": {
+              "count": 17,
+              "percent_of_label": 73.913,
+              "expected_count": 18.4,
+              "delta_from_expected": -1.4
+            },
+            "val": {
+              "count": 3,
+              "percent_of_label": 13.0435,
+              "expected_count": 2.3,
+              "delta_from_expected": 0.7
+            },
+            "test": {
+              "count": 3,
+              "percent_of_label": 13.0435,
+              "expected_count": 2.3,
+              "delta_from_expected": 0.7
+            }
+          }
+        },
+        {
+          "label": "annoyed",
+          "total": 104,
+          "max_abs_delta_from_expected": 1.2,
+          "splits": {
+            "train": {
+              "count": 82,
+              "percent_of_label": 78.8462,
+              "expected_count": 83.2,
+              "delta_from_expected": -1.2
+            },
+            "val": {
+              "count": 11,
+              "percent_of_label": 10.5769,
+              "expected_count": 10.4,
+              "delta_from_expected": 0.6
+            },
+            "test": {
+              "count": 11,
+              "percent_of_label": 10.5769,
+              "expected_count": 10.4,
+              "delta_from_expected": 0.6
+            }
+          }
+        },
+        {
+          "label": "urgent",
+          "total": 44,
+          "max_abs_delta_from_expected": 1.2,
+          "splits": {
+            "train": {
+              "count": 34,
+              "percent_of_label": 77.2727,
+              "expected_count": 35.2,
+              "delta_from_expected": -1.2
+            },
+            "val": {
+              "count": 5,
+              "percent_of_label": 11.3636,
+              "expected_count": 4.4,
+              "delta_from_expected": 0.6
+            },
+            "test": {
+              "count": 5,
+              "percent_of_label": 11.3636,
+              "expected_count": 4.4,
+              "delta_from_expected": 0.6
+            }
+          }
+        },
+        {
+          "label": "neutral",
+          "total": 12064,
+          "max_abs_delta_from_expected": 0.8,
+          "splits": {
+            "train": {
+              "count": 9652,
+              "percent_of_label": 80.0066,
+              "expected_count": 9651.2,
+              "delta_from_expected": 0.8
+            },
+            "val": {
+              "count": 1206,
+              "percent_of_label": 9.9967,
+              "expected_count": 1206.4,
+              "delta_from_expected": -0.4
+            },
+            "test": {
+              "count": 1206,
+              "percent_of_label": 9.9967,
+              "expected_count": 1206.4,
+              "delta_from_expected": -0.4
+            }
+          }
+        },
+        {
+          "label": "anxious",
+          "total": 223,
+          "max_abs_delta_from_expected": 0.6,
+          "splits": {
+            "train": {
+              "count": 179,
+              "percent_of_label": 80.2691,
+              "expected_count": 178.4,
+              "delta_from_expected": 0.6
+            },
+            "val": {
+              "count": 22,
+              "percent_of_label": 9.8655,
+              "expected_count": 22.3,
+              "delta_from_expected": -0.3
+            },
+            "test": {
+              "count": 22,
+              "percent_of_label": 9.8655,
+              "expected_count": 22.3,
+              "delta_from_expected": -0.3
+            }
+          }
+        },
+        {
+          "label": "happy",
+          "total": 5103,
+          "max_abs_delta_from_expected": 0.6,
+          "splits": {
+            "train": {
+              "count": 4083,
+              "percent_of_label": 80.0118,
+              "expected_count": 4082.4,
+              "delta_from_expected": 0.6
+            },
+            "val": {
+              "count": 510,
+              "percent_of_label": 9.9941,
+              "expected_count": 510.3,
+              "delta_from_expected": -0.3
+            },
+            "test": {
+              "count": 510,
+              "percent_of_label": 9.9941,
+              "expected_count": 510.3,
+              "delta_from_expected": -0.3
+            }
+          }
+        }
+      ],
+      "note": "Deltas are expected because split counts are integers."
+    },
+    "speaker_gender_x_emotion_bucket": {
+      "largest_count_deltas_from_expected": [
+        {
+          "label": "female|urgent",
+          "total": 4,
+          "max_abs_delta_from_expected": 1.2,
+          "splits": {
+            "train": {
+              "count": 2,
+              "percent_of_stratum": 50.0,
+              "expected_count": 3.2,
+              "delta_from_expected": -1.2
+            },
+            "val": {
+              "count": 1,
+              "percent_of_stratum": 25.0,
+              "expected_count": 0.4,
+              "delta_from_expected": 0.6
+            },
+            "test": {
+              "count": 1,
+              "percent_of_stratum": 25.0,
+              "expected_count": 0.4,
+              "delta_from_expected": 0.6
+            }
+          }
+        },
+        {
+          "label": "female|other",
+          "total": 45,
+          "max_abs_delta_from_expected": 1.0,
+          "splits": {
+            "train": {
+              "count": 37,
+              "percent_of_stratum": 82.2222,
+              "expected_count": 36.0,
+              "delta_from_expected": 1.0
+            },
+            "val": {
+              "count": 4,
+              "percent_of_stratum": 8.8889,
+              "expected_count": 4.5,
+              "delta_from_expected": -0.5
+            },
+            "test": {
+              "count": 4,
+              "percent_of_stratum": 8.8889,
+              "expected_count": 4.5,
+              "delta_from_expected": -0.5
+            }
+          }
+        },
+        {
+          "label": "male|annoyed",
+          "total": 55,
+          "max_abs_delta_from_expected": 1.0,
+          "splits": {
+            "train": {
+              "count": 43,
+              "percent_of_stratum": 78.1818,
+              "expected_count": 44.0,
+              "delta_from_expected": -1.0
+            },
+            "val": {
+              "count": 6,
+              "percent_of_stratum": 10.9091,
+              "expected_count": 5.5,
+              "delta_from_expected": 0.5
+            },
+            "test": {
+              "count": 6,
+              "percent_of_stratum": 10.9091,
+              "expected_count": 5.5,
+              "delta_from_expected": 0.5
+            }
+          }
+        },
+        {
+          "label": "male|concerned",
+          "total": 45,
+          "max_abs_delta_from_expected": 1.0,
+          "splits": {
+            "train": {
+              "count": 37,
+              "percent_of_stratum": 82.2222,
+              "expected_count": 36.0,
+              "delta_from_expected": 1.0
+            },
+            "val": {
+              "count": 4,
+              "percent_of_stratum": 8.8889,
+              "expected_count": 4.5,
+              "delta_from_expected": -0.5
+            },
+            "test": {
+              "count": 4,
+              "percent_of_stratum": 8.8889,
+              "expected_count": 4.5,
+              "delta_from_expected": -0.5
+            }
+          }
+        },
+        {
+          "label": "male|excited",
+          "total": 185,
+          "max_abs_delta_from_expected": 1.0,
+          "splits": {
+            "train": {
+              "count": 149,
+              "percent_of_stratum": 80.5405,
+              "expected_count": 148.0,
+              "delta_from_expected": 1.0
+            },
+            "val": {
+              "count": 18,
+              "percent_of_stratum": 9.7297,
+              "expected_count": 18.5,
+              "delta_from_expected": -0.5
+            },
+            "test": {
+              "count": 18,
+              "percent_of_stratum": 9.7297,
+              "expected_count": 18.5,
+              "delta_from_expected": -0.5
+            }
+          }
+        },
+        {
+          "label": "female|concerned",
+          "total": 116,
+          "max_abs_delta_from_expected": 0.8,
+          "splits": {
+            "train": {
+              "count": 92,
+              "percent_of_stratum": 79.3103,
+              "expected_count": 92.8,
+              "delta_from_expected": -0.8
+            },
+            "val": {
+              "count": 12,
+              "percent_of_stratum": 10.3448,
+              "expected_count": 11.6,
+              "delta_from_expected": 0.4
+            },
+            "test": {
+              "count": 12,
+              "percent_of_stratum": 10.3448,
+              "expected_count": 11.6,
+              "delta_from_expected": 0.4
+            }
+          }
+        },
+        {
+          "label": "female|determined",
+          "total": 16,
+          "max_abs_delta_from_expected": 0.8,
+          "splits": {
+            "train": {
+              "count": 12,
+              "percent_of_stratum": 75.0,
+              "expected_count": 12.8,
+              "delta_from_expected": -0.8
+            },
+            "val": {
+              "count": 2,
+              "percent_of_stratum": 12.5,
+              "expected_count": 1.6,
+              "delta_from_expected": 0.4
+            },
+            "test": {
+              "count": 2,
+              "percent_of_stratum": 12.5,
+              "expected_count": 1.6,
+              "delta_from_expected": 0.4
+            }
+          }
+        },
+        {
+          "label": "female|neutral",
+          "total": 3014,
+          "max_abs_delta_from_expected": 0.8,
+          "splits": {
+            "train": {
+              "count": 2412,
+              "percent_of_stratum": 80.0265,
+              "expected_count": 2411.2,
+              "delta_from_expected": 0.8
+            },
+            "val": {
+              "count": 301,
+              "percent_of_stratum": 9.9867,
+              "expected_count": 301.4,
+              "delta_from_expected": -0.4
+            },
+            "test": {
+              "count": 301,
+              "percent_of_stratum": 9.9867,
+              "expected_count": 301.4,
+              "delta_from_expected": -0.4
+            }
+          }
+        },
+        {
+          "label": "female|panicked",
+          "total": 14,
+          "max_abs_delta_from_expected": 0.8,
+          "splits": {
+            "train": {
+              "count": 12,
+              "percent_of_stratum": 85.7143,
+              "expected_count": 11.2,
+              "delta_from_expected": 0.8
+            },
+            "val": {
+              "count": 1,
+              "percent_of_stratum": 7.1429,
+              "expected_count": 1.4,
+              "delta_from_expected": -0.4
+            },
+            "test": {
+              "count": 1,
+              "percent_of_stratum": 7.1429,
+              "expected_count": 1.4,
+              "delta_from_expected": -0.4
+            }
+          }
+        },
+        {
+          "label": "male|angry",
+          "total": 3536,
+          "max_abs_delta_from_expected": 0.8,
+          "splits": {
+            "train": {
+              "count": 2828,
+              "percent_of_stratum": 79.9774,
+              "expected_count": 2828.8,
+              "delta_from_expected": -0.8
+            },
+            "val": {
+              "count": 354,
+              "percent_of_stratum": 10.0113,
+              "expected_count": 353.6,
+              "delta_from_expected": 0.4
+            },
+            "test": {
+              "count": 354,
+              "percent_of_stratum": 10.0113,
+              "expected_count": 353.6,
+              "delta_from_expected": 0.4
+            }
+          }
+        }
+      ],
+      "note": "This is the actual split stratification unit: speaker_gender plus bucketed speaker_emotion."
+    },
+    "speaker_emotion_raw": {
+      "largest_count_deltas_from_expected": [
+        {
+          "label": "excited",
+          "total": 208,
+          "max_abs_delta_from_expected": 1.6,
+          "splits": {
+            "train": {
+              "count": 168,
+              "percent_of_label": 80.7692,
+              "expected_count": 166.4,
+              "delta_from_expected": 1.6
+            },
+            "val": {
+              "count": 20,
+              "percent_of_label": 9.6154,
+              "expected_count": 20.8,
+              "delta_from_expected": -0.8
+            },
+            "test": {
+              "count": 20,
+              "percent_of_label": 9.6154,
+              "expected_count": 20.8,
+              "delta_from_expected": -0.8
+            }
+          }
+        },
+        {
+          "label": "panicked",
+          "total": 38,
+          "max_abs_delta_from_expected": 1.6,
+          "splits": {
+            "train": {
+              "count": 32,
+              "percent_of_label": 84.2105,
+              "expected_count": 30.4,
+              "delta_from_expected": 1.6
+            },
+            "val": {
+              "count": 3,
+              "percent_of_label": 7.8947,
+              "expected_count": 3.8,
+              "delta_from_expected": -0.8
+            },
+            "test": {
+              "count": 3,
+              "percent_of_label": 7.8947,
+              "expected_count": 3.8,
+              "delta_from_expected": -0.8
+            }
+          }
+        },
+        {
+          "label": "angry",
+          "total": 4033,
+          "max_abs_delta_from_expected": 1.4,
+          "splits": {
+            "train": {
+              "count": 3225,
+              "percent_of_label": 79.9653,
+              "expected_count": 3226.4,
+              "delta_from_expected": -1.4
+            },
+            "val": {
+              "count": 404,
+              "percent_of_label": 10.0174,
+              "expected_count": 403.3,
+              "delta_from_expected": 0.7
+            },
+            "test": {
+              "count": 404,
+              "percent_of_label": 10.0174,
+              "expected_count": 403.3,
+              "delta_from_expected": 0.7
+            }
+          }
+        },
+        {
+          "label": "exasperated",
+          "total": 12,
+          "max_abs_delta_from_expected": 1.4,
+          "splits": {
+            "train": {
+              "count": 11,
+              "percent_of_label": 91.6667,
+              "expected_count": 9.6,
+              "delta_from_expected": 1.4
+            },
+            "val": {
+              "count": 0,
+              "percent_of_label": 0.0,
+              "expected_count": 1.2,
+              "delta_from_expected": -1.2
+            },
+            "test": {
+              "count": 1,
+              "percent_of_label": 8.3333,
+              "expected_count": 1.2,
+              "delta_from_expected": -0.2
+            }
+          }
+        },
+        {
+          "label": "nervous",
+          "total": 23,
+          "max_abs_delta_from_expected": 1.4,
+          "splits": {
+            "train": {
+              "count": 17,
+              "percent_of_label": 73.913,
+              "expected_count": 18.4,
+              "delta_from_expected": -1.4
+            },
+            "val": {
+              "count": 3,
+              "percent_of_label": 13.0435,
+              "expected_count": 2.3,
+              "delta_from_expected": 0.7
+            },
+            "test": {
+              "count": 3,
+              "percent_of_label": 13.0435,
+              "expected_count": 2.3,
+              "delta_from_expected": 0.7
+            }
+          }
+        },
+        {
+          "label": "surprised",
+          "total": 6,
+          "max_abs_delta_from_expected": 1.4,
+          "splits": {
+            "train": {
+              "count": 4,
+              "percent_of_label": 66.6667,
+              "expected_count": 4.8,
+              "delta_from_expected": -0.8
+            },
+            "val": {
+              "count": 0,
+              "percent_of_label": 0.0,
+              "expected_count": 0.6,
+              "delta_from_expected": -0.6
+            },
+            "test": {
+              "count": 2,
+              "percent_of_label": 33.3333,
+              "expected_count": 0.6,
+              "delta_from_expected": 1.4
+            }
+          }
+        },
+        {
+          "label": "alert",
+          "total": 7,
+          "max_abs_delta_from_expected": 1.3,
+          "splits": {
+            "train": {
+              "count": 5,
+              "percent_of_label": 71.4286,
+              "expected_count": 5.6,
+              "delta_from_expected": -0.6
+            },
+            "val": {
+              "count": 2,
+              "percent_of_label": 28.5714,
+              "expected_count": 0.7,
+              "delta_from_expected": 1.3
+            },
+            "test": {
+              "count": 0,
+              "percent_of_label": 0.0,
+              "expected_count": 0.7,
+              "delta_from_expected": -0.7
+            }
+          }
+        },
+        {
+          "label": "annoyed",
+          "total": 104,
+          "max_abs_delta_from_expected": 1.2,
+          "splits": {
+            "train": {
+              "count": 82,
+              "percent_of_label": 78.8462,
+              "expected_count": 83.2,
+              "delta_from_expected": -1.2
+            },
+            "val": {
+              "count": 11,
+              "percent_of_label": 10.5769,
+              "expected_count": 10.4,
+              "delta_from_expected": 0.6
+            },
+            "test": {
+              "count": 11,
+              "percent_of_label": 10.5769,
+              "expected_count": 10.4,
+              "delta_from_expected": 0.6
+            }
+          }
+        },
+        {
+          "label": "cautious",
+          "total": 8,
+          "max_abs_delta_from_expected": 1.2,
+          "splits": {
+            "train": {
+              "count": 6,
+              "percent_of_label": 75.0,
+              "expected_count": 6.4,
+              "delta_from_expected": -0.4
+            },
+            "val": {
+              "count": 0,
+              "percent_of_label": 0.0,
+              "expected_count": 0.8,
+              "delta_from_expected": -0.8
+            },
+            "test": {
+              "count": 2,
+              "percent_of_label": 25.0,
+              "expected_count": 0.8,
+              "delta_from_expected": 1.2
+            }
+          }
+        },
+        {
+          "label": "urgent",
+          "total": 44,
+          "max_abs_delta_from_expected": 1.2,
+          "splits": {
+            "train": {
+              "count": 34,
+              "percent_of_label": 77.2727,
+              "expected_count": 35.2,
+              "delta_from_expected": -1.2
+            },
+            "val": {
+              "count": 5,
+              "percent_of_label": 11.3636,
+              "expected_count": 4.4,
+              "delta_from_expected": 0.6
+            },
+            "test": {
+              "count": 5,
+              "percent_of_label": 11.3636,
+              "expected_count": 4.4,
+              "delta_from_expected": 0.6
+            }
+          }
+        }
+      ],
+      "note": "Deltas are expected because split counts are integers."
+    }
+  },
+  "labels": {
+    "speaker_gender": {
+      "male": {
+        "total": 16278,
+        "percent_of_dataset": 71.4574,
+        "splits": {
+          "train": {
+            "count": 13024,
+            "percent_of_label": 80.0098,
+            "expected_count": 13022.4,
+            "delta_from_expected": 1.6
+          },
+          "val": {
+            "count": 1627,
+            "percent_of_label": 9.9951,
+            "expected_count": 1627.8,
+            "delta_from_expected": -0.8
+          },
+          "test": {
+            "count": 1627,
+            "percent_of_label": 9.9951,
+            "expected_count": 1627.8,
+            "delta_from_expected": -0.8
+          }
+        },
+        "max_abs_delta_from_expected": 1.6
+      },
+      "female": {
+        "total": 6502,
+        "percent_of_dataset": 28.5426,
+        "splits": {
+          "train": {
+            "count": 5202,
+            "percent_of_label": 80.0062,
+            "expected_count": 5201.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 650,
+            "percent_of_label": 9.9969,
+            "expected_count": 650.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 650,
+            "percent_of_label": 9.9969,
+            "expected_count": 650.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      }
+    },
+    "speaker_emotion": {
+      "neutral": {
+        "total": 12064,
+        "percent_of_dataset": 52.9587,
+        "splits": {
+          "train": {
+            "count": 9652,
+            "percent_of_label": 80.0066,
+            "expected_count": 9651.2,
+            "delta_from_expected": 0.8
+          },
+          "val": {
+            "count": 1206,
+            "percent_of_label": 9.9967,
+            "expected_count": 1206.4,
+            "delta_from_expected": -0.4
+          },
+          "test": {
+            "count": 1206,
+            "percent_of_label": 9.9967,
+            "expected_count": 1206.4,
+            "delta_from_expected": -0.4
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "happy": {
+        "total": 5103,
+        "percent_of_dataset": 22.4012,
+        "splits": {
+          "train": {
+            "count": 4083,
+            "percent_of_label": 80.0118,
+            "expected_count": 4082.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 510,
+            "percent_of_label": 9.9941,
+            "expected_count": 510.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 510,
+            "percent_of_label": 9.9941,
+            "expected_count": 510.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "angry": {
+        "total": 4033,
+        "percent_of_dataset": 17.7041,
+        "splits": {
+          "train": {
+            "count": 3225,
+            "percent_of_label": 79.9653,
+            "expected_count": 3226.4,
+            "delta_from_expected": -1.4
+          },
+          "val": {
+            "count": 404,
+            "percent_of_label": 10.0174,
+            "expected_count": 403.3,
+            "delta_from_expected": 0.7
+          },
+          "test": {
+            "count": 404,
+            "percent_of_label": 10.0174,
+            "expected_count": 403.3,
+            "delta_from_expected": 0.7
+          }
+        },
+        "max_abs_delta_from_expected": 1.4
+      },
+      "anxious": {
+        "total": 223,
+        "percent_of_dataset": 0.9789,
+        "splits": {
+          "train": {
+            "count": 179,
+            "percent_of_label": 80.2691,
+            "expected_count": 178.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "sad": {
+        "total": 223,
+        "percent_of_dataset": 0.9789,
+        "splits": {
+          "train": {
+            "count": 179,
+            "percent_of_label": 80.2691,
+            "expected_count": 178.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "excited": {
+        "total": 208,
+        "percent_of_dataset": 0.9131,
+        "splits": {
+          "train": {
+            "count": 168,
+            "percent_of_label": 80.7692,
+            "expected_count": 166.4,
+            "delta_from_expected": 1.6
+          },
+          "val": {
+            "count": 20,
+            "percent_of_label": 9.6154,
+            "expected_count": 20.8,
+            "delta_from_expected": -0.8
+          },
+          "test": {
+            "count": 20,
+            "percent_of_label": 9.6154,
+            "expected_count": 20.8,
+            "delta_from_expected": -0.8
+          }
+        },
+        "max_abs_delta_from_expected": 1.6
+      },
+      "frustrated": {
+        "total": 170,
+        "percent_of_dataset": 0.7463,
+        "splits": {
+          "train": {
+            "count": 136,
+            "percent_of_label": 80.0,
+            "expected_count": 136.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 17,
+            "percent_of_label": 10.0,
+            "expected_count": 17.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 17,
+            "percent_of_label": 10.0,
+            "expected_count": 17.0,
+            "delta_from_expected": 0.0
+          }
+        },
+        "max_abs_delta_from_expected": 0.0
+      },
+      "concerned": {
+        "total": 161,
+        "percent_of_dataset": 0.7068,
+        "splits": {
+          "train": {
+            "count": 129,
+            "percent_of_label": 80.1242,
+            "expected_count": 128.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 16,
+            "percent_of_label": 9.9379,
+            "expected_count": 16.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 16,
+            "percent_of_label": 9.9379,
+            "expected_count": 16.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "annoyed": {
+        "total": 104,
+        "percent_of_dataset": 0.4565,
+        "splits": {
+          "train": {
+            "count": 82,
+            "percent_of_label": 78.8462,
+            "expected_count": 83.2,
+            "delta_from_expected": -1.2
+          },
+          "val": {
+            "count": 11,
+            "percent_of_label": 10.5769,
+            "expected_count": 10.4,
+            "delta_from_expected": 0.6
+          },
+          "test": {
+            "count": 11,
+            "percent_of_label": 10.5769,
+            "expected_count": 10.4,
+            "delta_from_expected": 0.6
+          }
+        },
+        "max_abs_delta_from_expected": 1.2
+      },
+      "determined": {
+        "total": 99,
+        "percent_of_dataset": 0.4346,
+        "splits": {
+          "train": {
+            "count": 79,
+            "percent_of_label": 79.798,
+            "expected_count": 79.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 10,
+            "percent_of_label": 10.101,
+            "expected_count": 9.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 10,
+            "percent_of_label": 10.101,
+            "expected_count": 9.9,
+            "delta_from_expected": 0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "scared": {
+        "total": 49,
+        "percent_of_dataset": 0.2151,
+        "splits": {
+          "train": {
+            "count": 39,
+            "percent_of_label": 79.5918,
+            "expected_count": 39.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "worried": {
+        "total": 49,
+        "percent_of_dataset": 0.2151,
+        "splits": {
+          "train": {
+            "count": 39,
+            "percent_of_label": 79.5918,
+            "expected_count": 39.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "playful": {
+        "total": 48,
+        "percent_of_dataset": 0.2107,
+        "splits": {
+          "train": {
+            "count": 38,
+            "percent_of_label": 79.1667,
+            "expected_count": 38.4,
+            "delta_from_expected": -0.4
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 10.4167,
+            "expected_count": 4.8,
+            "delta_from_expected": 0.2
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 10.4167,
+            "expected_count": 4.8,
+            "delta_from_expected": 0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "urgent": {
+        "total": 44,
+        "percent_of_dataset": 0.1932,
+        "splits": {
+          "train": {
+            "count": 34,
+            "percent_of_label": 77.2727,
+            "expected_count": 35.2,
+            "delta_from_expected": -1.2
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 11.3636,
+            "expected_count": 4.4,
+            "delta_from_expected": 0.6
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 11.3636,
+            "expected_count": 4.4,
+            "delta_from_expected": 0.6
+          }
+        },
+        "max_abs_delta_from_expected": 1.2
+      },
+      "panicked": {
+        "total": 38,
+        "percent_of_dataset": 0.1668,
+        "splits": {
+          "train": {
+            "count": 32,
+            "percent_of_label": 84.2105,
+            "expected_count": 30.4,
+            "delta_from_expected": 1.6
+          },
+          "val": {
+            "count": 3,
+            "percent_of_label": 7.8947,
+            "expected_count": 3.8,
+            "delta_from_expected": -0.8
+          },
+          "test": {
+            "count": 3,
+            "percent_of_label": 7.8947,
+            "expected_count": 3.8,
+            "delta_from_expected": -0.8
+          }
+        },
+        "max_abs_delta_from_expected": 1.6
+      },
+      "stressed": {
+        "total": 33,
+        "percent_of_dataset": 0.1449,
+        "splits": {
+          "train": {
+            "count": 27,
+            "percent_of_label": 81.8182,
+            "expected_count": 26.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 3,
+            "percent_of_label": 9.0909,
+            "expected_count": 3.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 3,
+            "percent_of_label": 9.0909,
+            "expected_count": 3.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "nervous": {
+        "total": 23,
+        "percent_of_dataset": 0.101,
+        "splits": {
+          "train": {
+            "count": 17,
+            "percent_of_label": 73.913,
+            "expected_count": 18.4,
+            "delta_from_expected": -1.4
+          },
+          "val": {
+            "count": 3,
+            "percent_of_label": 13.0435,
+            "expected_count": 2.3,
+            "delta_from_expected": 0.7
+          },
+          "test": {
+            "count": 3,
+            "percent_of_label": 13.0435,
+            "expected_count": 2.3,
+            "delta_from_expected": 0.7
+          }
+        },
+        "max_abs_delta_from_expected": 1.4
+      },
+      "exasperated": {
+        "total": 12,
+        "percent_of_dataset": 0.0527,
+        "splits": {
+          "train": {
+            "count": 11,
+            "percent_of_label": 91.6667,
+            "expected_count": 9.6,
+            "delta_from_expected": 1.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 1.2,
+            "delta_from_expected": -1.2
+          },
+          "test": {
+            "count": 1,
+            "percent_of_label": 8.3333,
+            "expected_count": 1.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 1.4
+      },
+      "neutral with urgency": {
+        "total": 12,
+        "percent_of_dataset": 0.0527,
+        "splits": {
+          "train": {
+            "count": 9,
+            "percent_of_label": 75.0,
+            "expected_count": 9.6,
+            "delta_from_expected": -0.6
+          },
+          "val": {
+            "count": 2,
+            "percent_of_label": 16.6667,
+            "expected_count": 1.2,
+            "delta_from_expected": 0.8
+          },
+          "test": {
+            "count": 1,
+            "percent_of_label": 8.3333,
+            "expected_count": 1.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "calm": {
+        "total": 8,
+        "percent_of_dataset": 0.0351,
+        "splits": {
+          "train": {
+            "count": 7,
+            "percent_of_label": 87.5,
+            "expected_count": 6.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 1,
+            "percent_of_label": 12.5,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.8,
+            "delta_from_expected": -0.8
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "cautious": {
+        "total": 8,
+        "percent_of_dataset": 0.0351,
+        "splits": {
+          "train": {
+            "count": 6,
+            "percent_of_label": 75.0,
+            "expected_count": 6.4,
+            "delta_from_expected": -0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.8,
+            "delta_from_expected": -0.8
+          },
+          "test": {
+            "count": 2,
+            "percent_of_label": 25.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 1.2
+          }
+        },
+        "max_abs_delta_from_expected": 1.2
+      },
+      "alert": {
+        "total": 7,
+        "percent_of_dataset": 0.0307,
+        "splits": {
+          "train": {
+            "count": 5,
+            "percent_of_label": 71.4286,
+            "expected_count": 5.6,
+            "delta_from_expected": -0.6
+          },
+          "val": {
+            "count": 2,
+            "percent_of_label": 28.5714,
+            "expected_count": 0.7,
+            "delta_from_expected": 1.3
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.7,
+            "delta_from_expected": -0.7
+          }
+        },
+        "max_abs_delta_from_expected": 1.3
+      },
+      "impatient": {
+        "total": 6,
+        "percent_of_dataset": 0.0263,
+        "splits": {
+          "train": {
+            "count": 4,
+            "percent_of_label": 66.6667,
+            "expected_count": 4.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 1,
+            "percent_of_label": 16.6667,
+            "expected_count": 0.6,
+            "delta_from_expected": 0.4
+          },
+          "test": {
+            "count": 1,
+            "percent_of_label": 16.6667,
+            "expected_count": 0.6,
+            "delta_from_expected": 0.4
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "surprised": {
+        "total": 6,
+        "percent_of_dataset": 0.0263,
+        "splits": {
+          "train": {
+            "count": 4,
+            "percent_of_label": 66.6667,
+            "expected_count": 4.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.6,
+            "delta_from_expected": -0.6
+          },
+          "test": {
+            "count": 2,
+            "percent_of_label": 33.3333,
+            "expected_count": 0.6,
+            "delta_from_expected": 1.4
+          }
+        },
+        "max_abs_delta_from_expected": 1.4
+      },
+      "tense": {
+        "total": 5,
+        "percent_of_dataset": 0.0219,
+        "splits": {
+          "train": {
+            "count": 4,
+            "percent_of_label": 80.0,
+            "expected_count": 4.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.5,
+            "delta_from_expected": -0.5
+          },
+          "test": {
+            "count": 1,
+            "percent_of_label": 20.0,
+            "expected_count": 0.5,
+            "delta_from_expected": 0.5
+          }
+        },
+        "max_abs_delta_from_expected": 0.5
+      },
+      "curious": {
+        "total": 3,
+        "percent_of_dataset": 0.0132,
+        "splits": {
+          "train": {
+            "count": 3,
+            "percent_of_label": 100.0,
+            "expected_count": 2.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "irritated": {
+        "total": 3,
+        "percent_of_dataset": 0.0132,
+        "splits": {
+          "train": {
+            "count": 3,
+            "percent_of_label": 100.0,
+            "expected_count": 2.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "alarmed": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 50.0,
+            "expected_count": 1.6,
+            "delta_from_expected": -0.6
+          },
+          "val": {
+            "count": 1,
+            "percent_of_label": 50.0,
+            "expected_count": 0.2,
+            "delta_from_expected": 0.8
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "apologetic": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_label": 100.0,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "cheerful": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_label": 100.0,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "empathetic": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_label": 100.0,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "fearful": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_label": 100.0,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "gentle": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 50.0,
+            "expected_count": 1.6,
+            "delta_from_expected": -0.6
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 1,
+            "percent_of_label": 50.0,
+            "expected_count": 0.2,
+            "delta_from_expected": 0.8
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "neutral with frustration": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_label": 100.0,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "neutral with irritation": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_label": 100.0,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "playful exasperation": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 50.0,
+            "expected_count": 1.6,
+            "delta_from_expected": -0.6
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 1,
+            "percent_of_label": 50.0,
+            "expected_count": 0.2,
+            "delta_from_expected": 0.8
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "startled": {
+        "total": 2,
+        "percent_of_dataset": 0.0088,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_label": 100.0,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.2,
+            "delta_from_expected": -0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "amused": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "angry/energetic": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "cheerful but frustrated": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "desperate": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "fear": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "gentle concern": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "hurried": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "mildly frustrated": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "neutral with concern": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "neutral with impatience": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "neutral with mild frustration": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "neutral/concerned": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "nostalgic": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.1,
+            "delta_from_expected": 0.9
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.9
+      },
+      "sad/compassionate": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.1,
+            "delta_from_expected": 0.9
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.9
+      },
+      "soothing": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.1,
+            "delta_from_expected": 0.9
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.9
+      },
+      "startled then neutral": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "terrified": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "triumphant": {
+        "total": 1,
+        "percent_of_dataset": 0.0044,
+        "splits": {
+          "train": {
+            "count": 1,
+            "percent_of_label": 100.0,
+            "expected_count": 0.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 0,
+            "percent_of_label": 0.0,
+            "expected_count": 0.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      }
+    },
+    "speaker_emotion_bucket": {
+      "neutral": {
+        "total": 12064,
+        "percent_of_dataset": 52.9587,
+        "splits": {
+          "train": {
+            "count": 9652,
+            "percent_of_label": 80.0066,
+            "expected_count": 9651.2,
+            "delta_from_expected": 0.8
+          },
+          "val": {
+            "count": 1206,
+            "percent_of_label": 9.9967,
+            "expected_count": 1206.4,
+            "delta_from_expected": -0.4
+          },
+          "test": {
+            "count": 1206,
+            "percent_of_label": 9.9967,
+            "expected_count": 1206.4,
+            "delta_from_expected": -0.4
+          }
+        },
+        "max_abs_delta_from_expected": 0.8
+      },
+      "happy": {
+        "total": 5103,
+        "percent_of_dataset": 22.4012,
+        "splits": {
+          "train": {
+            "count": 4083,
+            "percent_of_label": 80.0118,
+            "expected_count": 4082.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 510,
+            "percent_of_label": 9.9941,
+            "expected_count": 510.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 510,
+            "percent_of_label": 9.9941,
+            "expected_count": 510.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "angry": {
+        "total": 4033,
+        "percent_of_dataset": 17.7041,
+        "splits": {
+          "train": {
+            "count": 3225,
+            "percent_of_label": 79.9653,
+            "expected_count": 3226.4,
+            "delta_from_expected": -1.4
+          },
+          "val": {
+            "count": 404,
+            "percent_of_label": 10.0174,
+            "expected_count": 403.3,
+            "delta_from_expected": 0.7
+          },
+          "test": {
+            "count": 404,
+            "percent_of_label": 10.0174,
+            "expected_count": 403.3,
+            "delta_from_expected": 0.7
+          }
+        },
+        "max_abs_delta_from_expected": 1.4
+      },
+      "anxious": {
+        "total": 223,
+        "percent_of_dataset": 0.9789,
+        "splits": {
+          "train": {
+            "count": 179,
+            "percent_of_label": 80.2691,
+            "expected_count": 178.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "sad": {
+        "total": 223,
+        "percent_of_dataset": 0.9789,
+        "splits": {
+          "train": {
+            "count": 179,
+            "percent_of_label": 80.2691,
+            "expected_count": 178.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 22,
+            "percent_of_label": 9.8655,
+            "expected_count": 22.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "excited": {
+        "total": 208,
+        "percent_of_dataset": 0.9131,
+        "splits": {
+          "train": {
+            "count": 168,
+            "percent_of_label": 80.7692,
+            "expected_count": 166.4,
+            "delta_from_expected": 1.6
+          },
+          "val": {
+            "count": 20,
+            "percent_of_label": 9.6154,
+            "expected_count": 20.8,
+            "delta_from_expected": -0.8
+          },
+          "test": {
+            "count": 20,
+            "percent_of_label": 9.6154,
+            "expected_count": 20.8,
+            "delta_from_expected": -0.8
+          }
+        },
+        "max_abs_delta_from_expected": 1.6
+      },
+      "frustrated": {
+        "total": 170,
+        "percent_of_dataset": 0.7463,
+        "splits": {
+          "train": {
+            "count": 136,
+            "percent_of_label": 80.0,
+            "expected_count": 136.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 17,
+            "percent_of_label": 10.0,
+            "expected_count": 17.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 17,
+            "percent_of_label": 10.0,
+            "expected_count": 17.0,
+            "delta_from_expected": 0.0
+          }
+        },
+        "max_abs_delta_from_expected": 0.0
+      },
+      "concerned": {
+        "total": 161,
+        "percent_of_dataset": 0.7068,
+        "splits": {
+          "train": {
+            "count": 129,
+            "percent_of_label": 80.1242,
+            "expected_count": 128.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 16,
+            "percent_of_label": 9.9379,
+            "expected_count": 16.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 16,
+            "percent_of_label": 9.9379,
+            "expected_count": 16.1,
+            "delta_from_expected": -0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "other": {
+        "total": 108,
+        "percent_of_dataset": 0.4741,
+        "splits": {
+          "train": {
+            "count": 88,
+            "percent_of_label": 81.4815,
+            "expected_count": 86.4,
+            "delta_from_expected": 1.6
+          },
+          "val": {
+            "count": 10,
+            "percent_of_label": 9.2593,
+            "expected_count": 10.8,
+            "delta_from_expected": -0.8
+          },
+          "test": {
+            "count": 10,
+            "percent_of_label": 9.2593,
+            "expected_count": 10.8,
+            "delta_from_expected": -0.8
+          }
+        },
+        "max_abs_delta_from_expected": 1.6
+      },
+      "annoyed": {
+        "total": 104,
+        "percent_of_dataset": 0.4565,
+        "splits": {
+          "train": {
+            "count": 82,
+            "percent_of_label": 78.8462,
+            "expected_count": 83.2,
+            "delta_from_expected": -1.2
+          },
+          "val": {
+            "count": 11,
+            "percent_of_label": 10.5769,
+            "expected_count": 10.4,
+            "delta_from_expected": 0.6
+          },
+          "test": {
+            "count": 11,
+            "percent_of_label": 10.5769,
+            "expected_count": 10.4,
+            "delta_from_expected": 0.6
+          }
+        },
+        "max_abs_delta_from_expected": 1.2
+      },
+      "determined": {
+        "total": 99,
+        "percent_of_dataset": 0.4346,
+        "splits": {
+          "train": {
+            "count": 79,
+            "percent_of_label": 79.798,
+            "expected_count": 79.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 10,
+            "percent_of_label": 10.101,
+            "expected_count": 9.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 10,
+            "percent_of_label": 10.101,
+            "expected_count": 9.9,
+            "delta_from_expected": 0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "scared": {
+        "total": 49,
+        "percent_of_dataset": 0.2151,
+        "splits": {
+          "train": {
+            "count": 39,
+            "percent_of_label": 79.5918,
+            "expected_count": 39.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "worried": {
+        "total": 49,
+        "percent_of_dataset": 0.2151,
+        "splits": {
+          "train": {
+            "count": 39,
+            "percent_of_label": 79.5918,
+            "expected_count": 39.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          }
+        },
+        "max_abs_delta_from_expected": 0.2
+      },
+      "playful": {
+        "total": 48,
+        "percent_of_dataset": 0.2107,
+        "splits": {
+          "train": {
+            "count": 38,
+            "percent_of_label": 79.1667,
+            "expected_count": 38.4,
+            "delta_from_expected": -0.4
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 10.4167,
+            "expected_count": 4.8,
+            "delta_from_expected": 0.2
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 10.4167,
+            "expected_count": 4.8,
+            "delta_from_expected": 0.2
+          }
+        },
+        "max_abs_delta_from_expected": 0.4
+      },
+      "urgent": {
+        "total": 44,
+        "percent_of_dataset": 0.1932,
+        "splits": {
+          "train": {
+            "count": 34,
+            "percent_of_label": 77.2727,
+            "expected_count": 35.2,
+            "delta_from_expected": -1.2
+          },
+          "val": {
+            "count": 5,
+            "percent_of_label": 11.3636,
+            "expected_count": 4.4,
+            "delta_from_expected": 0.6
+          },
+          "test": {
+            "count": 5,
+            "percent_of_label": 11.3636,
+            "expected_count": 4.4,
+            "delta_from_expected": 0.6
+          }
+        },
+        "max_abs_delta_from_expected": 1.2
+      },
+      "panicked": {
+        "total": 38,
+        "percent_of_dataset": 0.1668,
+        "splits": {
+          "train": {
+            "count": 32,
+            "percent_of_label": 84.2105,
+            "expected_count": 30.4,
+            "delta_from_expected": 1.6
+          },
+          "val": {
+            "count": 3,
+            "percent_of_label": 7.8947,
+            "expected_count": 3.8,
+            "delta_from_expected": -0.8
+          },
+          "test": {
+            "count": 3,
+            "percent_of_label": 7.8947,
+            "expected_count": 3.8,
+            "delta_from_expected": -0.8
+          }
+        },
+        "max_abs_delta_from_expected": 1.6
+      },
+      "stressed": {
+        "total": 33,
+        "percent_of_dataset": 0.1449,
+        "splits": {
+          "train": {
+            "count": 27,
+            "percent_of_label": 81.8182,
+            "expected_count": 26.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 3,
+            "percent_of_label": 9.0909,
+            "expected_count": 3.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 3,
+            "percent_of_label": 9.0909,
+            "expected_count": 3.3,
+            "delta_from_expected": -0.3
+          }
+        },
+        "max_abs_delta_from_expected": 0.6
+      },
+      "nervous": {
+        "total": 23,
+        "percent_of_dataset": 0.101,
+        "splits": {
+          "train": {
+            "count": 17,
+            "percent_of_label": 73.913,
+            "expected_count": 18.4,
+            "delta_from_expected": -1.4
+          },
+          "val": {
+            "count": 3,
+            "percent_of_label": 13.0435,
+            "expected_count": 2.3,
+            "delta_from_expected": 0.7
+          },
+          "test": {
+            "count": 3,
+            "percent_of_label": 13.0435,
+            "expected_count": 2.3,
+            "delta_from_expected": 0.7
+          }
+        },
+        "max_abs_delta_from_expected": 1.4
+      }
+    },
+    "speaker_gender_x_emotion_bucket": {
+      "male|neutral": {
+        "total": 9050,
+        "splits": {
+          "train": {
+            "count": 7240,
+            "percent_of_stratum": 80.0,
+            "expected_count": 7240.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 905,
+            "percent_of_stratum": 10.0,
+            "expected_count": 905.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 905,
+            "percent_of_stratum": 10.0,
+            "expected_count": 905.0,
+            "delta_from_expected": 0.0
+          }
+        }
+      },
+      "male|angry": {
+        "total": 3536,
+        "splits": {
+          "train": {
+            "count": 2828,
+            "percent_of_stratum": 79.9774,
+            "expected_count": 2828.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 354,
+            "percent_of_stratum": 10.0113,
+            "expected_count": 353.6,
+            "delta_from_expected": 0.4
+          },
+          "test": {
+            "count": 354,
+            "percent_of_stratum": 10.0113,
+            "expected_count": 353.6,
+            "delta_from_expected": 0.4
+          }
+        }
+      },
+      "female|neutral": {
+        "total": 3014,
+        "splits": {
+          "train": {
+            "count": 2412,
+            "percent_of_stratum": 80.0265,
+            "expected_count": 2411.2,
+            "delta_from_expected": 0.8
+          },
+          "val": {
+            "count": 301,
+            "percent_of_stratum": 9.9867,
+            "expected_count": 301.4,
+            "delta_from_expected": -0.4
+          },
+          "test": {
+            "count": 301,
+            "percent_of_stratum": 9.9867,
+            "expected_count": 301.4,
+            "delta_from_expected": -0.4
+          }
+        }
+      },
+      "male|happy": {
+        "total": 2812,
+        "splits": {
+          "train": {
+            "count": 2250,
+            "percent_of_stratum": 80.0142,
+            "expected_count": 2249.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 281,
+            "percent_of_stratum": 9.9929,
+            "expected_count": 281.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 281,
+            "percent_of_stratum": 9.9929,
+            "expected_count": 281.2,
+            "delta_from_expected": -0.2
+          }
+        }
+      },
+      "female|happy": {
+        "total": 2291,
+        "splits": {
+          "train": {
+            "count": 1833,
+            "percent_of_stratum": 80.0087,
+            "expected_count": 1832.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 229,
+            "percent_of_stratum": 9.9956,
+            "expected_count": 229.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 229,
+            "percent_of_stratum": 9.9956,
+            "expected_count": 229.1,
+            "delta_from_expected": -0.1
+          }
+        }
+      },
+      "female|angry": {
+        "total": 497,
+        "splits": {
+          "train": {
+            "count": 397,
+            "percent_of_stratum": 79.8793,
+            "expected_count": 397.6,
+            "delta_from_expected": -0.6
+          },
+          "val": {
+            "count": 50,
+            "percent_of_stratum": 10.0604,
+            "expected_count": 49.7,
+            "delta_from_expected": 0.3
+          },
+          "test": {
+            "count": 50,
+            "percent_of_stratum": 10.0604,
+            "expected_count": 49.7,
+            "delta_from_expected": 0.3
+          }
+        }
+      },
+      "female|sad": {
+        "total": 193,
+        "splits": {
+          "train": {
+            "count": 155,
+            "percent_of_stratum": 80.3109,
+            "expected_count": 154.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 19,
+            "percent_of_stratum": 9.8446,
+            "expected_count": 19.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 19,
+            "percent_of_stratum": 9.8446,
+            "expected_count": 19.3,
+            "delta_from_expected": -0.3
+          }
+        }
+      },
+      "male|excited": {
+        "total": 185,
+        "splits": {
+          "train": {
+            "count": 149,
+            "percent_of_stratum": 80.5405,
+            "expected_count": 148.0,
+            "delta_from_expected": 1.0
+          },
+          "val": {
+            "count": 18,
+            "percent_of_stratum": 9.7297,
+            "expected_count": 18.5,
+            "delta_from_expected": -0.5
+          },
+          "test": {
+            "count": 18,
+            "percent_of_stratum": 9.7297,
+            "expected_count": 18.5,
+            "delta_from_expected": -0.5
+          }
+        }
+      },
+      "male|anxious": {
+        "total": 150,
+        "splits": {
+          "train": {
+            "count": 120,
+            "percent_of_stratum": 80.0,
+            "expected_count": 120.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 15,
+            "percent_of_stratum": 10.0,
+            "expected_count": 15.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 15,
+            "percent_of_stratum": 10.0,
+            "expected_count": 15.0,
+            "delta_from_expected": 0.0
+          }
+        }
+      },
+      "female|concerned": {
+        "total": 116,
+        "splits": {
+          "train": {
+            "count": 92,
+            "percent_of_stratum": 79.3103,
+            "expected_count": 92.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 12,
+            "percent_of_stratum": 10.3448,
+            "expected_count": 11.6,
+            "delta_from_expected": 0.4
+          },
+          "test": {
+            "count": 12,
+            "percent_of_stratum": 10.3448,
+            "expected_count": 11.6,
+            "delta_from_expected": 0.4
+          }
+        }
+      },
+      "male|frustrated": {
+        "total": 101,
+        "splits": {
+          "train": {
+            "count": 81,
+            "percent_of_stratum": 80.198,
+            "expected_count": 80.8,
+            "delta_from_expected": 0.2
+          },
+          "val": {
+            "count": 10,
+            "percent_of_stratum": 9.901,
+            "expected_count": 10.1,
+            "delta_from_expected": -0.1
+          },
+          "test": {
+            "count": 10,
+            "percent_of_stratum": 9.901,
+            "expected_count": 10.1,
+            "delta_from_expected": -0.1
+          }
+        }
+      },
+      "male|determined": {
+        "total": 83,
+        "splits": {
+          "train": {
+            "count": 67,
+            "percent_of_stratum": 80.7229,
+            "expected_count": 66.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 8,
+            "percent_of_stratum": 9.6386,
+            "expected_count": 8.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 8,
+            "percent_of_stratum": 9.6386,
+            "expected_count": 8.3,
+            "delta_from_expected": -0.3
+          }
+        }
+      },
+      "female|anxious": {
+        "total": 73,
+        "splits": {
+          "train": {
+            "count": 59,
+            "percent_of_stratum": 80.8219,
+            "expected_count": 58.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 7,
+            "percent_of_stratum": 9.589,
+            "expected_count": 7.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 7,
+            "percent_of_stratum": 9.589,
+            "expected_count": 7.3,
+            "delta_from_expected": -0.3
+          }
+        }
+      },
+      "female|frustrated": {
+        "total": 69,
+        "splits": {
+          "train": {
+            "count": 55,
+            "percent_of_stratum": 79.7101,
+            "expected_count": 55.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 7,
+            "percent_of_stratum": 10.1449,
+            "expected_count": 6.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 7,
+            "percent_of_stratum": 10.1449,
+            "expected_count": 6.9,
+            "delta_from_expected": 0.1
+          }
+        }
+      },
+      "male|other": {
+        "total": 63,
+        "splits": {
+          "train": {
+            "count": 51,
+            "percent_of_stratum": 80.9524,
+            "expected_count": 50.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 6,
+            "percent_of_stratum": 9.5238,
+            "expected_count": 6.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 6,
+            "percent_of_stratum": 9.5238,
+            "expected_count": 6.3,
+            "delta_from_expected": -0.3
+          }
+        }
+      },
+      "male|annoyed": {
+        "total": 55,
+        "splits": {
+          "train": {
+            "count": 43,
+            "percent_of_stratum": 78.1818,
+            "expected_count": 44.0,
+            "delta_from_expected": -1.0
+          },
+          "val": {
+            "count": 6,
+            "percent_of_stratum": 10.9091,
+            "expected_count": 5.5,
+            "delta_from_expected": 0.5
+          },
+          "test": {
+            "count": 6,
+            "percent_of_stratum": 10.9091,
+            "expected_count": 5.5,
+            "delta_from_expected": 0.5
+          }
+        }
+      },
+      "female|annoyed": {
+        "total": 49,
+        "splits": {
+          "train": {
+            "count": 39,
+            "percent_of_stratum": 79.5918,
+            "expected_count": 39.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 5,
+            "percent_of_stratum": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 5,
+            "percent_of_stratum": 10.2041,
+            "expected_count": 4.9,
+            "delta_from_expected": 0.1
+          }
+        }
+      },
+      "female|other": {
+        "total": 45,
+        "splits": {
+          "train": {
+            "count": 37,
+            "percent_of_stratum": 82.2222,
+            "expected_count": 36.0,
+            "delta_from_expected": 1.0
+          },
+          "val": {
+            "count": 4,
+            "percent_of_stratum": 8.8889,
+            "expected_count": 4.5,
+            "delta_from_expected": -0.5
+          },
+          "test": {
+            "count": 4,
+            "percent_of_stratum": 8.8889,
+            "expected_count": 4.5,
+            "delta_from_expected": -0.5
+          }
+        }
+      },
+      "male|concerned": {
+        "total": 45,
+        "splits": {
+          "train": {
+            "count": 37,
+            "percent_of_stratum": 82.2222,
+            "expected_count": 36.0,
+            "delta_from_expected": 1.0
+          },
+          "val": {
+            "count": 4,
+            "percent_of_stratum": 8.8889,
+            "expected_count": 4.5,
+            "delta_from_expected": -0.5
+          },
+          "test": {
+            "count": 4,
+            "percent_of_stratum": 8.8889,
+            "expected_count": 4.5,
+            "delta_from_expected": -0.5
+          }
+        }
+      },
+      "male|urgent": {
+        "total": 40,
+        "splits": {
+          "train": {
+            "count": 32,
+            "percent_of_stratum": 80.0,
+            "expected_count": 32.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 4,
+            "percent_of_stratum": 10.0,
+            "expected_count": 4.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 4,
+            "percent_of_stratum": 10.0,
+            "expected_count": 4.0,
+            "delta_from_expected": 0.0
+          }
+        }
+      },
+      "female|playful": {
+        "total": 32,
+        "splits": {
+          "train": {
+            "count": 26,
+            "percent_of_stratum": 81.25,
+            "expected_count": 25.6,
+            "delta_from_expected": 0.4
+          },
+          "val": {
+            "count": 3,
+            "percent_of_stratum": 9.375,
+            "expected_count": 3.2,
+            "delta_from_expected": -0.2
+          },
+          "test": {
+            "count": 3,
+            "percent_of_stratum": 9.375,
+            "expected_count": 3.2,
+            "delta_from_expected": -0.2
+          }
+        }
+      },
+      "female|worried": {
+        "total": 30,
+        "splits": {
+          "train": {
+            "count": 24,
+            "percent_of_stratum": 80.0,
+            "expected_count": 24.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 3,
+            "percent_of_stratum": 10.0,
+            "expected_count": 3.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 3,
+            "percent_of_stratum": 10.0,
+            "expected_count": 3.0,
+            "delta_from_expected": 0.0
+          }
+        }
+      },
+      "male|sad": {
+        "total": 30,
+        "splits": {
+          "train": {
+            "count": 24,
+            "percent_of_stratum": 80.0,
+            "expected_count": 24.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 3,
+            "percent_of_stratum": 10.0,
+            "expected_count": 3.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 3,
+            "percent_of_stratum": 10.0,
+            "expected_count": 3.0,
+            "delta_from_expected": 0.0
+          }
+        }
+      },
+      "male|scared": {
+        "total": 30,
+        "splits": {
+          "train": {
+            "count": 24,
+            "percent_of_stratum": 80.0,
+            "expected_count": 24.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 3,
+            "percent_of_stratum": 10.0,
+            "expected_count": 3.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 3,
+            "percent_of_stratum": 10.0,
+            "expected_count": 3.0,
+            "delta_from_expected": 0.0
+          }
+        }
+      },
+      "male|panicked": {
+        "total": 24,
+        "splits": {
+          "train": {
+            "count": 20,
+            "percent_of_stratum": 83.3333,
+            "expected_count": 19.2,
+            "delta_from_expected": 0.8
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 8.3333,
+            "expected_count": 2.4,
+            "delta_from_expected": -0.4
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 8.3333,
+            "expected_count": 2.4,
+            "delta_from_expected": -0.4
+          }
+        }
+      },
+      "female|excited": {
+        "total": 23,
+        "splits": {
+          "train": {
+            "count": 19,
+            "percent_of_stratum": 82.6087,
+            "expected_count": 18.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 8.6957,
+            "expected_count": 2.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 8.6957,
+            "expected_count": 2.3,
+            "delta_from_expected": -0.3
+          }
+        }
+      },
+      "male|stressed": {
+        "total": 23,
+        "splits": {
+          "train": {
+            "count": 19,
+            "percent_of_stratum": 82.6087,
+            "expected_count": 18.4,
+            "delta_from_expected": 0.6
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 8.6957,
+            "expected_count": 2.3,
+            "delta_from_expected": -0.3
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 8.6957,
+            "expected_count": 2.3,
+            "delta_from_expected": -0.3
+          }
+        }
+      },
+      "female|scared": {
+        "total": 19,
+        "splits": {
+          "train": {
+            "count": 15,
+            "percent_of_stratum": 78.9474,
+            "expected_count": 15.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 10.5263,
+            "expected_count": 1.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 10.5263,
+            "expected_count": 1.9,
+            "delta_from_expected": 0.1
+          }
+        }
+      },
+      "male|worried": {
+        "total": 19,
+        "splits": {
+          "train": {
+            "count": 15,
+            "percent_of_stratum": 78.9474,
+            "expected_count": 15.2,
+            "delta_from_expected": -0.2
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 10.5263,
+            "expected_count": 1.9,
+            "delta_from_expected": 0.1
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 10.5263,
+            "expected_count": 1.9,
+            "delta_from_expected": 0.1
+          }
+        }
+      },
+      "female|determined": {
+        "total": 16,
+        "splits": {
+          "train": {
+            "count": 12,
+            "percent_of_stratum": 75.0,
+            "expected_count": 12.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 12.5,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 12.5,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          }
+        }
+      },
+      "male|nervous": {
+        "total": 16,
+        "splits": {
+          "train": {
+            "count": 12,
+            "percent_of_stratum": 75.0,
+            "expected_count": 12.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 12.5,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 12.5,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          }
+        }
+      },
+      "male|playful": {
+        "total": 16,
+        "splits": {
+          "train": {
+            "count": 12,
+            "percent_of_stratum": 75.0,
+            "expected_count": 12.8,
+            "delta_from_expected": -0.8
+          },
+          "val": {
+            "count": 2,
+            "percent_of_stratum": 12.5,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          },
+          "test": {
+            "count": 2,
+            "percent_of_stratum": 12.5,
+            "expected_count": 1.6,
+            "delta_from_expected": 0.4
+          }
+        }
+      },
+      "female|panicked": {
+        "total": 14,
+        "splits": {
+          "train": {
+            "count": 12,
+            "percent_of_stratum": 85.7143,
+            "expected_count": 11.2,
+            "delta_from_expected": 0.8
+          },
+          "val": {
+            "count": 1,
+            "percent_of_stratum": 7.1429,
+            "expected_count": 1.4,
+            "delta_from_expected": -0.4
+          },
+          "test": {
+            "count": 1,
+            "percent_of_stratum": 7.1429,
+            "expected_count": 1.4,
+            "delta_from_expected": -0.4
+          }
+        }
+      },
+      "female|stressed": {
+        "total": 10,
+        "splits": {
+          "train": {
+            "count": 8,
+            "percent_of_stratum": 80.0,
+            "expected_count": 8.0,
+            "delta_from_expected": 0.0
+          },
+          "val": {
+            "count": 1,
+            "percent_of_stratum": 10.0,
+            "expected_count": 1.0,
+            "delta_from_expected": 0.0
+          },
+          "test": {
+            "count": 1,
+            "percent_of_stratum": 10.0,
+            "expected_count": 1.0,
+            "delta_from_expected": 0.0
+          }
+        }
+      },
+      "female|nervous": {
+        "total": 7,
+        "splits": {
+          "train": {
+            "count": 5,
+            "percent_of_stratum": 71.4286,
+            "expected_count": 5.6,
+            "delta_from_expected": -0.6
+          },
+          "val": {
+            "count": 1,
+            "percent_of_stratum": 14.2857,
+            "expected_count": 0.7,
+            "delta_from_expected": 0.3
+          },
+          "test": {
+            "count": 1,
+            "percent_of_stratum": 14.2857,
+            "expected_count": 0.7,
+            "delta_from_expected": 0.3
+          }
+        }
+      },
+      "female|urgent": {
+        "total": 4,
+        "splits": {
+          "train": {
+            "count": 2,
+            "percent_of_stratum": 50.0,
+            "expected_count": 3.2,
+            "delta_from_expected": -1.2
+          },
+          "val": {
+            "count": 1,
+            "percent_of_stratum": 25.0,
+            "expected_count": 0.4,
+            "delta_from_expected": 0.6
+          },
+          "test": {
+            "count": 1,
+            "percent_of_stratum": 25.0,
+            "expected_count": 0.4,
+            "delta_from_expected": 0.6
+          }
+        }
+      }
+    }
+  }
+}

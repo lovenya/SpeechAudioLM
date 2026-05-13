@@ -1,0 +1,44 @@
+{
+  "dataset": "ttas",
+  "dataset_root": "/project/rrg-csubakan/lovenya/datasets/ttas/extracted",
+  "source_manifest": "/project/rrg-csubakan/lovenya/datasets/ttas/extracted/ttas/22k_samples_clean_manual_meta_clean.jsonl",
+  "canonical_manifest": "data/manifests/ttas_clean_normalized.jsonl",
+  "global_seed": 1337,
+  "split_ratio": {
+    "train": 0.8,
+    "val": 0.1,
+    "test": 0.1
+  },
+  "stratification": {
+    "fields": [
+      "speaker_gender",
+      "speaker_emotion_bucket"
+    ],
+    "speaker_emotion_rare_threshold": 20,
+    "rare_bucket": "other",
+    "common_emotions": [
+      "angry",
+      "annoyed",
+      "anxious",
+      "concerned",
+      "determined",
+      "excited",
+      "frustrated",
+      "happy",
+      "nervous",
+      "neutral",
+      "panicked",
+      "playful",
+      "sad",
+      "scared",
+      "stressed",
+      "urgent",
+      "worried"
+    ]
+  },
+  "splits": {
+    "train": "data/splits/ttas_train.jsonl",
+    "val": "data/splits/ttas_val.jsonl",
+    "test": "data/splits/ttas_test.jsonl"
+  }
+}
