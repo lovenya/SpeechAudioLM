@@ -90,9 +90,9 @@
     "duplicate_sample_ids": {},
     "malformed_relative_path_count": 0,
     "malformed_relative_paths": [],
-    "path_existence_checked": true,
-    "missing_audio_paths": 0,
-    "missing_speech_paths": 0,
+    "path_existence_checked": false,
+    "missing_audio_paths": null,
+    "missing_speech_paths": null,
     "missing_or_malformed_examples": []
   },
   "split_validation": {
