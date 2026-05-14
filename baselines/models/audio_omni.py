@@ -5,27 +5,26 @@ import os
 import tempfile
 from pathlib import Path
 
-import torch
-
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
 
 S2A_SPEECH_UNDERSTANDING_PROMPT = (
     "Transcribe the speech in this audio. If exact transcription is hard, summarize what the speaker is saying. "
-    "Return only the speech content."
+    "Return only the speech content. Do not ask follow-up questions."
 )
 S2A_AUDIO_DESCRIPTION_PROMPT = (
     "Based on this speech content, describe a likely environmental audio scene that could correspond to it. "
-    "Return only a concise audio description suitable for text-to-audio generation.\n\n"
+    "Return only one concise audio description suitable for text-to-audio generation. "
+    "Do not explain your reasoning and do not ask follow-up questions.\n\n"
     "Speech content: {understanding}"
 )
 A2S_AUDIO_UNDERSTANDING_PROMPT = (
     "Describe the environmental audio in this recording. Focus on the sound events, setting, intensity, "
-    "and mood. Return only the audio description."
+    "and mood. Return only the audio description. Do not ask follow-up questions."
 )
 A2S_SPEECH_TRANSCRIPT_PROMPT = (
     "Based on this environmental audio description, write a short speech transcript that could naturally "
-    "correspond to the scene. Return only the spoken words, with no explanation.\n\n"
+    "correspond to the scene. Return only the spoken words, with no explanation and no follow-up question.\n\n"
     "Audio description: {understanding}"
 )
 
@@ -80,30 +79,83 @@ class AudioOmniRunner(BaselineRunner):
         if self.task == "T2A":
             generation_prompt = self._format_prompt(row.prompt)
             audio = self._generate_audio_omni_audio("T2A", generation_prompt, duration)
-            extra = {"shape": list(audio.shape), "generation_prompt": generation_prompt}
+            extra = {
+                "shape": list(audio.shape),
+                "generation_prompt": generation_prompt,
+                "stages": [
+                    {
+                        "stage": "text_to_audio",
+                        "method": "AudioOmni.generate",
+                        "audio_omni_task": "T2A",
+                        "input_field": "audio_cap",
+                        "prompt": generation_prompt,
+                        "output_file": str(output_path),
+                    }
+                ],
+            }
         elif self.task == "T2S":
             generation_prompt = self._format_prompt(row.prompt)
             audio = self._generate_audio_omni_audio("TTS", generation_prompt, duration)
-            extra = {"shape": list(audio.shape), "generation_prompt": generation_prompt}
+            extra = {
+                "shape": list(audio.shape),
+                "generation_prompt": generation_prompt,
+                "stages": [
+                    {
+                        "stage": "text_to_speech",
+                        "method": "AudioOmni.generate",
+                        "audio_omni_task": "TTS",
+                        "input_field": "speech_text",
+                        "prompt": generation_prompt,
+                        "output_file": str(output_path),
+                    }
+                ],
+            }
         elif self.task == "S2A":
             speech_path = self._record_path(row, "speech_file")
             speech_understanding = self._understand(
                 S2A_SPEECH_UNDERSTANDING_PROMPT,
                 audio=str(speech_path),
             )
+            conversion_prompt = self._format_prompt(
+                S2A_AUDIO_DESCRIPTION_PROMPT.format(understanding=speech_understanding),
+            )
             audio_description = self._understand(
-                self._format_prompt(
-                    S2A_AUDIO_DESCRIPTION_PROMPT.format(understanding=speech_understanding),
-                )
+                conversion_prompt,
             )
             audio = self._generate_audio_omni_audio("T2A", audio_description, duration)
             extra = {
                 "shape": list(audio.shape),
                 "source_input_file": str(speech_path),
+                "understanding_prompt": S2A_SPEECH_UNDERSTANDING_PROMPT,
                 "understanding_text": speech_understanding,
+                "conversion_prompt": conversion_prompt,
                 "converted_prompt": audio_description,
                 "generation_prompt": audio_description,
                 "final_generation_method": "T2A",
+                "stages": [
+                    {
+                        "stage": "speech_understanding",
+                        "method": "Qwen2.5-Omni thinker",
+                        "input_field": "speech_file",
+                        "input_file": str(speech_path),
+                        "prompt": S2A_SPEECH_UNDERSTANDING_PROMPT,
+                        "output_text": speech_understanding,
+                    },
+                    {
+                        "stage": "speech_to_audio_description",
+                        "method": "Qwen2.5-Omni thinker",
+                        "input_text": speech_understanding,
+                        "prompt": conversion_prompt,
+                        "output_text": audio_description,
+                    },
+                    {
+                        "stage": "text_to_audio",
+                        "method": "AudioOmni.generate",
+                        "audio_omni_task": "T2A",
+                        "prompt": audio_description,
+                        "output_file": str(output_path),
+                    },
+                ],
             }
         elif self.task == "A2S":
             audio_path = self._record_path(row, "audio_file")
@@ -111,19 +163,46 @@ class AudioOmniRunner(BaselineRunner):
                 A2S_AUDIO_UNDERSTANDING_PROMPT,
                 audio=str(audio_path),
             )
+            conversion_prompt = self._format_prompt(
+                A2S_SPEECH_TRANSCRIPT_PROMPT.format(understanding=audio_understanding),
+            )
             speech_transcript = self._understand(
-                self._format_prompt(
-                    A2S_SPEECH_TRANSCRIPT_PROMPT.format(understanding=audio_understanding),
-                )
+                conversion_prompt,
             )
             audio = self._generate_audio_omni_audio("TTS", speech_transcript, duration)
             extra = {
                 "shape": list(audio.shape),
                 "source_input_file": str(audio_path),
+                "understanding_prompt": A2S_AUDIO_UNDERSTANDING_PROMPT,
                 "understanding_text": audio_understanding,
+                "conversion_prompt": conversion_prompt,
                 "converted_prompt": speech_transcript,
                 "generation_prompt": speech_transcript,
                 "final_generation_method": "TTS",
+                "stages": [
+                    {
+                        "stage": "audio_understanding",
+                        "method": "Qwen2.5-Omni thinker",
+                        "input_field": "audio_file",
+                        "input_file": str(audio_path),
+                        "prompt": A2S_AUDIO_UNDERSTANDING_PROMPT,
+                        "output_text": audio_understanding,
+                    },
+                    {
+                        "stage": "audio_description_to_speech_transcript",
+                        "method": "Qwen2.5-Omni thinker",
+                        "input_text": audio_understanding,
+                        "prompt": conversion_prompt,
+                        "output_text": speech_transcript,
+                    },
+                    {
+                        "stage": "text_to_speech",
+                        "method": "AudioOmni.generate",
+                        "audio_omni_task": "TTS",
+                        "prompt": speech_transcript,
+                        "output_file": str(output_path),
+                    },
+                ],
             }
         else:
             raise ValueError(f"Unsupported Audio-Omni task: {self.task}")
@@ -160,6 +239,7 @@ class AudioOmniRunner(BaselineRunner):
         if self.model is None:
             raise RuntimeError("Audio-Omni model is not loaded")
 
+        import torch
         from audio_omni.prompts import SYSTEM_UNDERSTANDING
         from qwen_omni_utils import process_mm_info
 
