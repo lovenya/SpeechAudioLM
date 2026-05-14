@@ -24,8 +24,8 @@ def run_inference(
     resource_interval: float,
 ) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
-    audio_dir = output_root / "audio"
-    audio_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = output_root / runner.output_subdir
+    output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = output_root / "manifest.jsonl"
     logger = RunLogger(log_root)
     resource_monitor = ResourceMonitor(
@@ -40,7 +40,7 @@ def run_inference(
     )
 
     logger.log(f"output_root={output_root}")
-    logger.log(f"audio_dir={audio_dir}")
+    logger.log(f"output_dir={output_dir}")
     logger.log(f"manifest={manifest_path}")
     logger.log(f"log_file={logger.log_path}")
     logger.log(f"resource_log={logger.resource_path}")
@@ -57,7 +57,7 @@ def run_inference(
 
         with manifest_path.open("a", encoding="utf-8") as manifest:
             for ordinal, row in enumerate(rows, start=1):
-                output_path = audio_dir / f"{row.row_index:06d}_{row.sample_id}{runner.extension}"
+                output_path = output_dir / f"{row.row_index:06d}_{row.sample_id}{runner.extension}"
                 if output_path.exists() and not overwrite:
                     skipped += 1
                     logger.log(_progress_line("skip", ordinal, total_rows, run_start, row, output_path))
@@ -65,7 +65,7 @@ def run_inference(
 
                 logger.log(_progress_line("generate", ordinal, total_rows, run_start, row, output_path))
                 start = time.time()
-                result = runner.generate(row.prompt, output_path)
+                result = runner.generate(row, output_path)
                 elapsed = time.time() - start
                 processed += 1
                 record = {
@@ -94,19 +94,20 @@ def run_inference(
 def dry_run_inference(
     rows: Iterable[PromptRow],
     output_root: Path,
+    output_subdir: str,
     extension: str,
     run_config: dict,
     total_rows: int,
 ) -> None:
-    audio_dir = output_root / "audio"
+    output_dir = output_root / output_subdir
     print(f"dry_run=true")
     print(f"output_root={output_root}")
-    print(f"audio_dir={audio_dir}")
+    print(f"output_dir={output_dir}")
     print(f"total_rows={total_rows}")
     print(f"run_config={json.dumps(run_config, ensure_ascii=False, sort_keys=True)}")
     count = 0
     for row in rows:
-        output_path = audio_dir / f"{row.row_index:06d}_{row.sample_id}{extension}"
+        output_path = output_dir / f"{row.row_index:06d}_{row.sample_id}{extension}"
         print(
             json.dumps(
                 {

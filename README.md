@@ -110,29 +110,35 @@ Qwen3-Omni-30B-A3B-Instruct has been smoke-tested for voice output on a full H10
 
 ## Baseline Inference CLI
 
-Use `baseline.py` to run a small number of samples from a fixed split. The router loads one model backend and writes generated audio plus a JSONL manifest under the output directory.
+Use `baseline.py` to run a small number of samples from a fixed split. The router loads one model backend and writes generated outputs plus a JSONL manifest under the output directory. Use `--task` to choose the inference path.
 
 Example smoke commands:
 
 ```bash
-python baseline.py --model audiogen --split test --num-samples 2 --prompt-field speech_text
-python baseline.py --model tangoflux --split test --num-samples 2 --prompt-field speech_text
-python baseline.py --model qwen3_omni --split test --num-samples 2 --prompt-field speech_text
-python baseline.py --model audio_omni --split test --num-samples 2 --prompt-field speech_text --duration 10
+python baseline.py --model audiogen --task T2A --split test --num-samples 2
+python baseline.py --model tangoflux --task T2A --split test --num-samples 2
+python baseline.py --model audio_omni --task T2A --split test --num-samples 2 --duration 10
+python baseline.py --model audio_omni --task T2S --split test --num-samples 2 --duration 10
+python baseline.py --model audio_omni --task S2A --split test --num-samples 2 --duration 10
+python baseline.py --model audio_omni --task A2S --split test --num-samples 2 --duration 10
+python baseline.py --model qwen3_omni --task pseudo_t2a_direct --split test --num-samples 2
+python baseline.py --model qwen3_omni --task pseudo_t2a_phoneme --split test --num-samples 2
 ```
 
-Use `--dry-run` to inspect selected rows and output paths without loading a model. Use `--num-samples -1` for a full split after the model-specific smoke run is stable. Use `--prompt-field audio_cap` to run caption-conditioned baselines.
+Use `--dry-run` to inspect selected rows and output paths without loading a model. Use `--num-samples -1` for a full split after the model-specific smoke run is stable. If `--prompt-field` is omitted, `T2A`, `A2S`, and Qwen pseudo-T2A tasks default to `audio_cap`; `T2S` and `S2A` default to `speech_text`. Use `--prompt-template` for one-off prompt experiments.
+
+AudioGen and TangoFlux support native `T2A` only and receive raw captions. Audio-Omni supports native `T2A`/`T2S` and cascaded `S2A`/`A2S`. Qwen3-Omni pseudo-T2A tasks are exploratory talker probes, not true text-to-audio baselines.
 
 Default outputs are organized under:
 
 ```text
-results/baselines/<model>/<split>/<prompt_field>/
+results/baselines/<model>/<task>/<split>/<prompt_field>/
 ```
 
 Run logs and resource samples are organized similarly under:
 
 ```text
-logs/baselines/<model>/<split>/<prompt_field>/
+logs/baselines/<model>/<task>/<split>/<prompt_field>/
 ```
 
 The `results/` and `logs/` directories are ignored by git.
