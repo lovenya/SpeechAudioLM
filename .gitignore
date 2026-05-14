@@ -5,6 +5,7 @@ docs/
 
 # Python cache files
 __pycache__/
+.venv*/
 
 # Large dataset and media artifacts
 *.wav
@@ -22,9 +23,11 @@ __pycache__/
 *.pt
 *.pth
 *.safetensors
+*.bin
 checkpoints/
 outputs/
 wandb/
 generated/
 samples/
 runs/
+hf_cache/
