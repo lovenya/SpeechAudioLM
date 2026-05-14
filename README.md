@@ -106,7 +106,7 @@ These are setup environments only; generated outputs and checkpoints stay outsid
 
 TangoFlux has been smoke-tested on a Rorqual H100 20 GB MIG allocation. It loaded local model assets plus the cached `google/flan-t5-large` text encoder offline and generated a 5 second 44.1 kHz stereo waveform.
 
-Qwen3-Omni-30B-A3B-Instruct has been smoke-tested for voice output on a full H100 allocation, using local model assets and a venv-local Transformers talker workaround. Audio-Omni uses an additional local Qwen2.5-Omni-3B dependency for conditioning and is still being validated.
+Qwen3-Omni-30B-A3B-Instruct has been smoke-tested for voice output on a full H100 allocation, using local model assets and a venv-local Transformers talker workaround. Audio-Omni has also been smoke-tested with local Qwen2.5-Omni-3B conditioning.
 
 ## Baseline Inference CLI
 
@@ -118,9 +118,24 @@ Example smoke commands:
 python baseline.py --model audiogen --split test --num-samples 2 --prompt-field speech_text
 python baseline.py --model tangoflux --split test --num-samples 2 --prompt-field speech_text
 python baseline.py --model qwen3_omni --split test --num-samples 2 --prompt-field speech_text
+python baseline.py --model audio_omni --split test --num-samples 2 --prompt-field speech_text --duration 10
 ```
 
-Use `--num-samples -1` for a full split after the model-specific smoke run is stable. Use `--prompt-field audio_cap` to run caption-conditioned baselines.
+Use `--dry-run` to inspect selected rows and output paths without loading a model. Use `--num-samples -1` for a full split after the model-specific smoke run is stable. Use `--prompt-field audio_cap` to run caption-conditioned baselines.
+
+Default outputs are organized under:
+
+```text
+results/baselines/<model>/<split>/<prompt_field>/
+```
+
+Run logs and resource samples are organized similarly under:
+
+```text
+logs/baselines/<model>/<split>/<prompt_field>/
+```
+
+The `results/` and `logs/` directories are ignored by git.
 
 ## Repository Status
 

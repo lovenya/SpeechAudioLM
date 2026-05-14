@@ -9,15 +9,22 @@ from baselines.models.base import BaselineRunner, GenerationResult
 
 
 class TangoFluxRunner(BaselineRunner):
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(
+        self,
+        tangoflux_source_dir: str = "/project/rrg-csubakan/lovenya/models/tangoflux",
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)
         self.model_path = self.model_path or "/project/rrg-csubakan/lovenya/models/tangoflux"
+        self.source_dir = tangoflux_source_dir
         self.model = None
 
     def load(self) -> None:
         import torch
 
         _install_datasets_stub()
+        if self.source_dir not in sys.path:
+            sys.path.insert(0, self.source_dir)
         import tangoflux as tangoflux_module
         from tangoflux import TangoFluxInference
 

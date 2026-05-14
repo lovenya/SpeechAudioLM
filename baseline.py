@@ -6,9 +6,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from baselines.dataset import iter_split_rows, load_dataset_config
+from baselines.dataset import count_jsonl_rows, iter_split_rows, load_dataset_config
 from baselines.models import get_runner
-from baselines.run import run_inference
+from baselines.run import dry_run_inference, run_inference
 
 
 def parse_args() -> argparse.Namespace:
@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         required=True,
-        choices=["audiogen", "tangoflux", "qwen3_omni"],
+        choices=["audiogen", "tangoflux", "qwen3_omni", "audio_omni"],
         help="Baseline model backend to run.",
     )
     parser.add_argument(
@@ -54,13 +54,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="/project/rrg-csubakan/lovenya/outputs/baselines",
-        help="Output root outside git.",
+        default="results/baselines",
+        help="Output root. The default repo-local results/ directory is ignored by git.",
+    )
+    parser.add_argument(
+        "--log-dir",
+        default="logs/baselines",
+        help="Log root. The default repo-local logs/ directory is ignored by git.",
     )
     parser.add_argument("--device", default="cuda", help="Torch device for model loading.")
     parser.add_argument("--duration", type=float, default=10.0, help="Requested output duration in seconds.")
     parser.add_argument("--steps", type=int, default=25, help="Diffusion/sampling steps where supported.")
     parser.add_argument("--seed", type=int, default=1337, help="Torch seed used before generation.")
+    parser.add_argument(
+        "--resource-interval",
+        type=float,
+        default=10.0,
+        help="Seconds between resource-monitor samples. Use 0 to disable.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate files that already exist.")
     parser.add_argument("--model-path", default=None, help="Override local model path for the selected backend.")
     parser.add_argument(
@@ -72,6 +83,31 @@ def parse_args() -> argparse.Namespace:
         "--qwen-template",
         default="Read the following text aloud exactly, without adding any extra words: {prompt}",
         help="Instruction template for Qwen3-Omni voice generation.",
+    )
+    parser.add_argument(
+        "--tangoflux-source-dir",
+        default="/project/rrg-csubakan/lovenya/models/tangoflux",
+        help="TangoFlux source/model directory.",
+    )
+    parser.add_argument(
+        "--audio-omni-config",
+        default="/project/rrg-csubakan/lovenya/models/audio-omni/Audio-Omni.json",
+        help="Audio-Omni config path.",
+    )
+    parser.add_argument(
+        "--audio-omni-ckpt",
+        default="/project/rrg-csubakan/lovenya/models/audio-omni/model.ckpt",
+        help="Audio-Omni checkpoint path.",
+    )
+    parser.add_argument(
+        "--audio-omni-source-dir",
+        default="/project/rrg-csubakan/lovenya/src/Audio-Omni",
+        help="Audio-Omni source directory. Used internally for relative config assets.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate dataset rows and output paths without loading a model.",
     )
     return parser.parse_args()
 
@@ -87,6 +123,33 @@ def main() -> None:
         start_index=args.start_index,
         num_samples=args.num_samples,
     )
+    output_root = Path(args.output_dir) / args.model / args.split / args.prompt_field
+    log_root = Path(args.log_dir) / args.model / args.split / args.prompt_field
+    total_rows = count_jsonl_rows(
+        split_path,
+        start_index=args.start_index,
+        num_samples=args.num_samples,
+    )
+
+    run_config = {
+        "model": args.model,
+        "split": args.split,
+        "split_file": str(split_path),
+        "prompt_field": args.prompt_field,
+        "duration": args.duration,
+        "steps": args.steps,
+        "seed": args.seed,
+    }
+    if args.dry_run:
+        dry_run_inference(
+            rows=rows,
+            output_root=output_root,
+            extension=".wav",
+            run_config=run_config,
+            total_rows=total_rows,
+        )
+        return
+
     runner = get_runner(
         args.model,
         model_path=args.model_path,
@@ -96,23 +159,21 @@ def main() -> None:
         seed=args.seed,
         qwen_speaker=args.qwen_speaker,
         qwen_template=args.qwen_template,
+        tangoflux_source_dir=args.tangoflux_source_dir,
+        audio_omni_config=args.audio_omni_config,
+        audio_omni_ckpt=args.audio_omni_ckpt,
+        audio_omni_source_dir=args.audio_omni_source_dir,
     )
 
-    output_root = Path(args.output_dir) / args.model / args.split / args.prompt_field
     run_inference(
         runner=runner,
         rows=rows,
         output_root=output_root,
+        log_root=log_root,
         overwrite=args.overwrite,
-        run_config={
-            "model": args.model,
-            "split": args.split,
-            "split_file": str(split_path),
-            "prompt_field": args.prompt_field,
-            "duration": args.duration,
-            "steps": args.steps,
-            "seed": args.seed,
-        },
+        run_config=run_config,
+        total_rows=total_rows,
+        resource_interval=args.resource_interval,
     )
 
 

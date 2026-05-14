@@ -27,6 +27,23 @@ def iter_jsonl(path: Path) -> Iterator[dict]:
                 yield json.loads(line)
 
 
+def count_jsonl_rows(path: Path, start_index: int = 0, num_samples: int = -1) -> int:
+    if start_index < 0:
+        raise ValueError("--start-index must be >= 0")
+    if num_samples == 0 or num_samples < -1:
+        raise ValueError("--num-samples must be -1 or a positive integer")
+
+    total = 0
+    with path.open("r", encoding="utf-8") as f:
+        for row_index, line in enumerate(f):
+            if row_index < start_index or not line.strip():
+                continue
+            total += 1
+            if num_samples != -1 and total >= num_samples:
+                break
+    return total
+
+
 def iter_split_rows(
     split_path: Path,
     prompt_field: str,

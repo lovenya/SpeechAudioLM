@@ -16,4 +16,8 @@ def get_runner(name: str, **kwargs) -> BaselineRunner:
         from baselines.models.qwen3_omni import Qwen3OmniRunner
 
         return Qwen3OmniRunner(**kwargs)
+    if name == "audio_omni":
+        from baselines.models.audio_omni import AudioOmniRunner
+
+        return AudioOmniRunner(**kwargs)
     raise ValueError(f"Unknown baseline model: {name}")

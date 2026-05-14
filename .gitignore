@@ -26,6 +26,8 @@ __pycache__/
 *.bin
 checkpoints/
 outputs/
+results/
+logs/
 wandb/
 generated/
 samples/
