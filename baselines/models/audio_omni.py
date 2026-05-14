@@ -5,6 +5,8 @@ import os
 import tempfile
 from pathlib import Path
 
+import torch
+
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
 
@@ -49,6 +51,9 @@ class AudioOmniRunner(BaselineRunner):
         import sys
         import torch
 
+        if self.task in {"S2A", "A2S"}:
+            self._check_understanding_dependencies()
+
         os.environ.setdefault("QWEN_OMNI_MODEL_PATH", "/project/rrg-csubakan/lovenya/models/qwen2.5-omni-3b")
         os.environ.setdefault("SKIP_QWEN_WEIGHTS", "1")
         source = str(self.source_dir)
@@ -82,11 +87,11 @@ class AudioOmniRunner(BaselineRunner):
             extra = {"shape": list(audio.shape), "generation_prompt": generation_prompt}
         elif self.task == "S2A":
             speech_path = self._record_path(row, "speech_file")
-            speech_understanding = self.model.understand(
+            speech_understanding = self._understand(
                 S2A_SPEECH_UNDERSTANDING_PROMPT,
                 audio=str(speech_path),
             )
-            audio_description = self.model.understand(
+            audio_description = self._understand(
                 self._format_prompt(
                     S2A_AUDIO_DESCRIPTION_PROMPT.format(understanding=speech_understanding),
                 )
@@ -102,11 +107,11 @@ class AudioOmniRunner(BaselineRunner):
             }
         elif self.task == "A2S":
             audio_path = self._record_path(row, "audio_file")
-            audio_understanding = self.model.understand(
+            audio_understanding = self._understand(
                 A2S_AUDIO_UNDERSTANDING_PROMPT,
                 audio=str(audio_path),
             )
-            speech_transcript = self.model.understand(
+            speech_transcript = self._understand(
                 self._format_prompt(
                     A2S_SPEECH_TRANSCRIPT_PROMPT.format(understanding=audio_understanding),
                 )
@@ -150,6 +155,68 @@ class AudioOmniRunner(BaselineRunner):
             seed=self.seed,
         )
         return audio
+
+    def _understand(self, question: str, audio: str | None = None, video: str | None = None) -> str:
+        if self.model is None:
+            raise RuntimeError("Audio-Omni model is not loaded")
+
+        from audio_omni.prompts import SYSTEM_UNDERSTANDING
+        from qwen_omni_utils import process_mm_info
+
+        omni_cond = self.model._get_omni_conditioner()
+        processor = omni_cond.processor
+        omni_model = omni_cond.model
+
+        user_content = []
+        if video:
+            user_content.append({"type": "video", "video": video})
+        if audio:
+            user_content.append({"type": "audio", "audio": audio})
+        user_content.append({"type": "text", "text": question})
+
+        conversation = [
+            {"role": "system", "content": [{"type": "text", "text": SYSTEM_UNDERSTANDING}]},
+            {"role": "user", "content": user_content},
+        ]
+
+        text = processor.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
+        audios, images, videos = process_mm_info(conversation, use_audio_in_video=True)
+        inputs = processor(
+            text=text,
+            audio=audios,
+            images=images,
+            videos=videos,
+            return_tensors="pt",
+            padding=True,
+            use_audio_in_video=True,
+        )
+        thinker = omni_model.thinker if hasattr(omni_model, "thinker") else omni_model
+        thinker_device = next(thinker.parameters()).device
+        inputs = {
+            key: value.to(thinker_device) if isinstance(value, torch.Tensor) else value
+            for key, value in inputs.items()
+        }
+
+        input_ids = inputs.get("input_ids")
+        input_len = input_ids.shape[1] if input_ids is not None else 0
+        with torch.no_grad():
+            text_ids = thinker.generate(**inputs, use_audio_in_video=True, max_new_tokens=512)
+        generated_ids = text_ids[:, input_len:]
+        output = processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )
+        return output[0].strip() if output else ""
+
+    def _check_understanding_dependencies(self) -> None:
+        try:
+            import qwen_omni_utils  # noqa: F401
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "Audio-Omni S2A/A2S cascades require qwen-omni-utils because they call "
+                "AudioOmni.understand()."
+            ) from exc
 
     def _prepare_config(self) -> str:
         with open(self.config_path, "r", encoding="utf-8") as f:
