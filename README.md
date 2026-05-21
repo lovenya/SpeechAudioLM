@@ -166,6 +166,16 @@ and `run_config` files plus `latest_*` aliases. Heavy metrics are configurable
 through `configs/eval_metrics.json`; missing external packages or model weights
 fail only when the corresponding metric is selected.
 
+Metric notes:
+
+- Generated-speech `asr_wer` is `WER(reference_transcript, ASR(generated_speech))`.
+- Generated-speech `dwer` is directional:
+  `WER(ASR(reference_speech), ASR(generated_speech))`.
+- For text-to-audio, FAD, KAD, KLD, and Inception Score are corpus-level only.
+  CLAP similarity may be computed per sample and aggregated.
+- FAD is the only default Frechet-style audio metric for v1; generic FD is not
+  included unless a later paper-specific comparison requires it.
+
 ## Repository Status
 
 This repo is in an early setup phase. The current reproducible dataset state is defined by the normalized manifest, fixed split files, and dataset config.

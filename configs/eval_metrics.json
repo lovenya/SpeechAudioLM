@@ -16,7 +16,8 @@
     "dwer": {
       "backend": null,
       "model_name": null,
-      "model_path": null
+      "model_path": null,
+      "definition": "WER(ASR(reference_speech), ASR(generated_speech))"
     },
     "mace": {
       "backend": "aac-metrics",

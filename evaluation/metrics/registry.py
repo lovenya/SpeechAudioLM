@@ -140,4 +140,3 @@ def parse_metric_names(value: str | None, task: str) -> list[str]:
 
 def get_metric_specs(names: list[str]) -> list[MetricSpec]:
     return [_SPECS[name] for name in names]
-
