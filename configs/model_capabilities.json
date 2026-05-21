@@ -1,0 +1,16 @@
+{
+  "models": {
+    "audiogen": {
+      "tasks": ["T2A"]
+    },
+    "tangoflux": {
+      "tasks": ["T2A"]
+    },
+    "audio_omni": {
+      "tasks": ["T2A", "T2S", "S2A", "A2S"]
+    },
+    "qwen3_omni": {
+      "tasks": ["T2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"]
+    }
+  }
+}

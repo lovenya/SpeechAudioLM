@@ -1,0 +1,65 @@
+{
+  "metrics": {
+    "wer": {
+      "backend": "internal"
+    },
+    "semantic_equivalence": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "asr_wer": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "dwer": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "mace": {
+      "backend": "aac-metrics",
+      "cache_dir": null
+    },
+    "spider": {
+      "backend": "aac-metrics",
+      "cache_dir": null
+    },
+    "clap": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "fad": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "kad": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "kld": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "inception_score": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "utmos": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "dnsmos": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    }
+  }
+}
