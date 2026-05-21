@@ -119,15 +119,17 @@ python baseline.py --model audiogen --task T2A --split test --num-samples 2
 python baseline.py --model tangoflux --task T2A --split test --num-samples 2
 python baseline.py --model audio_omni --task T2A --split test --num-samples 2 --duration 10
 python baseline.py --model audio_omni --task T2S --split test --num-samples 2 --duration 10
+python baseline.py --model audio_omni --task A2T --split test --num-samples 2 --duration 10
+python baseline.py --model audio_omni --task S2T --split test --num-samples 2 --duration 10
 python baseline.py --model audio_omni --task S2A --split test --num-samples 2 --duration 10
 python baseline.py --model audio_omni --task A2S --split test --num-samples 2 --duration 10
 python baseline.py --model qwen3_omni --task pseudo_t2a_direct --split test --num-samples 2
 python baseline.py --model qwen3_omni --task pseudo_t2a_phoneme --split test --num-samples 2
 ```
 
-Use `--dry-run` to inspect selected rows and output paths without loading a model. Use `--num-samples -1` for a full split after the model-specific smoke run is stable. If `--prompt-field` is omitted, `T2A`, `A2S`, and Qwen pseudo-T2A tasks default to `audio_cap`; `T2S` and `S2A` default to `speech_text`. Use `--prompt-template` for one-off prompt experiments.
+Use `--dry-run` to inspect selected rows and output paths without loading a model. Use `--num-samples -1` for a full split after the model-specific smoke run is stable. If `--prompt-field` is omitted, `T2A`, `A2T`, `A2S`, and Qwen pseudo-T2A tasks default to `audio_cap`; `T2S`, `S2T`, and `S2A` default to `speech_text`. Use `--prompt-template` for one-off prompt experiments.
 
-AudioGen and TangoFlux support native `T2A` only and receive raw captions. Audio-Omni supports native `T2A`/`T2S` and cascaded `S2A`/`A2S`. Qwen3-Omni pseudo-T2A tasks are exploratory talker probes, not true text-to-audio baselines.
+AudioGen and TangoFlux support native `T2A` only and receive raw captions. Audio-Omni supports native `T2A`/`T2S`, understanding-only `A2T`/`S2T`, and cascaded `S2A`/`A2S`. Qwen3-Omni pseudo-T2A tasks are exploratory talker probes, not true text-to-audio baselines.
 
 Default baseline outputs are organized under:
 

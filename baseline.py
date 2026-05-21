@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         default="T2A",
-        choices=["T2A", "T2S", "S2A", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"],
+        choices=["T2A", "T2S", "A2T", "S2T", "S2A", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"],
         help="Inference task. Backends validate which tasks they support.",
     )
     parser.add_argument(

@@ -117,6 +117,8 @@ _SPECS = {
 DEFAULT_TASK_METRICS = {
     "T2A": ("clap", "fad", "kad", "kld", "inception_score"),
     "T2S": ("asr_wer", "dwer", "utmos", "dnsmos"),
+    "A2T": ("mace", "spider", "clap"),
+    "S2T": ("wer", "semantic_equivalence"),
     "S2A": ("wer", "mace", "spider", "clap", "fad", "kad", "kld"),
     "A2S": ("mace", "spider", "asr_wer", "dwer", "utmos", "dnsmos"),
     "pseudo_t2a_direct": ("asr_wer", "utmos", "dnsmos"),

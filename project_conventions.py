@@ -49,8 +49,8 @@ def eval_comparison_root(
 
 
 def default_prompt_field(task: str) -> str:
-    if task in {"T2A", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"}:
+    if task in {"T2A", "A2T", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"}:
         return "audio_cap"
-    if task in {"T2S", "S2A"}:
+    if task in {"T2S", "S2T", "S2A"}:
         return "speech_text"
     raise ValueError(f"Unsupported task: {task}")

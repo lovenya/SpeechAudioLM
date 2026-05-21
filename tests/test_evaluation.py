@@ -27,6 +27,8 @@ class EvaluationScaffoldTest(unittest.TestCase):
     def test_capability_validation(self) -> None:
         caps = load_capabilities(Path("configs/model_capabilities.json"))
         validate_model_task("tangoflux", "T2A", caps)
+        validate_model_task("audio_omni", "A2T", caps)
+        validate_model_task("audio_omni", "S2T", caps)
         with self.assertRaises(EvaluationError):
             validate_model_task("tangoflux", "T2S", caps)
 

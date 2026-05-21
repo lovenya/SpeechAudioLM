@@ -30,6 +30,9 @@ A2S_SPEECH_TRANSCRIPT_PROMPT = (
 
 
 class AudioOmniRunner(BaselineRunner):
+    output_subdir = "audio"
+    extension = ".wav"
+
     def __init__(
         self,
         audio_omni_config: str = "/project/rrg-csubakan/lovenya/models/audio-omni/Audio-Omni.json",
@@ -38,8 +41,11 @@ class AudioOmniRunner(BaselineRunner):
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
-        if self.task not in {"T2A", "T2S", "S2A", "A2S"}:
-            raise ValueError("Audio-Omni supports --task T2A, T2S, S2A, or A2S")
+        if self.task not in {"T2A", "T2S", "A2T", "S2T", "S2A", "A2S"}:
+            raise ValueError("Audio-Omni supports --task T2A, T2S, A2T, S2T, S2A, or A2S")
+        if self.task in {"A2T", "S2T"}:
+            self.output_subdir = "text"
+            self.extension = ".json"
         self.config_path = audio_omni_config
         self.ckpt_path = audio_omni_ckpt
         self.source_dir = Path(audio_omni_source_dir)
@@ -50,7 +56,7 @@ class AudioOmniRunner(BaselineRunner):
         import sys
         import torch
 
-        if self.task in {"S2A", "A2S"}:
+        if self.task in {"A2T", "S2T", "S2A", "A2S"}:
             self._check_understanding_dependencies()
 
         os.environ.setdefault("QWEN_OMNI_MODEL_PATH", "/project/rrg-csubakan/lovenya/models/qwen2.5-omni-3b")
@@ -110,6 +116,56 @@ class AudioOmniRunner(BaselineRunner):
                     }
                 ],
             }
+        elif self.task == "A2T":
+            audio_path = self._record_path(row, "audio_file")
+            audio_understanding = self._understand(
+                A2S_AUDIO_UNDERSTANDING_PROMPT,
+                audio=str(audio_path),
+            )
+            extra = {
+                "source_input_file": str(audio_path),
+                "understanding_prompt": A2S_AUDIO_UNDERSTANDING_PROMPT,
+                "understanding_text": audio_understanding,
+                "generation_prompt": audio_understanding,
+                "stages": [
+                    {
+                        "stage": "audio_understanding",
+                        "method": "Qwen2.5-Omni thinker",
+                        "input_field": "audio_file",
+                        "input_file": str(audio_path),
+                        "prompt": A2S_AUDIO_UNDERSTANDING_PROMPT,
+                        "output_text": audio_understanding,
+                        "output_file": str(output_path),
+                    }
+                ],
+            }
+            self._write_text_result(output_path, row, extra)
+            return GenerationResult(output_path=output_path, sample_rate=None, extra=extra)
+        elif self.task == "S2T":
+            speech_path = self._record_path(row, "speech_file")
+            speech_understanding = self._understand(
+                S2A_SPEECH_UNDERSTANDING_PROMPT,
+                audio=str(speech_path),
+            )
+            extra = {
+                "source_input_file": str(speech_path),
+                "understanding_prompt": S2A_SPEECH_UNDERSTANDING_PROMPT,
+                "understanding_text": speech_understanding,
+                "generation_prompt": speech_understanding,
+                "stages": [
+                    {
+                        "stage": "speech_understanding",
+                        "method": "Qwen2.5-Omni thinker",
+                        "input_field": "speech_file",
+                        "input_file": str(speech_path),
+                        "prompt": S2A_SPEECH_UNDERSTANDING_PROMPT,
+                        "output_text": speech_understanding,
+                        "output_file": str(output_path),
+                    }
+                ],
+            }
+            self._write_text_result(output_path, row, extra)
+            return GenerationResult(output_path=output_path, sample_rate=None, extra=extra)
         elif self.task == "S2A":
             speech_path = self._record_path(row, "speech_file")
             speech_understanding = self._understand(
@@ -235,6 +291,25 @@ class AudioOmniRunner(BaselineRunner):
         )
         return audio
 
+    def _write_text_result(self, output_path: Path, row: PromptRow, extra: dict) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "row_index": row.row_index,
+                    "sample_id": row.sample_id,
+                    "task": self.task,
+                    "text": extra["understanding_text"],
+                    "source_input_file": extra["source_input_file"],
+                    "prompt": extra["understanding_prompt"],
+                    "stages": extra["stages"],
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+            f.write("\n")
+
     def _understand(self, question: str, audio: str | None = None, video: str | None = None) -> str:
         if self.model is None:
             raise RuntimeError("Audio-Omni model is not loaded")
@@ -307,7 +382,7 @@ class AudioOmniRunner(BaselineRunner):
             import qwen_omni_utils  # noqa: F401
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError(
-                "Audio-Omni S2A/A2S cascades require qwen-omni-utils because they call "
+                "Audio-Omni understanding tasks and cascades require qwen-omni-utils because they call "
                 "AudioOmni.understand()."
             ) from exc
 
