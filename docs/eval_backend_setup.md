@@ -167,7 +167,9 @@ python scripts/eval_backend_smoke/smoke_aac_metrics.py --cache-dir "$AAC_METRICS
 Expected output shape:
 
 - JSON with `corpus_score_keys` and `sample_score_keys`.
-- For SPIDEr, expect a scalar corpus score and one sample score.
+- For SPIDEr, expect keys `cider_d`, `spice`, and `spider` for both corpus and
+  sample scores. The smoke fixture uses two samples because CIDEr-D rejects a
+  one-sample candidate set.
 - For MACE, expect one score per candidate once audio paths/assets are wired.
 
 Known caveats:
