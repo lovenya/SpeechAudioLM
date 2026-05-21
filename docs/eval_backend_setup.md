@@ -399,7 +399,10 @@ Install:
 python -m venv .venvs/.venv-eval-audioldm-eval
 source .venvs/.venv-eval-audioldm-eval/bin/activate
 python -m pip install --upgrade pip
-python -m pip install git+https://github.com/haoheliu/audioldm_eval
+python -m pip install --upgrade setuptools wheel
+python -m pip install torch torchaudio transformers scikit-image torchlibrosa absl-py scipy tqdm librosa soundfile
+python -m pip install ssr_eval --no-deps
+python -m pip install git+https://github.com/haoheliu/audioldm_eval --no-deps
 ```
 
 Assets to download:
@@ -443,6 +446,11 @@ Expected output shape:
 
 Known caveats:
 
+- The normal `pip install git+https://github.com/haoheliu/audioldm_eval`
+  dependency path can pull PyPI `wave`, which pulls Python 2-era
+  `MySQL-python` and fails on Python 3 with `No module named 'ConfigParser'`.
+  Use the `--no-deps` install above and install Python 3-compatible
+  dependencies manually.
 - FAD/KLD/Inception Score are corpus-level only. Do not write fake per-sample
   values.
 - The toolkit accepts reference/generated folders; paired vs unpaired behavior
