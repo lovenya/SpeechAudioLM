@@ -157,6 +157,7 @@ Cache directory:
 Smoke test:
 
 ```bash
+module load java/17.0.6
 source .venvs/metrics/.venv-eval-aac/bin/activate
 export AAC_METRICS_CACHE=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
 python scripts/eval_backend_smoke/smoke_aac_metrics.py --cache-dir "$AAC_METRICS_CACHE" --metrics spider --device cpu
@@ -171,6 +172,8 @@ Expected output shape:
 Known caveats:
 
 - SPIDEr/MACE assets may require Java and cached external code/assets.
+- On this cluster, load Java before SPIDEr/MACE tokenization:
+  `module load java/17.0.6`.
 - `aac-metrics-download` defaults to a user cache such as
   `/home/lovenya/.cache`. For offline compute runs, pass `--cache_path` and use
   the same path in the smoke/evaluator config.
