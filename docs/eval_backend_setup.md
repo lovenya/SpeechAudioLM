@@ -12,12 +12,12 @@ repos, or virtual environments.
 Use separate environments when dependency stacks conflict:
 
 ```text
-.venv-eval-whisper
-.venv-eval-aac
-.venv-eval-utmos
-.venv-eval-dnsmos
-.venv-eval-audioldm-eval
-.venv-eval-kadtk
+.venvs/.venv-eval-whisper
+.venvs/.venv-eval-aac
+.venvs/.venv-eval-utmos
+.venvs/.venv-eval-dnsmos
+.venvs/.venv-eval-audioldm-eval
+.venvs/.venv-eval-kadtk
 ```
 
 Keep backend assets outside git:
@@ -60,8 +60,8 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venv-eval-whisper
-source .venv-eval-whisper/bin/activate
+python -m venv .venvs/.venv-eval-whisper
+source .venvs/.venv-eval-whisper/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -U openai-whisper
 ```
@@ -89,7 +89,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-source .venv-eval-whisper/bin/activate
+source .venvs/.venv-eval-whisper/bin/activate
 python scripts/eval_backend_smoke/smoke_whisper_asr.py
 python scripts/eval_backend_smoke/smoke_whisper_asr.py --load-model
 python scripts/eval_backend_smoke/smoke_whisper_asr.py --load-model --audio /path/to/speech.wav
@@ -130,8 +130,8 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venv-eval-aac
-source .venv-eval-aac/bin/activate
+python -m venv .venvs/.venv-eval-aac
+source .venvs/.venv-eval-aac/bin/activate
 python -m pip install --upgrade pip
 python -m pip install aac-metrics
 ```
@@ -156,7 +156,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-source .venv-eval-aac/bin/activate
+source .venvs/.venv-eval-aac/bin/activate
 export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics
 python scripts/eval_backend_smoke/smoke_aac_metrics.py --metrics spider --device cpu
 ```
@@ -263,8 +263,8 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venv-eval-utmos
-source .venv-eval-utmos/bin/activate
+python -m venv .venvs/.venv-eval-utmos
+source .venvs/.venv-eval-utmos/bin/activate
 python -m pip install --upgrade pip
 python -m pip install torch torchaudio librosa
 ```
@@ -291,7 +291,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-source .venv-eval-utmos/bin/activate
+source .venvs/.venv-eval-utmos/bin/activate
 export TORCH_HOME=/project/rrg-csubakan/lovenya/models/metrics/torchhub
 python scripts/eval_backend_smoke/smoke_utmos.py
 python scripts/eval_backend_smoke/smoke_utmos.py --load-model
@@ -328,8 +328,8 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venv-eval-dnsmos
-source .venv-eval-dnsmos/bin/activate
+python -m venv .venvs/.venv-eval-dnsmos
+source .venvs/.venv-eval-dnsmos/bin/activate
 python -m pip install --upgrade pip
 python -m pip install torchmetrics onnxruntime librosa
 ```
@@ -356,7 +356,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-source .venv-eval-dnsmos/bin/activate
+source .venvs/.venv-eval-dnsmos/bin/activate
 python scripts/eval_backend_smoke/smoke_dnsmos.py
 ```
 
@@ -396,8 +396,8 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venv-eval-audioldm-eval
-source .venv-eval-audioldm-eval/bin/activate
+python -m venv .venvs/.venv-eval-audioldm-eval
+source .venvs/.venv-eval-audioldm-eval/bin/activate
 python -m pip install --upgrade pip
 python -m pip install git+https://github.com/haoheliu/audioldm_eval
 ```
@@ -425,7 +425,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-source .venv-eval-audioldm-eval/bin/activate
+source .venvs/.venv-eval-audioldm-eval/bin/activate
 python scripts/eval_backend_smoke/smoke_audioldm_eval.py
 python scripts/eval_backend_smoke/smoke_audioldm_eval.py \
   --run \
@@ -468,8 +468,8 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venv-eval-kadtk
-source .venv-eval-kadtk/bin/activate
+python -m venv .venvs/.venv-eval-kadtk
+source .venvs/.venv-eval-kadtk/bin/activate
 python -m pip install --upgrade pip
 python -m pip install kadtk
 ```
@@ -492,7 +492,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-source .venv-eval-kadtk/bin/activate
+source .venvs/.venv-eval-kadtk/bin/activate
 python scripts/eval_backend_smoke/smoke_kadtk.py
 python scripts/eval_backend_smoke/smoke_kadtk.py \
   --run \
