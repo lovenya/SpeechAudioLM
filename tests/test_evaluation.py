@@ -37,33 +37,32 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertEqual(word_error_rate("a b", "a b c"), 0.5)
         self.assertAlmostEqual(word_error_rate("a b c", "a b"), 1 / 3)
 
-    def test_corpus_only_metrics_are_marked(self) -> None:
+    def test_corpus_metrics_are_marked_by_level(self) -> None:
         specs = get_metric_specs(["fad", "kad", "kld", "inception_score", "clap_similarity"])
-        corpus_only = {spec.name for spec in specs if spec.corpus_only}
-        self.assertEqual(corpus_only, {"fad", "kad", "kld", "inception_score"})
-        self.assertFalse(next(spec for spec in specs if spec.name == "clap_similarity").corpus_only)
+        corpus_metrics = {spec.name for spec in specs if spec.level == "corpus"}
+        self.assertEqual(corpus_metrics, {"fad", "kad", "kld", "inception_score"})
+        self.assertEqual(next(spec for spec in specs if spec.name == "clap_similarity").level, "sample")
 
     def test_task_metric_mapping_allows_valid_pairs(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
-        self.assertEqual(select_metrics("S2T", None, "wer", mapping).metric_names, ["wer"])
-        self.assertEqual(select_metrics("T2A", None, "fad", mapping).metric_names, ["fad"])
-        self.assertEqual(select_metrics("S2A", "final_audio", "fad", mapping).metric_names, ["fad"])
-        self.assertEqual(select_metrics("A2S", "final_speech", "asr_wer", mapping).metric_names, ["asr_wer"])
-        self.assertEqual(select_metrics("A2S", "a2t_intermediate", "mace", mapping).metric_names, ["mace"])
+        self.assertEqual(select_metrics("S2T", "wer", mapping).metric_names, ["wer"])
+        self.assertEqual(select_metrics("T2A", "fad", mapping).metric_names, ["fad"])
+        self.assertEqual(select_metrics("S2A", "fad", mapping).metric_names, ["fad"])
+        self.assertEqual(select_metrics("A2S", "asr_wer", mapping).metric_names, ["asr_wer"])
+        self.assertEqual(select_metrics("A2T", "mace", mapping).metric_names, ["mace"])
 
     def test_task_metric_mapping_rejects_invalid_pairs(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
         with self.assertRaises(EvaluationError):
-            select_metrics("T2A", None, "asr_wer", mapping)
+            select_metrics("T2A", "asr_wer", mapping)
         with self.assertRaises(EvaluationError):
-            select_metrics("S2A", None, "wer", mapping)
+            select_metrics("S2A", "wer", mapping)
         with self.assertRaises(EvaluationError):
-            select_metrics("A2S", None, "mace", mapping)
+            select_metrics("A2S", "mace", mapping)
 
     def test_task_metric_mapping_selects_defaults(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
-        selection = select_metrics("T2A", None, None, mapping)
-        self.assertEqual(selection.stage, "final_audio")
+        selection = select_metrics("T2A", None, mapping)
         self.assertEqual(selection.metric_names, ["fad", "kad", "kld", "clap_similarity"])
 
     def test_metric_specific_validation_does_not_require_unused_fields(self) -> None:
@@ -107,7 +106,6 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="audio_omni",
                 task="T2A",
-                stage="final_audio",
                 dataset="ttas",
                 split="test",
                 manifest_path=manifest,

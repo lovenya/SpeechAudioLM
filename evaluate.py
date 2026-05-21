@@ -20,7 +20,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate SpeechAudio LM baseline outputs.")
     parser.add_argument("--model", required=True, help="Model/backend name, e.g. audio_omni.")
     parser.add_argument("--task", required=True, help="Task name, e.g. T2A, T2S, S2A, or A2S.")
-    parser.add_argument("--stage", default=None, help="Evaluation stage for cascaded tasks, e.g. final_audio or s2t_intermediate.")
     parser.add_argument("--dataset", default="ttas", help="Dataset name. Defaults to ttas.")
     parser.add_argument("--split", default="test", help="Dataset split. Defaults to test.")
     parser.add_argument("--manifest", default=None, help="Optional explicit baseline manifest path.")
@@ -44,7 +43,7 @@ def main() -> None:
         capabilities = load_capabilities(Path(args.capabilities_config))
         validate_model_task(args.model, args.task, capabilities)
         task_metric_map = load_task_metric_map(Path(args.task_metric_map))
-        selection = select_metrics(args.task, args.stage, args.metrics, task_metric_map)
+        selection = select_metrics(args.task, args.metrics, task_metric_map)
         manifest_path = resolve_manifest_path(
             model=args.model,
             task=args.task,
@@ -57,7 +56,6 @@ def main() -> None:
         options = EvalOptions(
             model=args.model,
             task=args.task,
-            stage=selection.stage,
             dataset=args.dataset,
             split=args.split,
             manifest_path=manifest_path,

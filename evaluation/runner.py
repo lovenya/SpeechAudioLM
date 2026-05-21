@@ -19,7 +19,6 @@ from project_conventions import eval_model_root
 class EvalOptions:
     model: str
     task: str
-    stage: str
     dataset: str
     split: str
     manifest_path: Path
@@ -89,7 +88,6 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
         "dry_run": True,
         "model": options.model,
         "task": options.task,
-        "stage": options.stage,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -164,7 +162,7 @@ def _evaluate_row(row: dict, ordinal: int, specs: list[MetricSpec], dataset_root
         return result
 
     for spec in specs:
-        if spec.corpus_only:
+        if spec.level == "corpus":
             continue
         try:
             value = _compute_per_sample_metric(spec, row, source)
@@ -357,7 +355,7 @@ def _summarize(options: EvalOptions, rows: list[dict], backend_metadata: dict[st
         ]
         if values:
             stats[name] = _numeric_summary(values)
-        elif any(spec.name == name and spec.corpus_only for spec in options.metric_specs):
+        elif any(spec.name == name and spec.level == "corpus" for spec in options.metric_specs):
             stats[name] = {"level": "corpus", "status": "not_computed_in_scaffold"}
 
     grouped_errors: dict[str, dict[str, int]] = {}
@@ -369,7 +367,6 @@ def _summarize(options: EvalOptions, rows: list[dict], backend_metadata: dict[st
     return {
         "model": options.model,
         "task": options.task,
-        "stage": options.stage,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -398,7 +395,6 @@ def _run_config(options: EvalOptions, backend_metadata: dict[str, dict]) -> dict
     return {
         "model": options.model,
         "task": options.task,
-        "stage": options.stage,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -439,7 +435,6 @@ def _write_report(path: Path, summary: dict, run_config: dict) -> None:
     lines = [
         f"# Evaluation Report: {summary['model']} {summary['task']}",
         "",
-        f"- Stage: `{summary['stage']}`",
         f"- Dataset: `{summary['dataset']}`",
         f"- Split: `{summary['split']}`",
         f"- Manifest: `{summary['manifest']}`",

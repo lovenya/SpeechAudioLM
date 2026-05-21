@@ -1,54 +1,38 @@
 {
   "A2T": {
     "description": "audio to text / audio captioning",
-    "default_stage": "final_caption",
     "default_metrics": ["mace", "spider", "clap_similarity"],
     "allowed_metrics": ["mace", "spider", "clap_similarity", "fense", "spider_max"],
     "output_type": "text"
   },
   "S2T": {
     "description": "speech to text / ASR transcription",
-    "default_stage": "final_transcript",
     "default_metrics": ["wer"],
     "allowed_metrics": ["wer", "semantic_equivalence"],
     "output_type": "text"
   },
   "T2S": {
     "description": "text to speech / generated speech",
-    "default_stage": "final_speech",
     "default_metrics": ["asr_wer", "dwer", "utmos", "dnsmos"],
     "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
     "output_type": "audio"
   },
   "T2A": {
     "description": "text to audio / environmental audio generation",
-    "default_stage": "final_audio",
     "default_metrics": ["fad", "kad", "kld", "clap_similarity"],
     "allowed_metrics": ["fad", "kad", "kld", "clap_similarity", "inception_score"],
     "output_type": "audio"
   },
   "S2A": {
     "description": "speech to audio cascade/direct task",
-    "default_stage": "final_audio",
     "default_metrics": ["fad", "kad", "kld", "clap_similarity"],
     "allowed_metrics": ["fad", "kad", "kld", "clap_similarity", "inception_score"],
-    "stage_metric_overrides": {
-      "s2t_intermediate": ["wer", "semantic_equivalence"],
-      "text_reasoning_intermediate": [],
-      "final_audio": ["fad", "kad", "kld", "clap_similarity", "inception_score"]
-    },
     "output_type": "audio"
   },
   "A2S": {
     "description": "audio to speech cascade/direct task",
-    "default_stage": "final_speech",
     "default_metrics": ["asr_wer", "dwer", "utmos", "dnsmos"],
     "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
-    "stage_metric_overrides": {
-      "a2t_intermediate": ["mace", "spider", "clap_similarity"],
-      "text_reasoning_intermediate": [],
-      "final_speech": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"]
-    },
     "output_type": "audio"
   }
 }
