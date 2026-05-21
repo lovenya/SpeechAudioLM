@@ -140,10 +140,11 @@ Assets to download:
 
 ```bash
 mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
-export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics
+export AAC_METRICS_CACHE=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
+export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
 export TORCH_HOME=/project/rrg-csubakan/lovenya/cache/metrics/torch
 export SENTENCE_TRANSFORMERS_HOME=/project/rrg-csubakan/lovenya/cache/metrics/sentence_transformers
-aac-metrics-download
+aac-metrics-download --cache_path "$AAC_METRICS_CACHE"
 aac-metrics-info
 ```
 
@@ -157,8 +158,8 @@ Smoke test:
 
 ```bash
 source .venvs/metrics/.venv-eval-aac/bin/activate
-export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics
-python scripts/eval_backend_smoke/smoke_aac_metrics.py --metrics spider --device cpu
+export AAC_METRICS_CACHE=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
+python scripts/eval_backend_smoke/smoke_aac_metrics.py --cache-dir "$AAC_METRICS_CACHE" --metrics spider --device cpu
 ```
 
 Expected output shape:
@@ -170,6 +171,9 @@ Expected output shape:
 Known caveats:
 
 - SPIDEr/MACE assets may require Java and cached external code/assets.
+- `aac-metrics-download` defaults to a user cache such as
+  `/home/lovenya/.cache`. For offline compute runs, pass `--cache_path` and use
+  the same path in the smoke/evaluator config.
 - MACE needs candidate caption, reference `source.audio_cap`, and reference
   `source.audio_file`.
 - SPIDEr needs candidate caption and reference `source.audio_cap`.

@@ -7,3 +7,6 @@
   option 1 is `aac-metrics` CLAPSim / `msclap` for AAC-style scoring;
   option 2 is LAION-CLAP or an audio-generation evaluation backend for T2A.
 - Add evaluator resumability and an explicit `--overwrite` flag before long full-corpus metric runs.
+- Recreate/migrate misplaced metric envs when convenient:
+  `aac-metrics` currently exists at `.venvs/.venv-eval-aac`; Whisper also remains outside `.venvs/metrics/` for now.
+  Do not move venv directories in place; recreate them under `.venvs/metrics/`.
