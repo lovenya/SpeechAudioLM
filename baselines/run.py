@@ -22,6 +22,7 @@ def run_inference(
     run_config: dict,
     total_rows: int,
     resource_interval: float,
+    continue_on_error: bool = False,
 ) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
     output_dir = output_root / runner.output_subdir
@@ -49,6 +50,7 @@ def run_inference(
     load_start = time.time()
     processed = 0
     skipped = 0
+    failed = 0
     run_start = time.time()
     try:
         resource_monitor.start()
@@ -65,11 +67,39 @@ def run_inference(
 
                 logger.log(_progress_line("generate", ordinal, total_rows, run_start, row, output_path))
                 start = time.time()
-                result = runner.generate(row, output_path)
+                try:
+                    result = runner.generate(row, output_path)
+                except Exception as exc:
+                    if not continue_on_error:
+                        raise
+                    failed += 1
+                    elapsed = time.time() - start
+                    record = {
+                        **run_config,
+                        "status": "error",
+                        "row_index": row.row_index,
+                        "sample_id": row.sample_id,
+                        "prompt": row.prompt,
+                        "output_file": str(output_path),
+                        "generation_seconds": round(elapsed, 3),
+                        "source": row.record,
+                        "error": {
+                            "type": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    }
+                    manifest.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    manifest.flush()
+                    logger.log(
+                        f"error row={row.row_index} sample_id={row.sample_id} "
+                        f"type={type(exc).__name__} message={str(exc)!r} seconds={elapsed:.2f}"
+                    )
+                    continue
                 elapsed = time.time() - start
                 processed += 1
                 record = {
                     **run_config,
+                    "status": "success",
                     "row_index": row.row_index,
                     "sample_id": row.sample_id,
                     "prompt": row.prompt,
@@ -85,7 +115,8 @@ def run_inference(
     finally:
         resource_monitor.stop()
         logger.log(
-            f"done processed={processed} skipped={skipped} total_seen={processed + skipped} "
+            f"done processed={processed} skipped={skipped} failed={failed} "
+            f"total_seen={processed + skipped + failed} "
             f"elapsed={_format_seconds(time.time() - run_start)}"
         )
         logger.close()

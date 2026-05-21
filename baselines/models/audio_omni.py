@@ -247,6 +247,9 @@ class AudioOmniRunner(BaselineRunner):
         processor = omni_cond.processor
         omni_model = omni_cond.model
 
+        if audio:
+            self._validate_understanding_audio(Path(audio))
+
         user_content = []
         if video:
             user_content.append({"type": "video", "video": video})
@@ -288,6 +291,16 @@ class AudioOmniRunner(BaselineRunner):
             clean_up_tokenization_spaces=False,
         )
         return output[0].strip() if output else ""
+
+    def _validate_understanding_audio(self, path: Path) -> None:
+        if not path.exists():
+            raise FileNotFoundError(f"Audio-Omni understanding input does not exist: {path}")
+        size = path.stat().st_size
+        if size < 4096:
+            raise ValueError(
+                "Audio-Omni understanding input is too small to decode reliably: "
+                f"{path} ({size} bytes)"
+            )
 
     def _check_understanding_dependencies(self) -> None:
         try:

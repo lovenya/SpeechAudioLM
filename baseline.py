@@ -79,6 +79,11 @@ def parse_args() -> argparse.Namespace:
         help="Seconds between resource-monitor samples. Use 0 to disable.",
     )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate files that already exist.")
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Record per-sample errors in the manifest and continue instead of stopping the run.",
+    )
     parser.add_argument("--model-path", default=None, help="Override local model path for the selected backend.")
     parser.add_argument(
         "--prompt-template",
@@ -193,6 +198,7 @@ def main() -> None:
         run_config=run_config,
         total_rows=total_rows,
         resource_interval=args.resource_interval,
+        continue_on_error=args.continue_on_error,
     )
 
 
