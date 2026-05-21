@@ -1,0 +1,79 @@
+#!/usr/bin/env python
+"""Evaluate baseline outputs from a manifest."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from evaluation.capabilities import load_capabilities, validate_model_task
+from evaluation.errors import EvaluationError
+from evaluation.manifest import resolve_manifest_path
+from evaluation.metrics import get_metric_specs, parse_metric_names
+from evaluation.runner import EvalOptions, dry_run, run_evaluation
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate SpeechAudio LM baseline outputs.")
+    parser.add_argument("--model", required=True, help="Model/backend name, e.g. audio_omni.")
+    parser.add_argument("--task", required=True, help="Task name, e.g. T2A, T2S, S2A, or A2S.")
+    parser.add_argument("--dataset", default="ttas", help="Dataset name. Defaults to ttas.")
+    parser.add_argument("--split", default="test", help="Dataset split. Defaults to test.")
+    parser.add_argument("--manifest", default=None, help="Optional explicit baseline manifest path.")
+    parser.add_argument("--metrics", default=None, help="Comma-separated metrics. Defaults depend on --task.")
+    parser.add_argument("--dataset-config", default="configs/ttas_dataset.json")
+    parser.add_argument("--metrics-config", default="configs/eval_metrics.json")
+    parser.add_argument("--capabilities-config", default="configs/model_capabilities.json")
+    parser.add_argument("--baseline-root", default="results/baselines")
+    parser.add_argument("--output-root", default="results/evals")
+    parser.add_argument("--cache-dir", default="results/evals/cache")
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--max-samples", type=int, default=None, help="Limit rows for debugging.")
+    parser.add_argument("--dry-run", action="store_true", help="Validate inputs and print planned evaluation.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    try:
+        capabilities = load_capabilities(Path(args.capabilities_config))
+        validate_model_task(args.model, args.task, capabilities)
+        manifest_path = resolve_manifest_path(
+            model=args.model,
+            task=args.task,
+            dataset=args.dataset,
+            split=args.split,
+            explicit_manifest=args.manifest,
+            baseline_root=Path(args.baseline_root),
+        )
+        metric_specs = get_metric_specs(parse_metric_names(args.metrics, args.task))
+        options = EvalOptions(
+            model=args.model,
+            task=args.task,
+            dataset=args.dataset,
+            split=args.split,
+            manifest_path=manifest_path,
+            dataset_config_path=Path(args.dataset_config),
+            metrics_config_path=Path(args.metrics_config),
+            output_root=Path(args.output_root),
+            metric_specs=metric_specs,
+            max_samples=args.max_samples,
+            cache_dir=Path(args.cache_dir),
+            device=args.device,
+            command=sys.argv,
+        )
+        if args.dry_run:
+            print(json.dumps(dry_run(options), indent=2, ensure_ascii=False, sort_keys=True))
+            return
+        paths = run_evaluation(options)
+    except EvaluationError as exc:
+        raise SystemExit(f"error: {exc}") from None
+
+    for name, path in paths.items():
+        print(f"{name}={path}")
+
+
+if __name__ == "__main__":
+    main()
