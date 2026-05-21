@@ -157,7 +157,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-module load java/17.0.6
+module load java/11.0.22
 source .venvs/metrics/.venv-eval-aac/bin/activate
 export AAC_METRICS_CACHE=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
 unset JAVA_TOOL_OPTIONS
@@ -174,7 +174,8 @@ Known caveats:
 
 - SPIDEr/MACE assets may require Java and cached external code/assets.
 - On this cluster, load Java before SPIDEr/MACE tokenization:
-  `module load java/17.0.6`.
+  `module load java/11.0.22`. Java 17 is visible on the cluster but rejected by
+  `aac-metrics` tokenization checks, which expect a major version in `[8, 13]`.
 - Unset `JAVA_TOOL_OPTIONS` before running `aac-metrics`. Its Java version
   parser can misread the cluster banner `Picked up JAVA_TOOL_OPTIONS: ...` as a
   version string.
