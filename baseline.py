@@ -9,6 +9,7 @@ from pathlib import Path
 from baselines.dataset import count_jsonl_rows, iter_split_rows, load_dataset_config
 from baselines.models import get_runner
 from baselines.run import dry_run_inference, run_inference
+from project_conventions import baseline_output_root, default_prompt_field
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,6 +30,11 @@ def parse_args() -> argparse.Namespace:
         "--dataset-config",
         default="configs/ttas_dataset.json",
         help="Dataset config JSON with split paths.",
+    )
+    parser.add_argument(
+        "--dataset",
+        default="ttas",
+        help="Dataset name used in output paths. Defaults to ttas.",
     )
     parser.add_argument(
         "--split",
@@ -140,8 +146,8 @@ def main() -> None:
         start_index=args.start_index,
         num_samples=args.num_samples,
     )
-    output_root = Path(args.output_dir) / args.model / args.task / args.split / prompt_field
-    log_root = Path(args.log_dir) / args.model / args.task / args.split / prompt_field
+    output_root = baseline_output_root(args.model, args.task, args.dataset, args.split, Path(args.output_dir))
+    log_root = baseline_output_root(args.model, args.task, args.dataset, args.split, Path(args.log_dir))
     total_rows = count_jsonl_rows(
         split_path,
         start_index=args.start_index,
@@ -151,6 +157,7 @@ def main() -> None:
     run_config = {
         "model": args.model,
         "task": args.task,
+        "dataset": args.dataset,
         "split": args.split,
         "split_file": str(split_path),
         "prompt_field": prompt_field,
@@ -200,15 +207,5 @@ def main() -> None:
         resource_interval=args.resource_interval,
         continue_on_error=args.continue_on_error,
     )
-
-
-def default_prompt_field(task: str) -> str:
-    if task in {"T2A", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"}:
-        return "audio_cap"
-    if task in {"T2S", "S2A"}:
-        return "speech_text"
-    raise ValueError(f"Unsupported task: {task}")
-
-
 if __name__ == "__main__":
     main()

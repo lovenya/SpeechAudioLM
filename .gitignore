@@ -1,6 +1,7 @@
 # Internal/local documentation. Keep README.md as the public repo doc.
 *.md
 !README.md
+!baselines/README.md
 docs/
 
 # Python cache files

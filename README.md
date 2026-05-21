@@ -129,19 +129,42 @@ Use `--dry-run` to inspect selected rows and output paths without loading a mode
 
 AudioGen and TangoFlux support native `T2A` only and receive raw captions. Audio-Omni supports native `T2A`/`T2S` and cascaded `S2A`/`A2S`. Qwen3-Omni pseudo-T2A tasks are exploratory talker probes, not true text-to-audio baselines.
 
-Default outputs are organized under:
+Default baseline outputs are organized under:
 
 ```text
-results/baselines/<model>/<task>/<split>/<prompt_field>/
+results/baselines/<model>/<task>/<dataset>/<split>/
 ```
 
 Run logs and resource samples are organized similarly under:
 
 ```text
-logs/baselines/<model>/<task>/<split>/<prompt_field>/
+logs/baselines/<model>/<task>/<dataset>/<split>/
 ```
 
 The `results/` and `logs/` directories are ignored by git.
+
+## Evaluation CLI
+
+Use `evaluate.py` to score a baseline manifest. The evaluator resolves the
+canonical manifest path from `--model`, `--task`, `--dataset`, and `--split`;
+`--manifest` can override this for older or custom runs.
+
+Example:
+
+```bash
+python evaluate.py --model audio_omni --task S2A --metrics wer --max-samples 2
+```
+
+Evaluation outputs are organized under:
+
+```text
+results/evals/<task>/<dataset>/<model>/
+```
+
+Each run writes timestamped `per_sample`, `summary`, `summary.csv`, `report`,
+and `run_config` files plus `latest_*` aliases. Heavy metrics are configurable
+through `configs/eval_metrics.json`; missing external packages or model weights
+fail only when the corresponding metric is selected.
 
 ## Repository Status
 
