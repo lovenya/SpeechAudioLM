@@ -276,7 +276,7 @@ def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> st
         return None
     if metric_name in {"wer", "semantic_equivalence"}:
         keys = ("understanding_text", "decoded_text", "converted_prompt", "generation_prompt")
-    elif metric_name in {"mace", "spider"}:
+    elif metric_name in {"mace", "spider", "aac_clapsim"}:
         keys = ("converted_prompt", "generation_prompt", "decoded_text", "understanding_text")
     else:
         keys = ("generation_prompt", "converted_prompt", "understanding_text", "decoded_text")
@@ -456,8 +456,8 @@ def _write_report(path: Path, summary: dict, run_config: dict) -> None:
     lines.extend(["", "## Dependency Notes", ""])
     lines.append("- aac-metrics / SPIDEr / MACE may require Java and cached assets.")
     lines.append("- KAD/kadtk may have Python version constraints and should be run corpus-level.")
-    lines.append("- ASR/CLAP/UTMOS/DNSMOS/FAD/KLD/IS require external model weights or toolkits.")
+    lines.append("- ASR/CLAP/UTMOS/DNSMOS/FAD/KL_PaSST/IS require external model weights or toolkits.")
     lines.append("- Generated-speech dWER is directional: WER(ASR(reference_speech), ASR(generated_speech)).")
-    lines.append("- FAD, KAD, KLD, and Inception Score are corpus-level metrics only.")
+    lines.append("- FAD, KAD, KL_PaSST, and Inception Score are corpus-level metrics only.")
     lines.extend(["", "## Command", "", "```text", " ".join(run_config.get("command", [])), "```", ""])
     path.write_text("\n".join(lines), encoding="utf-8")

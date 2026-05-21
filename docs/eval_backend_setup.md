@@ -201,64 +201,73 @@ Primary references:
 - https://github.com/Labbeti/aac-metrics
 - https://github.com/satvik-dixit/mace
 
-## 3. CLAP Backend
+## 3. stable-audio-metrics
 
 Supports:
 
-- `clap_similarity`
+- `clap_score_t2a`
+- `kl_passt`
 
 Decision status:
 
-- Do not install CLAP yet.
-- Need one consistent backend/checkpoint choice before implementation.
-
-Options:
-
-- Option 1: use `aac-metrics` CLAPSim / `msclap` for AAC-style caption/audio
-  similarity.
-- Option 2: use LAION-CLAP or an audio-generation evaluation backend for T2A
-  similarity.
+- Selected for T2A/S2A-final text-to-audio alignment and KL_PaSST.
+- Do not use this backend for A2T AAC CLAPSim; that remains under
+  `aac-metrics` as `aac_clapsim`.
 
 Install:
 
-```text
-Not selected yet.
+```bash
+python -m venv .venvs/metrics/.venv-eval-stable-audio-metrics
+source .venvs/metrics/.venv-eval-stable-audio-metrics/bin/activate
+python -m pip install --upgrade pip
+python -m pip install git+https://github.com/Stability-AI/stable-audio-metrics
 ```
 
 Assets to download:
 
-```text
-Not selected yet.
+```bash
+mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics
+export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics
+export TORCH_HOME=/project/rrg-csubakan/lovenya/cache/metrics/torch
+python - <<'PY'
+import stable_audio_metrics
+print(stable_audio_metrics)
+PY
 ```
 
 Cache directory:
 
 ```text
-TBD after backend choice.
+/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics
 ```
 
 Smoke test:
 
 ```bash
+source .venvs/metrics/.venv-eval-stable-audio-metrics/bin/activate
 python scripts/eval_backend_smoke/smoke_clap_backend.py
 ```
 
 Expected output shape:
 
-- JSON showing which candidate packages are currently importable.
-- No model scores yet.
+- Import smoke should confirm the package imports.
+- Future folder smoke should report sample-level `clap_score_t2a` values and
+  corpus-level `kl_passt`.
 
 Known caveats:
 
-- CLAP scores can differ substantially by backend/checkpoint/sample-rate policy.
-- Choose one backend before writing adapters or reports.
-- Record model checkpoint, config, sample-rate/resampling policy, cache path, and
-  package/git version in `run_config`.
+- `clap_score_t2a` uses LAION-CLAP. Prefer checkpoint
+  `630k-audioset-fusion-best` if available through the package.
+- `kl_passt` uses a PaSST classifier.
+- Stable Audio Metrics documentation indicates GPU support is expected for
+  metric execution; use compute nodes for real scoring.
+- Record LAION-CLAP checkpoint, PaSST config, package/git version, cache path,
+  and backend sample-rate/resampling policy in `run_config`.
 
 Node:
 
-- Current decision smoke: login node.
-- Future model load/scoring: compute node.
+- Import-only: login node is acceptable.
+- Model load/scoring: compute node.
 
 Primary references:
 
@@ -266,9 +275,11 @@ Primary references:
 
 TODO:
 
-- Select one CLAP backend/checkpoint before implementation.
+- Verify whether checkpoint `630k-audioset-fusion-best` is available and how the
+  package names it.
+- Add a tiny folder smoke test for `clap_score_t2a` and `kl_passt` after setup.
 
-## 4. UTMOS
+## 4. UTMOSv2
 
 Supports:
 
@@ -277,52 +288,46 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venvs/metrics/.venv-eval-utmos
-source .venvs/metrics/.venv-eval-utmos/bin/activate
+python -m venv .venvs/metrics/.venv-eval-utmosv2
+source .venvs/metrics/.venv-eval-utmosv2/bin/activate
 python -m pip install --upgrade pip
-python -m pip install torch torchaudio librosa
+python -m pip install git+https://github.com/sarulab-speech/UTMOSv2
 ```
 
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/models/metrics/torchhub
-export TORCH_HOME=/project/rrg-csubakan/lovenya/models/metrics/torchhub
-python - <<'PY'
-import torch
-predictor = torch.hub.load("tarepan/SpeechMOS:v1.2.0", "utmos22_strong", trust_repo=True)
-wave = torch.zeros((1, 16000))
-print(predictor(wave, sr=16000))
-PY
+mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/utmosv2
+export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics/utmosv2
 ```
 
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/models/metrics/torchhub
+/project/rrg-csubakan/lovenya/cache/metrics/utmosv2
 ```
 
 Smoke test:
 
 ```bash
-source .venvs/metrics/.venv-eval-utmos/bin/activate
-export TORCH_HOME=/project/rrg-csubakan/lovenya/models/metrics/torchhub
+source .venvs/metrics/.venv-eval-utmosv2/bin/activate
 python scripts/eval_backend_smoke/smoke_utmos.py
 python scripts/eval_backend_smoke/smoke_utmos.py --load-model
 ```
 
 Expected output shape:
 
-- Import-only smoke: JSON with Torch version.
-- Model smoke: JSON with `score_shape: [1]`.
+- Import-only smoke: JSON with package/import status.
+- Model smoke: JSON with one MOS-like score per test waveform once UTMOSv2
+  invocation is wired.
 
 Known caveats:
 
-- SpeechMOS loads through `torch.hub`, so the repo/checkpoint must be cached
-  before offline compute runs.
+- This project uses UTMOSv2 from `sarulab-speech/UTMOSv2`, not the older
+  SpeechMOS/UTMOS torch.hub backend.
 - UTMOS is for generated speech quality, not environmental audio quality.
-- Record checkpoint/tag `tarepan/SpeechMOS:v1.2.0`, specifier
-  `utmos22_strong`, sample rate, and cache path.
+- Record UTMOSv2 package/git commit, checkpoint/cache path, sample rate, and
+  preprocessing policy.
 
 Node:
 
@@ -331,13 +336,17 @@ Node:
 
 Primary references:
 
-- https://github.com/tarepan/SpeechMOS
+- https://github.com/sarulab-speech/UTMOSv2
 
 ## 5. DNSMOS
 
 Supports:
 
 - `dnsmos`
+
+Decision status:
+
+- Deferred. Do not set up or implement until backend choice is revisited.
 
 Install:
 
@@ -404,7 +413,6 @@ Primary references:
 Supports:
 
 - `fad`
-- `kld`
 - `inception_score`
 
 Install:
@@ -455,8 +463,8 @@ Expected output shape:
 
 - Import-only smoke: JSON with `helper_imported: true`.
 - Folder smoke: JSON with a `metrics` dictionary. Expected keys depend on
-  backend mode, but should include corpus-level audio-generation metrics such as
-  FAD, KL/KLD, and Inception Score when available.
+  backend mode, but should include corpus-level FAD and Inception Score when
+  available.
 
 Known caveats:
 
@@ -465,11 +473,11 @@ Known caveats:
   `MySQL-python` and fails on Python 3 with `No module named 'ConfigParser'`.
   Use the `--no-deps` install above and install Python 3-compatible
   dependencies manually.
-- FAD/KLD/Inception Score are corpus-level only. Do not write fake per-sample
-  values.
+- FAD and Inception Score are corpus-level only. Do not write fake per-sample
+  values. KL_PaSST is handled by `stable-audio-metrics` as `kl_passt`.
 - The toolkit accepts reference/generated folders; paired vs unpaired behavior
   depends on filenames and counts.
-- Resampling can affect FAD/KLD/IS; record sample rate and preprocessing policy.
+- Resampling can affect FAD/IS; record sample rate and preprocessing policy.
 - Cache generated embedding files outside git.
 
 Node:
@@ -549,6 +557,11 @@ Primary references:
 ## Immediate TODOs Before Backend Adapters
 
 - Choose one CLAP backend/checkpoint and update `configs/eval_metrics.json`.
+- Verify `stable-audio-metrics` install and the LAION-CLAP checkpoint name for
+  `clap_score_t2a`.
+- Verify `stable-audio-metrics` PaSST setup for `kl_passt`.
+- Verify UTMOSv2 install and update `smoke_utmos.py` if the package API differs.
+- Defer DNSMOS backend selection.
 - Add evaluator `--resume` and `--overwrite` behavior before long corpus runs.
 - Decide whether each backend will have a dedicated adapter env or whether some
   can safely share an env.

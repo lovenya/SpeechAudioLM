@@ -58,8 +58,15 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
-    "clap_similarity": MetricSpec(
-        name="clap_similarity",
+    "aac_clapsim": MetricSpec(
+        name="aac_clapsim",
+        level="sample",
+        required_source_fields=("audio_file",),
+        requires_hypothesis_text=True,
+        external=True,
+    ),
+    "clap_score_t2a": MetricSpec(
+        name="clap_score_t2a",
         level="sample",
         required_source_fields=("audio_cap",),
         requires_output_file=True,
@@ -93,8 +100,8 @@ _SPECS = {
         requires_output_file=True,
         external=True,
     ),
-    "kld": MetricSpec(
-        name="kld",
+    "kl_passt": MetricSpec(
+        name="kl_passt",
         level="corpus",
         required_source_fields=("audio_file",),
         requires_output_file=True,

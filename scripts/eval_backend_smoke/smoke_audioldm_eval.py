@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Smoke-check audioldm_eval for FAD/KLD/Inception Score."""
+"""Smoke-check audioldm_eval for FAD/Inception Score."""
 
 from __future__ import annotations
 

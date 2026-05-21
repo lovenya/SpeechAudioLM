@@ -27,10 +27,20 @@
       "backend": "aac-metrics",
       "cache_dir": null
     },
-    "clap_similarity": {
-      "backend": null,
-      "model_name": null,
-      "model_path": null
+    "aac_clapsim": {
+      "backend": "aac-metrics",
+      "model_name": "MS-CLAP-2023",
+      "model_path": null,
+      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics"
+    },
+    "clap_score_t2a": {
+      "backend": "stable-audio-metrics",
+      "model_name": "LAION-CLAP",
+      "checkpoint": "630k-audioset-fusion-best",
+      "model_path": null,
+      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics",
+      "sample_rate": 48000,
+      "resampling_policy": "backend_default"
     },
     "fense": {
       "backend": null,
@@ -43,29 +53,36 @@
       "model_path": null
     },
     "fad": {
-      "backend": null,
-      "model_name": null,
-      "model_path": null
+      "backend": "audioldm_eval",
+      "model_name": "PANNs",
+      "model_path": null,
+      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/audioldm_eval"
     },
     "kad": {
-      "backend": null,
+      "backend": "kadtk",
       "model_name": null,
-      "model_path": null
+      "model_path": null,
+      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/kadtk"
     },
-    "kld": {
-      "backend": null,
-      "model_name": null,
-      "model_path": null
+    "kl_passt": {
+      "backend": "stable-audio-metrics",
+      "model_name": "PaSST",
+      "model_path": null,
+      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics",
+      "sample_rate": 32000,
+      "resampling_policy": "backend_default"
     },
     "inception_score": {
-      "backend": null,
-      "model_name": null,
-      "model_path": null
+      "backend": "audioldm_eval",
+      "model_name": "PANNs",
+      "model_path": null,
+      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/audioldm_eval"
     },
     "utmos": {
-      "backend": null,
-      "model_name": null,
-      "model_path": null
+      "backend": "utmosv2",
+      "model_name": "UTMOSv2",
+      "model_path": null,
+      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/utmosv2"
     },
     "dnsmos": {
       "backend": null,

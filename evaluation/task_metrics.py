@@ -85,9 +85,13 @@ def _invalid_metric_message(task: str, invalid: list[str]) -> str:
             " WER is valid for S2T transcription. Evaluate the S2T component manifest directly, "
             "not the combined S2A final-audio manifest."
         )
-    if task == "A2S" and any(name in {"mace", "spider", "clap_similarity"} for name in invalid):
+    if task == "A2S" and any(name in {"mace", "spider", "aac_clapsim"} for name in invalid):
         message += (
             " A2T caption metrics are valid for A2T captioning. Evaluate the A2T component "
             "manifest directly, not the combined A2S final-speech manifest."
         )
+    if task in {"T2A", "S2A"} and any(name in {"mace", "spider", "aac_clapsim"} for name in invalid):
+        message += " AAC caption metrics are valid for A2T captioning, not final generated-audio evaluation."
+    if task == "A2T" and any(name in {"clap_score_t2a", "kl_passt", "fad", "kad", "inception_score"} for name in invalid):
+        message += " Audio-generation metrics are valid for T2A/S2A final audio, not A2T captioning."
     return message

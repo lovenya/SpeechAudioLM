@@ -11,6 +11,8 @@ PACKAGE_BY_BACKEND = {
     "aac-metrics": "aac-metrics",
     "audioldm_eval": "audioldm-eval",
     "kadtk": "kadtk",
+    "stable-audio-metrics": "stable-audio-metrics",
+    "utmosv2": "utmosv2",
 }
 
 
@@ -31,6 +33,7 @@ def backend_metadata(name: str, config: dict[str, Any], device: str, cache_dir: 
         "git_commit": config.get("git_commit"),
         "model_name": config.get("model_name"),
         "model_path": config.get("model_path"),
+        "checkpoint": config.get("checkpoint"),
         "config_name": config.get("config_name"),
         "device": device,
         "cache_dir": str(config.get("cache_dir") or cache_dir),
@@ -59,4 +62,3 @@ def require_configured_backend(name: str, config: dict[str, Any]) -> None:
             raise MetricUnavailableError(
                 f"Metric {name!r} uses backend {backend!r}, but package {package_name!r} is not installed."
             ) from exc
-

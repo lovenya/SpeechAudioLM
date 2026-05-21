@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Smoke-check UTMOS through SpeechMOS torch.hub."""
+"""Smoke-check UTMOSv2 import/model availability."""
 
 from __future__ import annotations
 
@@ -9,33 +9,28 @@ import os
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Smoke test UTMOS/SpeechMOS.")
-    parser.add_argument("--cache-dir", default="/project/rrg-csubakan/lovenya/models/metrics/torchhub")
-    parser.add_argument("--load-model", action="store_true", help="Load UTMOS22 strong. Use compute node if needed.")
+    parser = argparse.ArgumentParser(description="Smoke test UTMOSv2.")
+    parser.add_argument("--cache-dir", default="/project/rrg-csubakan/lovenya/cache/metrics/utmosv2")
+    parser.add_argument("--load-model", action="store_true", help="Reserved for a later UTMOSv2 model-load smoke.")
     parser.add_argument("--sample-rate", type=int, default=16000)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    os.environ.setdefault("TORCH_HOME", args.cache_dir)
+    os.environ.setdefault("XDG_CACHE_HOME", args.cache_dir)
 
-    import torch
+    import importlib.util
 
     result = {
-        "backend": "SpeechMOS/UTMOS",
+        "backend": "UTMOSv2",
         "cache_dir": args.cache_dir,
-        "torch_version": torch.__version__,
+        "package_importable": importlib.util.find_spec("utmosv2") is not None,
         "loaded": False,
         "score_shape": None,
     }
     if args.load_model:
-        predictor = torch.hub.load("tarepan/SpeechMOS:v1.2.0", "utmos22_strong", trust_repo=True)
-        wave = torch.zeros((1, args.sample_rate), dtype=torch.float32)
-        score = predictor(wave, sr=args.sample_rate)
-        result["loaded"] = True
-        result["score_shape"] = list(score.shape)
-        result["score_preview"] = [float(item) for item in score.detach().cpu().flatten()[:3]]
+        raise SystemExit("UTMOSv2 model-load smoke is not wired yet; first verify the package API after install.")
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

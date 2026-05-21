@@ -1,8 +1,8 @@
 {
   "A2T": {
     "description": "audio to text / audio captioning",
-    "default_metrics": ["mace", "spider", "clap_similarity"],
-    "allowed_metrics": ["mace", "spider", "clap_similarity", "fense", "spider_max"],
+    "default_metrics": ["mace", "spider", "aac_clapsim"],
+    "allowed_metrics": ["mace", "spider", "aac_clapsim", "fense", "spider_max"],
     "output_type": "text"
   },
   "S2T": {
@@ -13,25 +13,25 @@
   },
   "T2S": {
     "description": "text to speech / generated speech",
-    "default_metrics": ["asr_wer", "dwer", "utmos", "dnsmos"],
+    "default_metrics": ["asr_wer", "dwer", "utmos"],
     "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
     "output_type": "audio"
   },
   "T2A": {
     "description": "text to audio / environmental audio generation",
-    "default_metrics": ["fad", "kad", "kld", "clap_similarity"],
-    "allowed_metrics": ["fad", "kad", "kld", "clap_similarity", "inception_score"],
+    "default_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a"],
+    "allowed_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a", "inception_score"],
     "output_type": "audio"
   },
   "S2A": {
     "description": "speech to audio cascade/direct task",
-    "default_metrics": ["fad", "kad", "kld", "clap_similarity"],
-    "allowed_metrics": ["fad", "kad", "kld", "clap_similarity", "inception_score"],
+    "default_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a"],
+    "allowed_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a", "inception_score"],
     "output_type": "audio"
   },
   "A2S": {
     "description": "audio to speech cascade/direct task",
-    "default_metrics": ["asr_wer", "dwer", "utmos", "dnsmos"],
+    "default_metrics": ["asr_wer", "dwer", "utmos"],
     "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
     "output_type": "audio"
   }

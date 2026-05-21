@@ -180,8 +180,10 @@ Metric notes:
 - Generated-speech `asr_wer` is `WER(reference_transcript, ASR(generated_speech))`.
 - Generated-speech `dwer` is directional:
   `WER(ASR(reference_speech), ASR(generated_speech))`.
-- For text-to-audio, FAD, KAD, KLD, and Inception Score are corpus-level only.
-  CLAP similarity may be computed per sample and aggregated.
+- For text-to-audio, FAD, KAD, KL_PaSST, and Inception Score are corpus-level
+  only. T2A CLAPscore is computed per sample and aggregated.
+- A2T CLAPSim and T2A CLAPscore use different metric names and backends:
+  `aac_clapsim` and `clap_score_t2a`.
 - FAD is the only default Frechet-style audio metric for v1; generic FD is not
   included unless a later paper-specific comparison requires it.
 

@@ -38,23 +38,40 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertAlmostEqual(word_error_rate("a b c", "a b"), 1 / 3)
 
     def test_corpus_metrics_are_marked_by_level(self) -> None:
-        specs = get_metric_specs(["fad", "kad", "kld", "inception_score", "clap_similarity"])
+        specs = get_metric_specs(["fad", "kad", "kl_passt", "inception_score", "clap_score_t2a"])
         corpus_metrics = {spec.name for spec in specs if spec.level == "corpus"}
-        self.assertEqual(corpus_metrics, {"fad", "kad", "kld", "inception_score"})
-        self.assertEqual(next(spec for spec in specs if spec.name == "clap_similarity").level, "sample")
+        self.assertEqual(corpus_metrics, {"fad", "kad", "kl_passt", "inception_score"})
+        self.assertEqual(next(spec for spec in specs if spec.name == "clap_score_t2a").level, "sample")
+
+    def test_aac_clapsim_validates_text_against_reference_audio(self) -> None:
+        spec = get_metric_specs(["aac_clapsim"])[0]
+        self.assertEqual(spec.required_source_fields, ("audio_file",))
+        self.assertTrue(spec.requires_hypothesis_text)
+        self.assertFalse(spec.requires_output_file)
 
     def test_task_metric_mapping_allows_valid_pairs(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
         self.assertEqual(select_metrics("S2T", "wer", mapping).metric_names, ["wer"])
         self.assertEqual(select_metrics("T2A", "fad", mapping).metric_names, ["fad"])
+        self.assertEqual(select_metrics("T2A", "kl_passt", mapping).metric_names, ["kl_passt"])
+        self.assertEqual(select_metrics("T2A", "clap_score_t2a", mapping).metric_names, ["clap_score_t2a"])
         self.assertEqual(select_metrics("S2A", "fad", mapping).metric_names, ["fad"])
         self.assertEqual(select_metrics("A2S", "asr_wer", mapping).metric_names, ["asr_wer"])
         self.assertEqual(select_metrics("A2T", "mace", mapping).metric_names, ["mace"])
+        self.assertEqual(select_metrics("A2T", "aac_clapsim", mapping).metric_names, ["aac_clapsim"])
 
     def test_task_metric_mapping_rejects_invalid_pairs(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
         with self.assertRaises(EvaluationError):
             select_metrics("T2A", "asr_wer", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("T2A", "aac_clapsim", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("A2T", "clap_score_t2a", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("T2A", "kld", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("A2T", "clap_similarity", mapping)
         with self.assertRaises(EvaluationError):
             select_metrics("S2A", "wer", mapping)
         with self.assertRaises(EvaluationError):
@@ -62,8 +79,10 @@ class EvaluationScaffoldTest(unittest.TestCase):
 
     def test_task_metric_mapping_selects_defaults(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
-        selection = select_metrics("T2A", None, mapping)
-        self.assertEqual(selection.metric_names, ["fad", "kad", "kld", "clap_similarity"])
+        self.assertEqual(select_metrics("A2T", None, mapping).metric_names, ["mace", "spider", "aac_clapsim"])
+        self.assertEqual(select_metrics("T2A", None, mapping).metric_names, ["fad", "kad", "kl_passt", "clap_score_t2a"])
+        self.assertEqual(select_metrics("S2A", None, mapping).metric_names, ["fad", "kad", "kl_passt", "clap_score_t2a"])
+        self.assertEqual(select_metrics("T2S", None, mapping).metric_names, ["asr_wer", "dwer", "utmos"])
 
     def test_metric_specific_validation_does_not_require_unused_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
