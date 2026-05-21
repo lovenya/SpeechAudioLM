@@ -19,11 +19,13 @@ from project_conventions import eval_model_root
 class EvalOptions:
     model: str
     task: str
+    stage: str
     dataset: str
     split: str
     manifest_path: Path
     dataset_config_path: Path
     metrics_config_path: Path
+    task_metric_map_path: Path
     output_root: Path
     metric_specs: list[MetricSpec]
     max_samples: int | None
@@ -87,6 +89,7 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
         "dry_run": True,
         "model": options.model,
         "task": options.task,
+        "stage": options.stage,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -119,7 +122,7 @@ def _validate_rows(rows: list[dict], specs: list[MetricSpec], dataset_root: Path
                     errors.append(f"{sid}: metric {spec.name} requires source.{field}")
                 elif field in {"audio_file", "speech_file"} and not _resolve_reference(dataset_root, value).is_file():
                     errors.append(f"{sid}: metric {spec.name} reference path does not exist: {_resolve_reference(dataset_root, value)}")
-            if spec.requires_hypothesis_text and _hypothesis_text(row, spec.name) is None:
+            if spec.requires_hypothesis_text and _prediction_text_for_metric(row, spec.name) is None:
                 errors.append(f"{sid}: metric {spec.name} requires a text prediction in model_extra")
     if errors:
         preview = "\n".join(f"  - {item}" for item in errors[:20])
@@ -176,7 +179,7 @@ def _evaluate_row(row: dict, ordinal: int, specs: list[MetricSpec], dataset_root
 def _compute_per_sample_metric(spec: MetricSpec, row: dict, source: dict) -> float | None:
     if spec.name == "wer":
         reference = normalize_text(source["speech_text"])
-        hypothesis = normalize_text(_hypothesis_text(row, spec.name) or "")
+        hypothesis = normalize_text(_prediction_text_for_metric(row, spec.name) or "")
         return word_error_rate(reference, hypothesis)
     if spec.external:
         return None
@@ -227,7 +230,7 @@ def _compute_aac_metrics(
         if not is_successful_generation(row):
             continue
         source = source_record(row)
-        candidate = _hypothesis_text(row, "mace")
+        candidate = _prediction_text_for_metric(row, "mace")
         if candidate is None:
             continue
         candidates.append(candidate)
@@ -269,7 +272,7 @@ def _apply_sentence_scores(per_sample_rows: list[dict], row_map: list[int], metr
         per_sample_rows[row_index]["metrics"][metric] = float(value)
 
 
-def _hypothesis_text(row: dict, metric_name: str | None = None) -> str | None:
+def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> str | None:
     extra = row.get("model_extra")
     if not isinstance(extra, dict):
         return None
@@ -289,11 +292,41 @@ def _hypothesis_text(row: dict, metric_name: str | None = None) -> str | None:
 
 
 def _predictions(row: dict, specs: list[MetricSpec]) -> dict:
-    result = {}
-    for spec in specs:
-        if spec.requires_hypothesis_text:
-            result[spec.name] = _hypothesis_text(row, spec.name)
+    result: dict = {}
+    output_file = row.get("output_file")
+    if isinstance(output_file, str) and output_file:
+        if output_file.endswith(".wav"):
+            if row.get("task") in {"T2S", "A2S"}:
+                result["generated_speech"] = output_file
+            else:
+                result["generated_audio"] = output_file
+        elif output_file.endswith(".json"):
+            result["generated_text_file"] = output_file
+
+    extra = row.get("model_extra")
+    if isinstance(extra, dict):
+        text = _text_value(extra.get("understanding_text"))
+        if text:
+            result["generated_text"] = text
+            result["transcript"] = text
+        converted = _text_value(extra.get("converted_prompt"))
+        if converted:
+            result["converted_text"] = converted
+        prompt = _text_value(extra.get("generation_prompt"))
+        if prompt:
+            result["generation_prompt"] = prompt
+        decoded = _text_value(extra.get("decoded_text"))
+        if decoded and "generated_text" not in result:
+            result["generated_text"] = decoded
     return result
+
+
+def _text_value(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
+    if isinstance(value, list) and value and isinstance(value[0], str) and value[0].strip():
+        return value[0]
+    return None
 
 
 def _references(source: dict, specs: list[MetricSpec], dataset_root: Path) -> dict:
@@ -336,6 +369,7 @@ def _summarize(options: EvalOptions, rows: list[dict], backend_metadata: dict[st
     return {
         "model": options.model,
         "task": options.task,
+        "stage": options.stage,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -364,11 +398,13 @@ def _run_config(options: EvalOptions, backend_metadata: dict[str, dict]) -> dict
     return {
         "model": options.model,
         "task": options.task,
+        "stage": options.stage,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
         "dataset_config": str(options.dataset_config_path),
         "metrics_config": str(options.metrics_config_path),
+        "task_metric_map": str(options.task_metric_map_path),
         "metrics": [spec.name for spec in options.metric_specs],
         "metric_backends": backend_metadata,
         "cache_dir": str(options.cache_dir),
@@ -403,6 +439,7 @@ def _write_report(path: Path, summary: dict, run_config: dict) -> None:
     lines = [
         f"# Evaluation Report: {summary['model']} {summary['task']}",
         "",
+        f"- Stage: `{summary['stage']}`",
         f"- Dataset: `{summary['dataset']}`",
         f"- Split: `{summary['split']}`",
         f"- Manifest: `{summary['manifest']}`",

@@ -149,12 +149,14 @@ The `results/` and `logs/` directories are ignored by git.
 
 Use `evaluate.py` to score a baseline manifest. The evaluator resolves the
 canonical manifest path from `--model`, `--task`, `--dataset`, and `--split`;
-`--manifest` can override this for older or custom runs.
+`--manifest` can override this for older or custom runs. Task and stage metric
+validity is loaded from `configs/task_metric_map.json`.
 
 Example:
 
 ```bash
-python evaluate.py --model audio_omni --task S2A --metrics wer --max-samples 2
+python evaluate.py --model audio_omni --task S2T --metrics wer --max-samples 2
+python evaluate.py --model audio_omni --task S2A --stage final_audio --metrics fad --dry-run
 ```
 
 Evaluation outputs are organized under:
@@ -170,6 +172,11 @@ fail only when the corresponding metric is selected.
 
 Metric notes:
 
+- `--metrics` is optional; defaults are selected from the task/stage mapping.
+- S2A final-output evaluation uses audio-generation metrics, not WER. WER is
+  only valid for S2T or an explicitly selected S2A transcript stage.
+- A2S final-output evaluation uses generated-speech metrics. Caption metrics
+  are only valid for an explicitly selected A2S caption stage.
 - Generated-speech `asr_wer` is `WER(reference_transcript, ASR(generated_speech))`.
 - Generated-speech `dwer` is directional:
   `WER(ASR(reference_speech), ASR(generated_speech))`.

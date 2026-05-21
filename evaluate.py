@@ -11,20 +11,23 @@ from pathlib import Path
 from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
 from evaluation.manifest import resolve_manifest_path
-from evaluation.metrics import get_metric_specs, parse_metric_names
+from evaluation.metrics import get_metric_specs
 from evaluation.runner import EvalOptions, dry_run, run_evaluation
+from evaluation.task_metrics import load_task_metric_map, select_metrics
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate SpeechAudio LM baseline outputs.")
     parser.add_argument("--model", required=True, help="Model/backend name, e.g. audio_omni.")
     parser.add_argument("--task", required=True, help="Task name, e.g. T2A, T2S, S2A, or A2S.")
+    parser.add_argument("--stage", default=None, help="Evaluation stage for cascaded tasks, e.g. final_audio or s2t_intermediate.")
     parser.add_argument("--dataset", default="ttas", help="Dataset name. Defaults to ttas.")
     parser.add_argument("--split", default="test", help="Dataset split. Defaults to test.")
     parser.add_argument("--manifest", default=None, help="Optional explicit baseline manifest path.")
     parser.add_argument("--metrics", default=None, help="Comma-separated metrics. Defaults depend on --task.")
     parser.add_argument("--dataset-config", default="configs/ttas_dataset.json")
     parser.add_argument("--metrics-config", default="configs/eval_metrics.json")
+    parser.add_argument("--task-metric-map", default="configs/task_metric_map.json")
     parser.add_argument("--capabilities-config", default="configs/model_capabilities.json")
     parser.add_argument("--baseline-root", default="results/baselines")
     parser.add_argument("--output-root", default="results/evals")
@@ -40,6 +43,8 @@ def main() -> None:
     try:
         capabilities = load_capabilities(Path(args.capabilities_config))
         validate_model_task(args.model, args.task, capabilities)
+        task_metric_map = load_task_metric_map(Path(args.task_metric_map))
+        selection = select_metrics(args.task, args.stage, args.metrics, task_metric_map)
         manifest_path = resolve_manifest_path(
             model=args.model,
             task=args.task,
@@ -48,15 +53,17 @@ def main() -> None:
             explicit_manifest=args.manifest,
             baseline_root=Path(args.baseline_root),
         )
-        metric_specs = get_metric_specs(parse_metric_names(args.metrics, args.task))
+        metric_specs = get_metric_specs(selection.metric_names)
         options = EvalOptions(
             model=args.model,
             task=args.task,
+            stage=selection.stage,
             dataset=args.dataset,
             split=args.split,
             manifest_path=manifest_path,
             dataset_config_path=Path(args.dataset_config),
             metrics_config_path=Path(args.metrics_config),
+            task_metric_map_path=Path(args.task_metric_map),
             output_root=Path(args.output_root),
             metric_specs=metric_specs,
             max_samples=args.max_samples,

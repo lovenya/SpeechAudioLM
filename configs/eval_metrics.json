@@ -27,7 +27,17 @@
       "backend": "aac-metrics",
       "cache_dir": null
     },
-    "clap": {
+    "clap_similarity": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "fense": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "spider_max": {
       "backend": null,
       "model_name": null,
       "model_path": null
@@ -58,6 +68,16 @@
       "model_path": null
     },
     "dnsmos": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "urgentmos": {
+      "backend": null,
+      "model_name": null,
+      "model_path": null
+    },
+    "spk_sim": {
       "backend": null,
       "model_name": null,
       "model_path": null
