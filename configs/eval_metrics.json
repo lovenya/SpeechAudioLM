@@ -30,19 +30,25 @@
     "mace": {
       "backend": "aac-metrics",
       "python": ".venvs/.venv-eval-aac/bin/python",
-      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics",
+      "hf_home": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface",
+      "transformers_cache": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface"
     },
     "spider": {
       "backend": "aac-metrics",
       "python": ".venvs/.venv-eval-aac/bin/python",
-      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics",
+      "hf_home": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface",
+      "transformers_cache": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface"
     },
     "aac_clapsim": {
       "backend": "aac-metrics",
       "python": ".venvs/.venv-eval-aac/bin/python",
       "model_name": "MS-CLAP-2023",
       "model_path": null,
-      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics",
+      "hf_home": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface",
+      "transformers_cache": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface"
     },
     "clap_score_t2a": {
       "backend": "stable-audio-metrics",

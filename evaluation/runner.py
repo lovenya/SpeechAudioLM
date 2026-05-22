@@ -344,10 +344,15 @@ def _backend_env(options: EvalOptions, metric_configs: dict[str, dict]) -> dict[
     env = os.environ.copy()
     cache_dir = _first_metric_config_value(metric_configs, "cache_dir") or str(options.cache_dir)
     cache_path = Path(cache_dir)
+    hf_home = _first_metric_config_value(metric_configs, "hf_home")
+    transformers_cache = _first_metric_config_value(metric_configs, "transformers_cache")
+    torch_home = _first_metric_config_value(metric_configs, "torch_home")
     env["XDG_CACHE_HOME"] = str(cache_path)
-    env["HF_HOME"] = str(cache_path.parent / "huggingface")
-    env["TRANSFORMERS_CACHE"] = str(cache_path.parent / "huggingface")
-    env["TORCH_HOME"] = str(cache_path.parent / "torch")
+    env["HF_HOME"] = str(Path(hf_home)) if hf_home else str(cache_path.parent / "huggingface")
+    env["TRANSFORMERS_CACHE"] = (
+        str(Path(transformers_cache)) if transformers_cache else env["HF_HOME"]
+    )
+    env["TORCH_HOME"] = str(Path(torch_home)) if torch_home else str(cache_path.parent / "torch")
     env["NUMBA_CACHE_DIR"] = str(cache_path.parent / "numba")
     env["MPLCONFIGDIR"] = str(cache_path.parent / "matplotlib")
     env["UTMOSV2_CHACHE"] = str(cache_path)

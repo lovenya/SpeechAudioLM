@@ -39,6 +39,9 @@ def backend_metadata(name: str, config: dict[str, Any], device: str, cache_dir: 
         "config_name": config.get("config_name"),
         "device": device,
         "cache_dir": str(config.get("cache_dir") or cache_dir),
+        "hf_home": config.get("hf_home"),
+        "transformers_cache": config.get("transformers_cache"),
+        "torch_home": config.get("torch_home"),
         "audio_preprocessing": {
             "sample_rate": config.get("sample_rate"),
             "resampling_policy": config.get("resampling_policy", "backend_default"),
