@@ -29,3 +29,12 @@ Backend non-negotiables:
 - Resolve dataset-relative paths against `configs/ttas_dataset.json`.
 - Keep heavyweight or optional dependencies inside backend-specific load paths with clear errors.
 - Do not add nested or broad imports unless they are required to keep optional stacks isolated.
+
+Model-specific notes:
+
+- Qwen3-Omni `A2S` is a baseline-only cascade that skips audio understanding
+  and uses the paired `speech_text` as the intermediate transcript before TTS.
+  Run it with `--prompt-field speech_text`.
+- `S2A`, direct `A2S`, and text-to-text reasoning metrics are deferred. Keep
+  those baseline manifests, but evaluate only the final-output metric suites
+  that are currently defined in `configs/task_metric_map.json`.

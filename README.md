@@ -123,13 +123,14 @@ python baseline.py --model audio_omni --task A2T --split test --num-samples 2 --
 python baseline.py --model audio_omni --task S2T --split test --num-samples 2 --duration 10
 python baseline.py --model audio_omni --task S2A --split test --num-samples 2 --duration 10
 python baseline.py --model audio_omni --task A2S --split test --num-samples 2 --duration 10
+python baseline.py --model qwen3_omni --task A2S --split test --prompt-field speech_text --num-samples 2
 python baseline.py --model qwen3_omni --task pseudo_t2a_direct --split test --num-samples 2
 python baseline.py --model qwen3_omni --task pseudo_t2a_phoneme --split test --num-samples 2
 ```
 
 Use `--dry-run` to inspect selected rows and output paths without loading a model. Use `--num-samples -1` for a full split after the model-specific smoke run is stable. If `--prompt-field` is omitted, `T2A`, `A2T`, `A2S`, and Qwen pseudo-T2A tasks default to `audio_cap`; `T2S`, `S2T`, and `S2A` default to `speech_text`. Use `--prompt-template` for one-off prompt experiments.
 
-AudioGen and TangoFlux support native `T2A` only and receive raw captions. Audio-Omni supports native `T2A`/`T2S`, understanding-only `A2T`/`S2T`, and cascaded `S2A`/`A2S`. Qwen3-Omni pseudo-T2A tasks are exploratory talker probes, not true text-to-audio baselines.
+AudioGen and TangoFlux support native `T2A` only and receive raw captions. Audio-Omni supports native `T2A`/`T2S`, understanding-only `A2T`/`S2T`, and cascaded `S2A`/`A2S`. Qwen3-Omni supports `T2S` and an `A2S` baseline that skips audio understanding and uses the paired `speech_text` as the intermediate transcript before TTS. Qwen3-Omni pseudo-T2A tasks are exploratory talker probes, not true text-to-audio baselines.
 
 Default baseline outputs are organized under:
 
@@ -156,7 +157,8 @@ Example:
 
 ```bash
 python evaluate.py --model audio_omni --task S2T --metrics wer --max-samples 2
-python evaluate.py --model audio_omni --task S2A --metrics fad --dry-run
+python evaluate.py --model audio_omni --task T2A --metrics fad,kad,inception_score --dry-run
+python evaluate.py --model audio_omni --task T2S --metrics asr_wer,dwer,utmos --dry-run
 ```
 
 Evaluation outputs are organized under:
@@ -170,6 +172,32 @@ and `run_config` files plus `latest_*` aliases. Heavy metrics are configurable
 through `configs/eval_metrics.json`; missing external packages or model weights
 fail only when the corresponding metric is selected.
 
+Current metric backend status:
+
+- Available/default A2T metrics: `mace`, `spider`, `aac_clapsim` through `aac-metrics`.
+- Available/default T2A and S2A-final metrics: `fad`, `kad`, `inception_score` through AudioLDM Eval and KADTK.
+- Available/default T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through Whisper large-v3 and UTMOSv2.
+- Available S2T metric: internal `wer`.
+- Deferred until the scratch env is rebuilt: `clap_score_t2a` and `kl_passt` through stable-audio-metrics.
+
+Metric envs are intentionally split because dependency stacks conflict:
+
+```text
+.venvs/.venv-eval-aac
+.venv-eval-whisper
+.venvs/metrics/.venv-eval-audioldm-eval
+.venvs/metrics/.venv-eval-kadtk
+.venvs/metrics/.venv-eval-utmosv2
+/scratch/lovenya/SpeechAudioLM/.venvs/metrics/.venv-eval-stable-audio-metrics
+```
+
+Metric caches/checkpoints should live on scratch:
+
+```text
+/scratch/lovenya/SpeechAudioLM/cache/metrics
+/scratch/lovenya/SpeechAudioLM/models/metrics
+```
+
 Metric notes:
 
 - `--metrics` is optional; defaults are selected from the task mapping.
@@ -181,11 +209,46 @@ Metric notes:
 - Generated-speech `dwer` is directional:
   `WER(ASR(reference_speech), ASR(generated_speech))`.
 - For text-to-audio, FAD, KAD, KL_PaSST, and Inception Score are corpus-level
-  only. T2A CLAPscore is computed per sample and aggregated.
+  only. T2A CLAPscore is computed per sample and aggregated when the
+  stable-audio-metrics env is available.
 - A2T CLAPSim and T2A CLAPscore use different metric names and backends:
   `aac_clapsim` and `clap_score_t2a`.
 - FAD is the only default Frechet-style audio metric for v1; generic FD is not
   included unless a later paper-specific comparison requires it.
+
+## Submission Scripts
+
+Compute-node helpers live in `submission_scripts/`.
+
+Interactive metric smoke allocation:
+
+```bash
+submission_scripts/interactive_eval_smoke.sh
+```
+
+Full baseline submissions:
+
+```bash
+sbatch submission_scripts/run_baseline_audiogen_t2a.sbatch
+sbatch submission_scripts/run_baseline_tangoflux_t2a.sbatch
+sbatch submission_scripts/run_baseline_audio_omni_array.sbatch
+sbatch submission_scripts/run_baseline_qwen3_omni_a2s.sbatch
+```
+
+Available metric evaluations over completed baseline manifests:
+
+```bash
+sbatch submission_scripts/run_eval_available_metrics_array.sbatch
+```
+
+Use `NUM_SAMPLES=2 sbatch ...` for a compute-node smoke before full runs.
+Scratch outputs are written under `/scratch/lovenya/SpeechAudioLM/results/`.
+
+Rebuild the deferred stable-audio-metrics env on an internet-capable login node:
+
+```bash
+RECREATE=1 submission_scripts/setup_stable_audio_metrics_scratch.sh
+```
 
 ## Repository Status
 

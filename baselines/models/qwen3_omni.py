@@ -27,8 +27,8 @@ class Qwen3OmniRunner(BaselineRunner):
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
-        if self.task not in {"T2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"}:
-            raise ValueError("Qwen3-Omni supports --task T2S, pseudo_t2a_direct, or pseudo_t2a_phoneme")
+        if self.task not in {"T2S", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"}:
+            raise ValueError("Qwen3-Omni supports --task T2S, A2S, pseudo_t2a_direct, or pseudo_t2a_phoneme")
         self.model_path = self.model_path or "/project/rrg-csubakan/lovenya/models/qwen3-omni-30b-a3b-instruct"
         self.speaker = qwen_speaker
         self.template = self.prompt_template or qwen_template or self._default_template()
@@ -59,7 +59,8 @@ class Qwen3OmniRunner(BaselineRunner):
         import soundfile as sf
         import torch
 
-        instruction = self.template.format(prompt=row.prompt)
+        prompt = self._prompt_for_task(row)
+        instruction = self.template.format(prompt=prompt)
         conversation = [{"role": "user", "content": instruction}]
         text = self.processor.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
         inputs = self.processor(text=text, return_tensors="pt", padding=True)
@@ -83,24 +84,60 @@ class Qwen3OmniRunner(BaselineRunner):
             raise RuntimeError("Qwen3-Omni returned no audio")
 
         sf.write(str(output_path), audio.reshape(-1).detach().cpu().float().numpy(), samplerate=24000)
+        extra = {
+            "shape": list(audio.shape),
+            "decoded_text": decoded,
+            "generation_prompt": instruction,
+            "cuda_reserved_gb": round(torch.cuda.memory_reserved() / 1024**3, 2)
+            if torch.cuda.is_available()
+            else None,
+        }
+        if self.task == "A2S":
+            extra.update(
+                {
+                    "understanding_stage": "skipped",
+                    "understanding_text": None,
+                    "converted_prompt": prompt,
+                    "intermediate_transcript": prompt,
+                    "final_generation_method": "Qwen3-Omni TTS",
+                    "stages": [
+                        {
+                            "stage": "audio_understanding",
+                            "method": "skipped",
+                            "reason": "Qwen3-Omni A2S baseline uses the paired transcript as the intermediate text.",
+                        },
+                        {
+                            "stage": "text_to_speech",
+                            "method": "Qwen3-Omni talker",
+                            "prompt": prompt,
+                            "output_file": str(output_path),
+                        },
+                    ],
+                }
+            )
+            try:
+                extra["source_input_file"] = str(self._record_path(row, "audio_file"))
+            except ValueError:
+                extra["source_input_file"] = None
         return GenerationResult(
             output_path=output_path,
             sample_rate=24000,
-            extra={
-                "shape": list(audio.shape),
-                "decoded_text": decoded,
-                "generation_prompt": instruction,
-                "cuda_reserved_gb": round(torch.cuda.memory_reserved() / 1024**3, 2)
-                if torch.cuda.is_available()
-                else None,
-            },
+            extra=extra,
         )
 
     def _default_template(self) -> str:
-        if self.task == "T2S":
+        if self.task in {"T2S", "A2S"}:
             return QWEN_T2S_TEMPLATE
         if self.task == "pseudo_t2a_direct":
             return QWEN_PSEUDO_T2A_DIRECT_TEMPLATE
         if self.task == "pseudo_t2a_phoneme":
             return QWEN_PSEUDO_T2A_PHONEME_TEMPLATE
         raise ValueError(f"Unsupported Qwen3-Omni task: {self.task}")
+
+    def _prompt_for_task(self, row: PromptRow) -> str:
+        if self.task == "A2S":
+            speech_text = row.record.get("speech_text")
+            if not isinstance(speech_text, str) or not speech_text.strip():
+                raise ValueError(f"Row {row.row_index} has no usable speech_text for Qwen3-Omni A2S")
+            return speech_text
+        return row.prompt

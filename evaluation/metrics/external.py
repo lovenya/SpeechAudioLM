@@ -11,6 +11,7 @@ PACKAGE_BY_BACKEND = {
     "aac-metrics": "aac-metrics",
     "audioldm_eval": "audioldm-eval",
     "kadtk": "kadtk",
+    "openai-whisper": "openai-whisper",
     "stable-audio-metrics": "stable-audio-metrics",
     "utmosv2": "utmosv2",
 }
@@ -28,6 +29,7 @@ def backend_metadata(name: str, config: dict[str, Any], device: str, cache_dir: 
     return {
         "metric": name,
         "backend": backend,
+        "python": config.get("python"),
         "package": package_name,
         "package_version": version,
         "git_commit": config.get("git_commit"),
@@ -53,6 +55,14 @@ def require_configured_backend(name: str, config: dict[str, Any]) -> None:
         raise MetricUnavailableError(
             f"Metric {name!r} requires an external backend/checkpoint. "
             "Set it in --metrics-config before running this metric."
+        )
+    configured_python = config.get("python")
+    if configured_python:
+        if Path(configured_python).is_file():
+            return
+        raise MetricUnavailableError(
+            f"Metric {name!r} is configured to use backend Python {configured_python!r}, "
+            "but that interpreter does not exist."
         )
     package_name = PACKAGE_BY_BACKEND.get(str(backend))
     if package_name:

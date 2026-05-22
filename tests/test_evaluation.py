@@ -30,6 +30,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
         validate_model_task("tangoflux", "T2A", caps)
         validate_model_task("audio_omni", "A2T", caps)
         validate_model_task("audio_omni", "S2T", caps)
+        validate_model_task("qwen3_omni", "A2S", caps)
         with self.assertRaises(EvaluationError):
             validate_model_task("tangoflux", "T2S", caps)
 
@@ -80,8 +81,8 @@ class EvaluationScaffoldTest(unittest.TestCase):
     def test_task_metric_mapping_selects_defaults(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
         self.assertEqual(select_metrics("A2T", None, mapping).metric_names, ["mace", "spider", "aac_clapsim"])
-        self.assertEqual(select_metrics("T2A", None, mapping).metric_names, ["fad", "kad", "kl_passt", "clap_score_t2a"])
-        self.assertEqual(select_metrics("S2A", None, mapping).metric_names, ["fad", "kad", "kl_passt", "clap_score_t2a"])
+        self.assertEqual(select_metrics("T2A", None, mapping).metric_names, ["fad", "kad", "inception_score"])
+        self.assertEqual(select_metrics("S2A", None, mapping).metric_names, ["fad", "kad", "inception_score"])
         self.assertEqual(select_metrics("T2S", None, mapping).metric_names, ["asr_wer", "dwer", "utmos"])
 
     def test_metric_specific_validation_does_not_require_unused_fields(self) -> None:

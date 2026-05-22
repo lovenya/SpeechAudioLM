@@ -9,32 +9,45 @@
       "model_path": null
     },
     "asr_wer": {
-      "backend": null,
-      "model_name": null,
-      "model_path": null
+      "backend": "openai-whisper",
+      "python": ".venv-eval-whisper/bin/python",
+      "model_name": "large-v3",
+      "model_path": null,
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/models/metrics/whisper",
+      "sample_rate": 16000,
+      "resampling_policy": "whisper_internal"
     },
     "dwer": {
-      "backend": null,
-      "model_name": null,
+      "backend": "openai-whisper",
+      "python": ".venv-eval-whisper/bin/python",
+      "model_name": "large-v3",
       "model_path": null,
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/models/metrics/whisper",
+      "sample_rate": 16000,
+      "resampling_policy": "whisper_internal",
       "definition": "WER(ASR(reference_speech), ASR(generated_speech))"
     },
     "mace": {
       "backend": "aac-metrics",
-      "cache_dir": null
+      "python": ".venvs/.venv-eval-aac/bin/python",
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics"
     },
     "spider": {
       "backend": "aac-metrics",
-      "cache_dir": null
+      "python": ".venvs/.venv-eval-aac/bin/python",
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics"
     },
     "aac_clapsim": {
       "backend": "aac-metrics",
+      "python": ".venvs/.venv-eval-aac/bin/python",
       "model_name": "MS-CLAP-2023",
       "model_path": null,
       "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics"
     },
     "clap_score_t2a": {
       "backend": "stable-audio-metrics",
+      "python": "/scratch/lovenya/SpeechAudioLM/.venvs/metrics/.venv-eval-stable-audio-metrics/bin/python",
+      "pythonpath": "/scratch/lovenya/SpeechAudioLM/code/metrics/stable-audio-metrics/src",
       "model_name": "LAION-CLAP",
       "checkpoint": "630k-audioset-fusion-best",
       "model_path": null,
@@ -54,18 +67,25 @@
     },
     "fad": {
       "backend": "audioldm_eval",
+      "python": ".venvs/metrics/.venv-eval-audioldm-eval/bin/python",
       "model_name": "PANNs",
       "model_path": null,
-      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval",
+      "sample_rate": 16000,
+      "backbone": "cnn14"
     },
     "kad": {
       "backend": "kadtk",
-      "model_name": null,
+      "python": ".venvs/metrics/.venv-eval-kadtk/bin/python",
+      "model_name": "panns-wavegram-logmel",
       "model_path": null,
-      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/kadtk"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/kadtk",
+      "workers": 2
     },
     "kl_passt": {
       "backend": "stable-audio-metrics",
+      "python": "/scratch/lovenya/SpeechAudioLM/.venvs/metrics/.venv-eval-stable-audio-metrics/bin/python",
+      "pythonpath": "/scratch/lovenya/SpeechAudioLM/code/metrics/stable-audio-metrics/src",
       "model_name": "PaSST",
       "model_path": null,
       "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/stable_audio_metrics",
@@ -74,15 +94,21 @@
     },
     "inception_score": {
       "backend": "audioldm_eval",
+      "python": ".venvs/metrics/.venv-eval-audioldm-eval/bin/python",
       "model_name": "PANNs",
       "model_path": null,
-      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval",
+      "sample_rate": 16000,
+      "backbone": "cnn14"
     },
     "utmos": {
       "backend": "utmosv2",
+      "python": ".venvs/metrics/.venv-eval-utmosv2/bin/python",
       "model_name": "UTMOSv2",
       "model_path": null,
-      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2",
+      "config_name": "fusion_stage3",
+      "sample_rate": 16000
     },
     "dnsmos": {
       "backend": null,

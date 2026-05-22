@@ -110,6 +110,7 @@ _SPECS = {
     "inception_score": MetricSpec(
         name="inception_score",
         level="corpus",
+        required_source_fields=("audio_file",),
         requires_output_file=True,
         external=True,
     ),

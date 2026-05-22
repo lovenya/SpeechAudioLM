@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import csv
+import json
+import os
 import statistics
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,11 +49,21 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     per_sample_rows = []
     for ordinal, row in enumerate(rows):
         per_sample_rows.append(_evaluate_row(row, ordinal, options.metric_specs, dataset_root))
-    _compute_external_metrics(options, rows, per_sample_rows, dataset_root, metrics_config)
 
-    summary = _summarize(options, per_sample_rows, metric_backend_metadata)
     output_dir = eval_model_root(options.task, options.dataset, options.model, options.output_root)
     timestamp = utc_timestamp()
+    work_dir = output_dir / f"work_{options.split}_{timestamp}"
+    corpus_metrics = _compute_external_metrics(
+        options,
+        rows,
+        per_sample_rows,
+        dataset_root,
+        metrics_config,
+        work_dir,
+        metric_backend_metadata,
+    )
+
+    summary = _summarize(options, per_sample_rows, metric_backend_metadata, corpus_metrics)
 
     paths = {
         "per_sample": output_dir / f"per_sample_{options.split}_{timestamp}.jsonl",
@@ -190,84 +204,167 @@ def _compute_external_metrics(
     per_sample_rows: list[dict],
     dataset_root: Path,
     metrics_config: dict[str, dict],
-) -> None:
+    work_dir: Path,
+    metric_backend_metadata: dict[str, dict],
+) -> dict[str, Any]:
     selected = {spec.name for spec in options.metric_specs if spec.external}
-    aac_metrics = [name for name in ("mace", "spider") if name in selected]
-    unsupported = sorted(selected - set(aac_metrics))
+    corpus_metrics: dict[str, Any] = {}
+    backend_metrics = {
+        "aac-metrics": ["mace", "spider", "aac_clapsim"],
+        "openai-whisper": ["asr_wer", "dwer"],
+        "utmosv2": ["utmos"],
+        "audioldm_eval": ["fad", "inception_score"],
+        "kadtk": ["kad"],
+    }
+    supported = {name for names in backend_metrics.values() for name in names}
+    unsupported = sorted(selected - supported)
     if unsupported:
         raise MetricUnavailableError(
             "Executable adapters are not implemented yet for selected external metrics: "
             f"{', '.join(unsupported)}. Configure/download the backend first, then add the adapter."
         )
-    if aac_metrics:
-        _compute_aac_metrics(options, rows, per_sample_rows, dataset_root, metrics_config, aac_metrics)
+    for backend, candidate_metrics in backend_metrics.items():
+        metric_names = [name for name in candidate_metrics if name in selected]
+        if not metric_names:
+            continue
+        result = _run_backend_worker(options, rows, dataset_root, metrics_config, work_dir, backend, metric_names)
+        _merge_backend_result(per_sample_rows, result)
+        for metric_name, metadata in result.get("metric_backends", {}).items():
+            if metric_name in metric_backend_metadata:
+                metric_backend_metadata[metric_name].update(metadata)
+        corpus_level_names = {spec.name for spec in options.metric_specs if spec.level == "corpus"}
+        corpus_metrics.update(
+            {
+                name: value
+                for name, value in result.get("corpus_metrics", {}).items()
+                if name in corpus_level_names
+            }
+        )
+    return corpus_metrics
 
 
-def _compute_aac_metrics(
+def _run_backend_worker(
     options: EvalOptions,
     rows: list[dict],
-    per_sample_rows: list[dict],
     dataset_root: Path,
     metrics_config: dict[str, dict],
+    work_dir: Path,
+    backend: str,
     metric_names: list[str],
-) -> None:
-    try:
-        from aac_metrics import evaluate as aac_evaluate
-        from aac_metrics.functional.mace import mace as mace_fn
-    except Exception as exc:
-        raise MetricUnavailableError(
-            "AAC metrics require the 'aac-metrics' package and its cached assets. "
-            "Install/cache them before running MACE or SPIDEr."
-        ) from exc
-
-    candidates = []
-    references = []
-    audio_paths = []
-    row_map = []
-    for index, row in enumerate(rows):
+) -> dict[str, Any]:
+    metric_configs = {name: metrics_config.get(name, {}) for name in metric_names}
+    python = _backend_python(metric_configs)
+    backend_rows = []
+    for ordinal, row in enumerate(rows):
         if not is_successful_generation(row):
             continue
+        row_index = row.get("row_index", ordinal)
         source = source_record(row)
-        candidate = _prediction_text_for_metric(row, "mace")
-        if candidate is None:
-            continue
-        candidates.append(candidate)
-        references.append([source["audio_cap"]])
-        audio_paths.append(str(_resolve_reference(dataset_root, source["audio_file"])))
-        row_map.append(index)
-
-    if "spider" in metric_names:
-        cfg = metrics_config.get("spider", {})
-        corpus_scores, sent_scores = aac_evaluate(
-            candidates,
-            references,
-            metrics=["spider"],
-            cache_path=cfg.get("cache_dir") or str(options.cache_dir),
-            device=options.device,
+        backend_source = dict(source)
+        for field in ("audio_file", "speech_file"):
+            value = backend_source.get(field)
+            if isinstance(value, str) and value:
+                backend_source[field] = str(_resolve_reference(dataset_root, value))
+        backend_rows.append(
+            {
+                "row_index": row_index,
+                "sample_id": sample_id(row, ordinal),
+                "output_file": row.get("output_file"),
+                "candidate_text": _prediction_text_for_metric(row, metric_names[0]),
+                "source": backend_source,
+            }
         )
-        _apply_sentence_scores(per_sample_rows, row_map, "spider", sent_scores.get("spider"))
 
-    if "mace" in metric_names:
-        cfg = metrics_config.get("mace", {})
-        _corpus_scores, sent_scores = mace_fn(
-            candidates,
-            references,
-            audio_paths=audio_paths,
-            mace_method=cfg.get("mace_method", "combined"),
-            clap_model=cfg.get("clap_model", "MS-CLAP-2023"),
-            echecker=cfg.get("echecker", "echecker_clotho_audiocaps_base"),
-            device=options.device,
-            return_all_scores=True,
+    payload = {
+        "backend": backend,
+        "metrics": metric_names,
+        "metric_configs": metric_configs,
+        "rows": backend_rows,
+        "cache_dir": str(options.cache_dir),
+        "device": options.device,
+        "work_dir": str(work_dir),
+    }
+    backend_work_dir = work_dir / backend
+    backend_work_dir.mkdir(parents=True, exist_ok=True)
+    input_path = backend_work_dir / "input.json"
+    output_path = backend_work_dir / "output.json"
+    stdout_path = backend_work_dir / "stdout.log"
+    input_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    env = _backend_env(options, metric_configs)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "eval_backend_worker.py"
+    completed = subprocess.run(
+        [str(python), str(script), "--backend", backend, "--input", str(input_path), "--output", str(output_path)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    stdout_path.write_text(completed.stdout, encoding="utf-8")
+    if completed.returncode != 0:
+        raise MetricUnavailableError(
+            f"Backend {backend!r} failed for metrics {', '.join(metric_names)}. "
+            f"See {stdout_path} for details."
         )
-        _apply_sentence_scores(per_sample_rows, row_map, "mace", sent_scores.get("mace"))
+    if not output_path.is_file():
+        raise MetricUnavailableError(f"Backend {backend!r} did not produce {output_path}.")
+    return json.loads(output_path.read_text(encoding="utf-8"))
 
 
-def _apply_sentence_scores(per_sample_rows: list[dict], row_map: list[int], metric: str, scores: object) -> None:
-    if scores is None:
-        return
-    values = scores.detach().cpu().tolist() if hasattr(scores, "detach") else scores
-    for row_index, value in zip(row_map, values):
-        per_sample_rows[row_index]["metrics"][metric] = float(value)
+def _backend_python(metric_configs: dict[str, dict]) -> Path:
+    for config in metric_configs.values():
+        configured = config.get("python")
+        if configured:
+            path = Path(configured)
+            if not path.is_file():
+                raise MetricUnavailableError(f"Configured metric Python does not exist: {path}")
+            return path
+    return Path(sys.executable)
+
+
+def _backend_env(options: EvalOptions, metric_configs: dict[str, dict]) -> dict[str, str]:
+    env = os.environ.copy()
+    cache_dir = _first_metric_config_value(metric_configs, "cache_dir") or str(options.cache_dir)
+    cache_path = Path(cache_dir)
+    env["XDG_CACHE_HOME"] = str(cache_path)
+    env["HF_HOME"] = str(cache_path.parent / "huggingface")
+    env["TRANSFORMERS_CACHE"] = str(cache_path.parent / "huggingface")
+    env["TORCH_HOME"] = str(cache_path.parent / "torch")
+    env["NUMBA_CACHE_DIR"] = str(cache_path.parent / "numba")
+    env["MPLCONFIGDIR"] = str(cache_path.parent / "matplotlib")
+    env["UTMOSV2_CHACHE"] = str(cache_path)
+    env["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    pythonpath = _first_metric_config_value(metric_configs, "pythonpath")
+    if pythonpath:
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = pythonpath if not existing else f"{pythonpath}{os.pathsep}{existing}"
+    return env
+
+
+def _first_metric_config_value(metric_configs: dict[str, dict], key: str) -> str | None:
+    for config in metric_configs.values():
+        value = config.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _merge_backend_result(per_sample_rows: list[dict], result: dict[str, Any]) -> None:
+    row_by_index = {str(row["row_index"]): row for row in per_sample_rows}
+    for row_index, metrics in result.get("sample_metrics", {}).items():
+        row = row_by_index.get(str(row_index))
+        if row is not None:
+            row["metrics"].update(metrics)
+    for row_index, predictions in result.get("predictions", {}).items():
+        row = row_by_index.get(str(row_index))
+        if row is not None:
+            row["predictions"].update(predictions)
+    for row_index, errors in result.get("errors", {}).items():
+        row = row_by_index.get(str(row_index))
+        if row is not None:
+            row["status"] = "error"
+            row["errors"].update(errors)
 
 
 def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> str | None:
@@ -344,10 +441,19 @@ def _resolve_reference(dataset_root: Path, value: str) -> Path:
     return path if path.is_absolute() else dataset_root / path
 
 
-def _summarize(options: EvalOptions, rows: list[dict], backend_metadata: dict[str, dict]) -> dict:
+def _summarize(
+    options: EvalOptions,
+    rows: list[dict],
+    backend_metadata: dict[str, dict],
+    corpus_metrics: dict[str, Any] | None = None,
+) -> dict:
+    corpus_metrics = corpus_metrics or {}
     metric_names = [spec.name for spec in options.metric_specs]
     stats = {}
     for name in metric_names:
+        if name in corpus_metrics:
+            stats[name] = _corpus_summary(corpus_metrics[name])
+            continue
         values = [
             row["metrics"][name]
             for row in rows
@@ -388,6 +494,21 @@ def _numeric_summary(values: list[float]) -> dict:
         "min": min(values),
         "max": max(values),
         "median": statistics.median(values),
+    }
+
+
+def _corpus_summary(value: Any) -> dict:
+    if isinstance(value, dict):
+        return value
+    numeric = float(value)
+    return {
+        "level": "corpus",
+        "count": 1,
+        "mean": numeric,
+        "std": 0.0,
+        "min": numeric,
+        "max": numeric,
+        "median": numeric,
     }
 
 

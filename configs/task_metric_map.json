@@ -19,13 +19,13 @@
   },
   "T2A": {
     "description": "text to audio / environmental audio generation",
-    "default_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a"],
+    "default_metrics": ["fad", "kad", "inception_score"],
     "allowed_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a", "inception_score"],
     "output_type": "audio"
   },
   "S2A": {
     "description": "speech to audio cascade/direct task",
-    "default_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a"],
+    "default_metrics": ["fad", "kad", "inception_score"],
     "allowed_metrics": ["fad", "kad", "kl_passt", "clap_score_t2a", "inception_score"],
     "output_type": "audio"
   },
