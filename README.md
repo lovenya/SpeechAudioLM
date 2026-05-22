@@ -174,11 +174,14 @@ fail only when the corresponding metric is selected.
 
 Current metric backend status:
 
-- Available/default A2T metrics: `mace`, `spider`, `aac_clapsim` through `aac-metrics`.
-- Available/default T2A and S2A-final metrics: `fad`, `kad`, `inception_score` through AudioLDM Eval and KADTK.
-- Available/default T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through Whisper large-v3 and UTMOSv2.
+- Smoke-passed A2T metric: `spider` through `aac-metrics` with Java 11.
+- A2T metrics still under backend-cache debugging: `mace`, `aac_clapsim`.
+- Configured/default T2A and S2A-final metrics still pending end-to-end smoke:
+  `fad`, `kad`, `inception_score` through AudioLDM Eval and KADTK.
+- Smoke-passed T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through Whisper large-v3 and UTMOSv2.
 - Available S2T metric: internal `wer`.
-- Optional T2A/S2A-final metrics: `clap_score_t2a` and `kl_passt` through stable-audio-metrics. These are not defaults because they require the separate scratch env and cached LAION-CLAP/PaSST assets.
+- Optional T2A/S2A-final metrics still pending end-to-end smoke:
+  `clap_score_t2a` and `kl_passt` through stable-audio-metrics.
 
 Metric envs are intentionally split because dependency stacks conflict:
 
