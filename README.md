@@ -178,7 +178,7 @@ Current metric backend status:
 - Available/default T2A and S2A-final metrics: `fad`, `kad`, `inception_score` through AudioLDM Eval and KADTK.
 - Available/default T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through Whisper large-v3 and UTMOSv2.
 - Available S2T metric: internal `wer`.
-- Deferred until the scratch env is rebuilt: `clap_score_t2a` and `kl_passt` through stable-audio-metrics.
+- Optional T2A/S2A-final metrics: `clap_score_t2a` and `kl_passt` through stable-audio-metrics. These are not defaults because they require the separate scratch env and cached LAION-CLAP/PaSST assets.
 
 Metric envs are intentionally split because dependency stacks conflict:
 
@@ -244,7 +244,8 @@ sbatch submission_scripts/run_eval_available_metrics_array.sbatch
 Use `NUM_SAMPLES=2 sbatch ...` for a compute-node smoke before full runs.
 Scratch outputs are written under `/scratch/lovenya/SpeechAudioLM/results/`.
 
-Rebuild the deferred stable-audio-metrics env on an internet-capable login node:
+Rebuild or refresh the optional stable-audio-metrics env and checkpoint caches
+on an internet-capable login node:
 
 ```bash
 RECREATE=1 submission_scripts/setup_stable_audio_metrics_scratch.sh

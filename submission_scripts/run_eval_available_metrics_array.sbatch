@@ -12,10 +12,10 @@ set -euo pipefail
 
 # Format: model|task|metrics
 JOBS=(
-  "audiogen|T2A|fad,kad,inception_score"
-  "tangoflux|T2A|fad,kad,inception_score"
-  "audio_omni|T2A|fad,kad,inception_score"
-  "audio_omni|S2A|fad,kad,inception_score"
+  "audiogen|T2A|fad,kad,inception_score,clap_score_t2a,kl_passt"
+  "tangoflux|T2A|fad,kad,inception_score,clap_score_t2a,kl_passt"
+  "audio_omni|T2A|fad,kad,inception_score,clap_score_t2a,kl_passt"
+  "audio_omni|S2A|fad,kad,inception_score,clap_score_t2a,kl_passt"
   "audio_omni|T2S|asr_wer,dwer,utmos"
   "audio_omni|A2S|asr_wer,dwer,utmos"
   "audio_omni|A2T|mace,spider,aac_clapsim"
@@ -46,4 +46,3 @@ python evaluate.py \
   --output-root "$SALM_SCRATCH/results/evals" \
   --cache-dir "$SALM_SCRATCH/cache/metrics/eval_runtime" \
   --device cuda
-

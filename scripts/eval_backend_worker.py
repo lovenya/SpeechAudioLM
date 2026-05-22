@@ -41,6 +41,8 @@ def main() -> None:
         result = run_audioldm_eval(payload)
     elif backend == "kadtk":
         result = run_kadtk(payload)
+    elif backend == "stable-audio-metrics":
+        result = run_stable_audio_metrics(payload)
     else:
         raise SystemExit(f"Unsupported backend worker: {backend}")
 
@@ -282,6 +284,134 @@ def run_kadtk(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def run_stable_audio_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+    metrics = set(payload["metrics"])
+    sample_metrics: dict[str, dict[str, float]] = {}
+    corpus_metrics: dict[str, Any] = {}
+
+    if "clap_score_t2a" in metrics:
+        sample_metrics.update(_stable_clap_scores(payload))
+    if "kl_passt" in metrics:
+        corpus_metrics["kl_passt"] = _stable_kl_passt(payload)
+
+    return _result(
+        payload,
+        sample_metrics=sample_metrics,
+        corpus_metrics=corpus_metrics,
+        predictions={},
+        errors={},
+        packages=["laion-clap", "hear21passt", "torch", "numpy", "librosa", "pyloudnorm"],
+    )
+
+
+def _stable_clap_scores(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
+    import numpy as np
+    import requests
+    import torch
+    import laion_clap
+    import librosa
+    import pyloudnorm as pyln
+    from clap_module.factory import load_state_dict
+    from tqdm import tqdm
+
+    cfg = payload["metric_configs"].get("clap_score_t2a", {})
+    generated_dir, _reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
+    cache_dir = Path(cfg.get("cache_dir") or payload["cache_dir"])
+    checkpoint = cfg.get("checkpoint", "630k-audioset-fusion-best")
+    checkpoint_file = checkpoint if checkpoint.endswith(".pt") else f"{checkpoint}.pt"
+    checkpoint_path = cache_dir / "load" / "clap_score" / checkpoint_file
+    _download_clap_checkpoint(checkpoint_file, checkpoint_path, requests, tqdm)
+
+    enable_fusion = checkpoint_file == "630k-audioset-fusion-best.pt"
+    model_kwargs = {"enable_fusion": enable_fusion, "device": payload["device"]}
+    if not enable_fusion:
+        model_kwargs["amodel"] = "HTSAT-base"
+    model = laion_clap.CLAP_Module(**model_kwargs)
+    state_dict = load_state_dict(str(checkpoint_path))
+    state_dict.pop("text_branch.embeddings.position_ids", None)
+    model.model.load_state_dict(state_dict)
+    model.eval()
+
+    ids = [_stage_id(index, row) for index, row in enumerate(payload["rows"])]
+    texts = [row["source"].get("audio_cap") or row.get("candidate_text") or "" for row in payload["rows"]]
+    with torch.no_grad():
+        text_embeddings = model.get_text_embedding(texts, use_tensor=True)
+
+    sample_metrics: dict[str, dict[str, float]] = {}
+    for row, stem, text_embedding in zip(payload["rows"], ids, text_embeddings):
+        audio_path = generated_dir / f"{stem}.wav"
+        audio, _ = librosa.load(str(audio_path), sr=int(cfg.get("sample_rate", 48000)), mono=True)
+        audio = pyln.normalize.peak(audio, -1.0)
+        audio = audio.reshape(1, -1)
+        audio = torch.from_numpy(_int16_to_float32(_float32_to_int16(audio, np), np)).float()
+        with torch.no_grad():
+            audio_embedding = model.get_audio_embedding_from_data(x=audio, use_tensor=True)
+            score = torch.nn.functional.cosine_similarity(
+                audio_embedding,
+                text_embedding.unsqueeze(0),
+                dim=1,
+                eps=1e-8,
+            )[0]
+        sample_metrics[str(row["row_index"])] = {"clap_score_t2a": float(score.detach().cpu().item())}
+    return sample_metrics
+
+
+def _stable_kl_passt(payload: dict[str, Any]) -> float:
+    from passt_kld import passt_kld
+
+    cfg = payload["metric_configs"].get("kl_passt", {})
+    generated_dir, reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
+    ids = [_stage_id(index, row) for index, row in enumerate(payload["rows"])]
+    cache_dir = Path(cfg.get("cache_dir") or payload["cache_dir"])
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(cache_dir)
+        value = passt_kld(
+            ids=ids,
+            eval_path=str(generated_dir),
+            eval_files_extension=".wav",
+            ref_path=str(reference_dir),
+            ref_files_extension=".wav",
+            collect=cfg.get("collect", "mean"),
+        )
+    finally:
+        os.chdir(previous_cwd)
+    return _scalar(value)
+
+
+def _download_clap_checkpoint(checkpoint_file: str, checkpoint_path: Path, requests: Any, tqdm: Any) -> None:
+    urls = {
+        "music_speech_audioset_epoch_15_esc_89.98.pt": "https://huggingface.co/lukewys/laion_clap/resolve/main/music_speech_audioset_epoch_15_esc_89.98.pt",
+        "music_audioset_epoch_15_esc_90.14.pt": "https://huggingface.co/lukewys/laion_clap/resolve/main/music_audioset_epoch_15_esc_90.14.pt",
+        "music_speech_epoch_15_esc_89.25.pt": "https://huggingface.co/lukewys/laion_clap/resolve/main/music_speech_epoch_15_esc_89.25.pt",
+        "630k-audioset-fusion-best.pt": "https://huggingface.co/lukewys/laion_clap/resolve/main/630k-audioset-fusion-best.pt",
+    }
+    if checkpoint_path.exists():
+        return
+    url = urls.get(checkpoint_file)
+    if not url:
+        raise ValueError(f"Unsupported LAION-CLAP checkpoint: {checkpoint_file}")
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    response = requests.get(url, stream=True, timeout=30)
+    response.raise_for_status()
+    total_size = int(response.headers.get("content-length", 0))
+    with checkpoint_path.open("wb") as f:
+        with tqdm(total=total_size, unit="B", unit_scale=True) as progress_bar:
+            for data in response.iter_content(chunk_size=8192):
+                f.write(data)
+                progress_bar.update(len(data))
+
+
+def _float32_to_int16(x: Any, np: Any) -> Any:
+    x = np.clip(x, a_min=-1.0, a_max=1.0)
+    return (x * 32767.0).astype(np.int16)
+
+
+def _int16_to_float32(x: Any, np: Any) -> Any:
+    return (x / 32767.0).astype(np.float32)
+
+
 def _stage_audio_dirs(payload: dict[str, Any], reference_field: str) -> tuple[Path, Path]:
     work_dir = Path(payload["work_dir"])
     generated_dir = work_dir / payload["backend"] / "generated"
@@ -289,10 +419,14 @@ def _stage_audio_dirs(payload: dict[str, Any], reference_field: str) -> tuple[Pa
     generated_dir.mkdir(parents=True, exist_ok=True)
     reference_dir.mkdir(parents=True, exist_ok=True)
     for index, row in enumerate(payload["rows"]):
-        stem = f"{index:06d}_{row['sample_id']}"
+        stem = _stage_id(index, row)
         _link_or_copy(Path(row["output_file"]), generated_dir / f"{stem}.wav")
         _link_or_copy(Path(row["source"][reference_field]), reference_dir / f"{stem}.wav")
     return generated_dir, reference_dir
+
+
+def _stage_id(index: int, row: dict[str, Any]) -> str:
+    return f"{index:06d}_{row['sample_id']}"
 
 
 def _link_or_copy(source: Path, target: Path) -> None:

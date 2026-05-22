@@ -215,6 +215,7 @@ def _compute_external_metrics(
         "utmosv2": ["utmos"],
         "audioldm_eval": ["fad", "inception_score"],
         "kadtk": ["kad"],
+        "stable-audio-metrics": ["clap_score_t2a", "kl_passt"],
     }
     supported = {name for names in backend_metrics.values() for name in names}
     unsupported = sorted(selected - supported)
