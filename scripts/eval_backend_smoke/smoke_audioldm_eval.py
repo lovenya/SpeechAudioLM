@@ -27,6 +27,7 @@ def main() -> None:
     os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.path.dirname(cache_dir), "matplotlib"))
     os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
     os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
+    _disable_numba_function_cache()
 
     from audioldm_eval import EvaluationHelper
     import torch
@@ -45,6 +46,27 @@ def main() -> None:
         evaluator = EvaluationHelper(args.sample_rate, torch.device(args.device))
         result["metrics"] = evaluator.main(args.generated_dir, args.reference_dir, limit_num=2)
     print(json.dumps(result, indent=2, sort_keys=True, default=str))
+
+
+def _disable_numba_function_cache() -> None:
+    try:
+        import numba
+        import numba.np.ufunc.decorators as ufunc_decorators
+    except Exception:
+        return
+
+    def patch_decorator(decorator):
+        def wrapper(*args, **kwargs):
+            kwargs["cache"] = False
+            return decorator(*args, **kwargs)
+
+        return wrapper
+
+    numba.jit = patch_decorator(numba.jit)
+    numba.vectorize = patch_decorator(numba.vectorize)
+    numba.guvectorize = patch_decorator(numba.guvectorize)
+    ufunc_decorators.vectorize = patch_decorator(ufunc_decorators.vectorize)
+    ufunc_decorators.guvectorize = patch_decorator(ufunc_decorators.guvectorize)
 
 
 if __name__ == "__main__":

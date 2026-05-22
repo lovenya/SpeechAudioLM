@@ -188,6 +188,7 @@ def run_utmosv2(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
+    _disable_numba_function_cache()
     from audioldm_eval import EvaluationHelper
     import torch
 
@@ -410,6 +411,27 @@ def _float32_to_int16(x: Any, np: Any) -> Any:
 
 def _int16_to_float32(x: Any, np: Any) -> Any:
     return (x / 32767.0).astype(np.float32)
+
+
+def _disable_numba_function_cache() -> None:
+    try:
+        import numba
+        import numba.np.ufunc.decorators as ufunc_decorators
+    except Exception:
+        return
+
+    def patch_decorator(decorator: Any) -> Any:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            kwargs["cache"] = False
+            return decorator(*args, **kwargs)
+
+        return wrapper
+
+    numba.jit = patch_decorator(numba.jit)
+    numba.vectorize = patch_decorator(numba.vectorize)
+    numba.guvectorize = patch_decorator(numba.guvectorize)
+    ufunc_decorators.vectorize = patch_decorator(ufunc_decorators.vectorize)
+    ufunc_decorators.guvectorize = patch_decorator(ufunc_decorators.guvectorize)
 
 
 def _stage_audio_dirs(payload: dict[str, Any], reference_field: str) -> tuple[Path, Path]:
