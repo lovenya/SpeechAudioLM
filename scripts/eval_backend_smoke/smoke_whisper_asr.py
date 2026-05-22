@@ -10,7 +10,7 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smoke test the Whisper ASR backend.")
-    parser.add_argument("--cache-dir", default="/project/rrg-csubakan/lovenya/models/metrics/whisper")
+    parser.add_argument("--cache-dir", default="/scratch/lovenya/SpeechAudioLM/models/metrics/whisper")
     parser.add_argument("--model", default="large-v3")
     parser.add_argument("--audio", default=None, help="Optional audio file to transcribe.")
     parser.add_argument("--load-model", action="store_true", help="Actually load the model. Use compute node for large-v3.")

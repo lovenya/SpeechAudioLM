@@ -12,7 +12,7 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smoke test DNSMOS package/assets.")
-    parser.add_argument("--cache-dir", default="/project/rrg-csubakan/lovenya/models/metrics/dnsmos")
+    parser.add_argument("--cache-dir", default="/scratch/lovenya/SpeechAudioLM/models/metrics/dnsmos")
     return parser.parse_args()
 
 

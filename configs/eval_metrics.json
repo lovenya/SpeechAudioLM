@@ -31,14 +31,14 @@
       "backend": "aac-metrics",
       "model_name": "MS-CLAP-2023",
       "model_path": null,
-      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics"
     },
     "clap_score_t2a": {
       "backend": "stable-audio-metrics",
       "model_name": "LAION-CLAP",
       "checkpoint": "630k-audioset-fusion-best",
       "model_path": null,
-      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics",
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/stable_audio_metrics",
       "sample_rate": 48000,
       "resampling_policy": "backend_default"
     },
@@ -56,19 +56,19 @@
       "backend": "audioldm_eval",
       "model_name": "PANNs",
       "model_path": null,
-      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/audioldm_eval"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval"
     },
     "kad": {
       "backend": "kadtk",
       "model_name": null,
       "model_path": null,
-      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/kadtk"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/kadtk"
     },
     "kl_passt": {
       "backend": "stable-audio-metrics",
       "model_name": "PaSST",
       "model_path": null,
-      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics",
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/stable_audio_metrics",
       "sample_rate": 32000,
       "resampling_policy": "backend_default"
     },
@@ -76,13 +76,13 @@
       "backend": "audioldm_eval",
       "model_name": "PANNs",
       "model_path": null,
-      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/audioldm_eval"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval"
     },
     "utmos": {
       "backend": "utmosv2",
       "model_name": "UTMOSv2",
       "model_path": null,
-      "cache_dir": "/project/rrg-csubakan/lovenya/cache/metrics/utmosv2"
+      "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2"
     },
     "dnsmos": {
       "backend": null,

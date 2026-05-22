@@ -10,7 +10,7 @@ import os
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smoke test UTMOSv2.")
-    parser.add_argument("--cache-dir", default="/project/rrg-csubakan/lovenya/cache/metrics/utmosv2")
+    parser.add_argument("--cache-dir", default="/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2")
     parser.add_argument("--load-model", action="store_true", help="Reserved for a later UTMOSv2 model-load smoke.")
     parser.add_argument("--sample-rate", type=int, default=16000)
     return parser.parse_args()

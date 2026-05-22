@@ -11,7 +11,7 @@ import shutil
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smoke test aac-metrics.")
-    parser.add_argument("--cache-dir", default="/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics")
+    parser.add_argument("--cache-dir", default="/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics")
     parser.add_argument("--metrics", default="spider", help="Comma-separated AAC metrics for a tiny text-only run.")
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()

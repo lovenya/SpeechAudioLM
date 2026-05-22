@@ -23,9 +23,9 @@ Use separate environments when dependency stacks conflict:
 Keep backend assets outside git:
 
 ```text
-/project/rrg-csubakan/lovenya/models/metrics
-/project/rrg-csubakan/lovenya/cache/metrics
-/project/rrg-csubakan/lovenya/src/metrics
+/scratch/lovenya/SpeechAudioLM/models/metrics
+/scratch/lovenya/SpeechAudioLM/cache/metrics
+/scratch/lovenya/SpeechAudioLM/code/metrics
 ```
 
 Standard module setup:
@@ -69,12 +69,12 @@ python -m pip install -U openai-whisper
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/models/metrics/whisper
+mkdir -p /scratch/lovenya/SpeechAudioLM/models/metrics/whisper
 python - <<'PY'
 import whisper
 model = whisper.load_model(
     "large-v3",
-    download_root="/project/rrg-csubakan/lovenya/models/metrics/whisper",
+    download_root="/scratch/lovenya/SpeechAudioLM/models/metrics/whisper",
 )
 print("loaded", model.dims)
 PY
@@ -83,7 +83,7 @@ PY
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/models/metrics/whisper
+/scratch/lovenya/SpeechAudioLM/models/metrics/whisper
 ```
 
 Smoke test:
@@ -139,11 +139,11 @@ python -m pip install aac-metrics
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
-export AAC_METRICS_CACHE=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
-export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
-export TORCH_HOME=/project/rrg-csubakan/lovenya/cache/metrics/torch
-export SENTENCE_TRANSFORMERS_HOME=/project/rrg-csubakan/lovenya/cache/metrics/sentence_transformers
+mkdir -p /scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics
+export AAC_METRICS_CACHE=/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics
+export XDG_CACHE_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics
+export TORCH_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/torch
+export SENTENCE_TRANSFORMERS_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/sentence_transformers
 aac-metrics-download --cache_path "$AAC_METRICS_CACHE"
 aac-metrics-info
 ```
@@ -151,7 +151,7 @@ aac-metrics-info
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
+/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics
 ```
 
 Smoke test:
@@ -159,7 +159,7 @@ Smoke test:
 ```bash
 module load java/11.0.22
 source .venvs/metrics/.venv-eval-aac/bin/activate
-export AAC_METRICS_CACHE=/project/rrg-csubakan/lovenya/cache/metrics/aac_metrics
+export AAC_METRICS_CACHE=/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics
 unset JAVA_TOOL_OPTIONS
 python scripts/eval_backend_smoke/smoke_aac_metrics.py --cache-dir "$AAC_METRICS_CACHE" --metrics spider --device cpu
 ```
@@ -220,15 +220,19 @@ Install:
 python -m venv .venvs/metrics/.venv-eval-stable-audio-metrics
 source .venvs/metrics/.venv-eval-stable-audio-metrics/bin/activate
 python -m pip install --upgrade pip
-python -m pip install git+https://github.com/Stability-AI/stable-audio-metrics
+python -m pip install requests tqdm numpy scipy librosa soundfile pyloudnorm ftfy regex
+python -m pip install timm==0.4.12 --no-deps
+python -m pip install laion-clap==1.1.4 --no-deps
+python -m pip install git+https://github.com/kkoutini/passt_hear21@3d4e7cf10cd992d15e8e2da4db97c1766e79a93b
 ```
 
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics
-export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics
-export TORCH_HOME=/project/rrg-csubakan/lovenya/cache/metrics/torch
+mkdir -p /scratch/lovenya/SpeechAudioLM/cache/metrics/stable_audio_metrics
+export XDG_CACHE_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/stable_audio_metrics
+export TORCH_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/torch
+export HF_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/huggingface
 python - <<'PY'
 import stable_audio_metrics
 print(stable_audio_metrics)
@@ -238,7 +242,7 @@ PY
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/cache/metrics/stable_audio_metrics
+/scratch/lovenya/SpeechAudioLM/cache/metrics/stable_audio_metrics
 ```
 
 Smoke test:
@@ -297,14 +301,14 @@ python -m pip install git+https://github.com/sarulab-speech/UTMOSv2
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/utmosv2
-export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics/utmosv2
+mkdir -p /scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2
+export XDG_CACHE_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2
 ```
 
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/cache/metrics/utmosv2
+/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2
 ```
 
 Smoke test:
@@ -360,20 +364,20 @@ python -m pip install torchmetrics onnxruntime librosa
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/models/metrics/dnsmos/DNSMOS
-mkdir -p /project/rrg-csubakan/lovenya/models/metrics/dnsmos/pDNSMOS
-wget -O /project/rrg-csubakan/lovenya/models/metrics/dnsmos/DNSMOS/model_v8.onnx \
+mkdir -p /scratch/lovenya/SpeechAudioLM/models/metrics/dnsmos/DNSMOS
+mkdir -p /scratch/lovenya/SpeechAudioLM/models/metrics/dnsmos/pDNSMOS
+wget -O /scratch/lovenya/SpeechAudioLM/models/metrics/dnsmos/DNSMOS/model_v8.onnx \
   https://raw.githubusercontent.com/microsoft/DNS-Challenge/master/DNSMOS/DNSMOS/model_v8.onnx
-wget -O /project/rrg-csubakan/lovenya/models/metrics/dnsmos/DNSMOS/sig_bak_ovr.onnx \
+wget -O /scratch/lovenya/SpeechAudioLM/models/metrics/dnsmos/DNSMOS/sig_bak_ovr.onnx \
   https://raw.githubusercontent.com/microsoft/DNS-Challenge/master/DNSMOS/DNSMOS/sig_bak_ovr.onnx
-wget -O /project/rrg-csubakan/lovenya/models/metrics/dnsmos/pDNSMOS/sig_bak_ovr.onnx \
+wget -O /scratch/lovenya/SpeechAudioLM/models/metrics/dnsmos/pDNSMOS/sig_bak_ovr.onnx \
   https://raw.githubusercontent.com/microsoft/DNS-Challenge/master/DNSMOS/pDNSMOS/sig_bak_ovr.onnx
 ```
 
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/models/metrics/dnsmos
+/scratch/lovenya/SpeechAudioLM/models/metrics/dnsmos
 ```
 
 Smoke test:
@@ -430,9 +434,9 @@ python -m pip install git+https://github.com/haoheliu/audioldm_eval --no-deps
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/audioldm_eval
-export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics
-export TORCH_HOME=/project/rrg-csubakan/lovenya/cache/metrics/torch
+mkdir -p /scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval
+export XDG_CACHE_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics
+export TORCH_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/torch
 python - <<'PY'
 from audioldm_eval import EvaluationHelper
 import torch
@@ -444,7 +448,7 @@ PY
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/cache/metrics/audioldm_eval
+/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval
 ```
 
 Smoke test:
@@ -507,16 +511,16 @@ python -m pip install kadtk
 Assets to download:
 
 ```bash
-mkdir -p /project/rrg-csubakan/lovenya/cache/metrics/kadtk
-export XDG_CACHE_HOME=/project/rrg-csubakan/lovenya/cache/metrics
-export TORCH_HOME=/project/rrg-csubakan/lovenya/cache/metrics/torch
+mkdir -p /scratch/lovenya/SpeechAudioLM/cache/metrics/kadtk
+export XDG_CACHE_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics
+export TORCH_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/torch
 kadtk --help
 ```
 
 Cache directory:
 
 ```text
-/project/rrg-csubakan/lovenya/cache/metrics/kadtk
+/scratch/lovenya/SpeechAudioLM/cache/metrics/kadtk
 ```
 
 Smoke test:
