@@ -7,7 +7,7 @@ set -euo pipefail
 
 cd /lustre09/project/6090520/lovenya/SpeechAudioLM
 
-module purge
+module --force purge
 module load StdEnv/2023 gcc cuda java/11.0.22 python/3.10.13
 unset JAVA_TOOL_OPTIONS
 
@@ -25,6 +25,7 @@ python evaluate.py \
   --model audio_omni \
   --task T2A \
   --metrics fad,kad,inception_score,clap_score_t2a,kl_passt \
+  --start-index "${START_INDEX:-0}" \
   --max-samples 2 \
   --baseline-root results/baselines \
   --output-root "$OUT_ROOT" \
@@ -35,6 +36,7 @@ python evaluate.py \
   --model audio_omni \
   --task T2S \
   --metrics asr_wer,dwer,utmos \
+  --start-index "${START_INDEX:-0}" \
   --max-samples 2 \
   --baseline-root results/baselines \
   --output-root "$OUT_ROOT" \
@@ -46,6 +48,7 @@ python evaluate.py \
   --task A2T \
   --manifest results/baselines/audio_omni/A2S/test/audio_cap/manifest.jsonl \
   --metrics mace,spider,aac_clapsim \
+  --start-index "${START_INDEX:-0}" \
   --max-samples 2 \
   --baseline-root results/baselines \
   --output-root "$OUT_ROOT" \
@@ -57,6 +60,7 @@ python evaluate.py \
   --task S2T \
   --manifest results/baselines/audio_omni/S2A/test/speech_text/manifest.jsonl \
   --metrics wer \
+  --start-index "${START_INDEX:-0}" \
   --max-samples 2 \
   --baseline-root results/baselines \
   --output-root "$OUT_ROOT" \

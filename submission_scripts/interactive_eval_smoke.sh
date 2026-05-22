@@ -7,9 +7,8 @@ set -euo pipefail
 
 ACCOUNT="${ACCOUNT:-rrg-ravanelm}"
 TIME="${TIME:-01:00:00}"
-CPUS="${CPUS:-8}"
+CPUS="${CPUS:-4}"
 MEM="${MEM:-48G}"
 GPUS="${GPUS:-h100_3g.40gb:1}"
 
 salloc -A "$ACCOUNT" -t "$TIME" -c "$CPUS" --mem="$MEM" --gpus="$GPUS"
-

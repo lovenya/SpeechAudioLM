@@ -2,7 +2,7 @@
 #SBATCH --job-name=salm-audiogen-t2a
 #SBATCH --account=rrg-ravanelm
 #SBATCH --time=06:00:00
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
 #SBATCH --gpus=h100_2g.20gb:1
 #SBATCH --output=/scratch/lovenya/SpeechAudioLM/logs/slurm/%x-%j.out
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 cd /lustre09/project/6090520/lovenya/SpeechAudioLM
-module purge
+module --force purge
 module load StdEnv/2023 gcc cuda rust arrow python/3.10.13
 source .venv-audiocraft/bin/activate
 
@@ -22,14 +22,26 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export PYTHONDONTWRITEBYTECODE=1
 
-mkdir -p "$SALM_SCRATCH/results/baselines" "$SALM_SCRATCH/logs/baselines" "$SALM_SCRATCH/logs/slurm"
+MODEL="audiogen"
+TASK="T2A"
+START_INDEX="${START_INDEX:-0}"
+NUM_SAMPLES_VALUE="${NUM_SAMPLES:--1}"
+BASELINE_ROOT="$SALM_SCRATCH/results/baselines"
+LOG_ROOT="$SALM_SCRATCH/logs/baselines"
+if [ "${SHARDED:-0}" = "1" ]; then
+  SHARD_LABEL="${MODEL}_${TASK}_start${START_INDEX}_n${NUM_SAMPLES_VALUE}"
+  BASELINE_ROOT="$SALM_SCRATCH/results/baselines_shards/$SHARD_LABEL"
+  LOG_ROOT="$SALM_SCRATCH/logs/baseline_shards/$SHARD_LABEL"
+fi
+
+mkdir -p "$BASELINE_ROOT" "$LOG_ROOT" "$SALM_SCRATCH/logs/slurm"
 
 python baseline.py \
-  --model audiogen \
-  --task T2A \
+  --model "$MODEL" \
+  --task "$TASK" \
   --split test \
-  --num-samples "${NUM_SAMPLES:--1}" \
-  --output-dir "$SALM_SCRATCH/results/baselines" \
-  --log-dir "$SALM_SCRATCH/logs/baselines" \
+  --start-index "$START_INDEX" \
+  --num-samples "$NUM_SAMPLES_VALUE" \
+  --output-dir "$BASELINE_ROOT" \
+  --log-dir "$LOG_ROOT" \
   --continue-on-error
-

@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default="results/evals")
     parser.add_argument("--cache-dir", default="results/evals/cache")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--start-index", type=int, default=0, help="Skip this many manifest rows before evaluation.")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit rows for debugging.")
     parser.add_argument("--dry-run", action="store_true", help="Validate inputs and print planned evaluation.")
     return parser.parse_args()
@@ -65,6 +66,7 @@ def main() -> None:
             output_root=Path(args.output_root),
             metric_specs=metric_specs,
             max_samples=args.max_samples,
+            start_index=args.start_index,
             cache_dir=Path(args.cache_dir),
             device=args.device,
             command=sys.argv,

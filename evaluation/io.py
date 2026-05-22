@@ -19,14 +19,24 @@ def read_json(path: Path) -> dict:
         return json.load(f)
 
 
-def iter_jsonl(path: Path, max_samples: int | None = None) -> Iterator[ManifestRow]:
+def iter_jsonl(path: Path, max_samples: int | None = None, start_index: int = 0) -> Iterator[ManifestRow]:
+    if start_index < 0:
+        raise ValueError("--start-index must be >= 0")
+    if max_samples is not None and max_samples <= 0:
+        raise ValueError("--max-samples must be a positive integer")
+
     emitted = 0
+    seen = 0
     with path.open("r", encoding="utf-8") as f:
         for ordinal, line in enumerate(f):
             line = line.strip()
             if not line:
                 continue
+            if seen < start_index:
+                seen += 1
+                continue
             yield ManifestRow(ordinal=ordinal, record=json.loads(line))
+            seen += 1
             emitted += 1
             if max_samples is not None and emitted >= max_samples:
                 break
@@ -53,4 +63,3 @@ def utc_timestamp() -> str:
 def update_latest(path: Path, latest_path: Path) -> None:
     latest_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(path, latest_path)
-

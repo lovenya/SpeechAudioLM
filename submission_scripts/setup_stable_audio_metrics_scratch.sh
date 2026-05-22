@@ -10,7 +10,7 @@ ENV_DIR="$SCRATCH_ROOT/.venvs/metrics/.venv-eval-stable-audio-metrics"
 CODE_DIR="$SCRATCH_ROOT/code/metrics/stable-audio-metrics"
 CACHE_DIR="$SCRATCH_ROOT/cache/metrics/stable_audio_metrics"
 
-module purge
+module --force purge
 module load StdEnv/2023 gcc cuda python/3.11
 
 mkdir -p "$SCRATCH_ROOT/.venvs/metrics" "$SCRATCH_ROOT/code/metrics" "$CACHE_DIR/pip" "$CACHE_DIR/load"

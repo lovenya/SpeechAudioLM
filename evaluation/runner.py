@@ -32,6 +32,7 @@ class EvalOptions:
     output_root: Path
     metric_specs: list[MetricSpec]
     max_samples: int | None
+    start_index: int
     cache_dir: Path
     device: str
     command: list[str]
@@ -41,7 +42,14 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     dataset_config = read_json(options.dataset_config_path)
     metrics_config = read_json(options.metrics_config_path).get("metrics", {})
     dataset_root = Path(dataset_config["dataset_root"])
-    rows = [item.record for item in iter_jsonl(options.manifest_path, options.max_samples)]
+    rows = [
+        item.record
+        for item in iter_jsonl(
+            options.manifest_path,
+            max_samples=options.max_samples,
+            start_index=options.start_index,
+        )
+    ]
 
     _validate_rows(rows, options.metric_specs, dataset_root)
     metric_backend_metadata = _prepare_metric_backends(options.metric_specs, metrics_config, options.device, options.cache_dir)
@@ -94,7 +102,14 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
 
 def dry_run(options: EvalOptions) -> dict[str, Any]:
     dataset_config = read_json(options.dataset_config_path)
-    rows = [item.record for item in iter_jsonl(options.manifest_path, options.max_samples)]
+    rows = [
+        item.record
+        for item in iter_jsonl(
+            options.manifest_path,
+            max_samples=options.max_samples,
+            start_index=options.start_index,
+        )
+    ]
     dataset_root = Path(dataset_config["dataset_root"])
     _validate_rows(rows, options.metric_specs, dataset_root)
     output_dir = eval_model_root(options.task, options.dataset, options.model, options.output_root)
@@ -107,6 +122,7 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
         "manifest": str(options.manifest_path),
         "output_dir": str(output_dir),
         "metrics": [spec.name for spec in options.metric_specs],
+        "start_index": options.start_index,
         "rows": len(rows),
         "cache_dir": str(options.cache_dir),
     }
@@ -525,6 +541,8 @@ def _run_config(options: EvalOptions, backend_metadata: dict[str, dict]) -> dict
         "task_metric_map": str(options.task_metric_map_path),
         "metrics": [spec.name for spec in options.metric_specs],
         "metric_backends": backend_metadata,
+        "start_index": options.start_index,
+        "max_samples": options.max_samples,
         "cache_dir": str(options.cache_dir),
         "device": options.device,
         "command": options.command,

@@ -135,6 +135,57 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 output_root=root / "evals",
                 metric_specs=get_metric_specs(["fad"]),
                 max_samples=None,
+                start_index=0,
+                cache_dir=root / "cache",
+                device="cpu",
+                command=["evaluate.py"],
+            )
+            preview = dry_run(options)
+            self.assertEqual(preview["rows"], 1)
+
+    def test_eval_dry_run_supports_start_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_root = root / "dataset"
+            baseline_root = root / "baseline"
+            ref_audio = dataset_root / "audio" / "sample.wav"
+            output_audio = baseline_root / "audio" / "sample.wav"
+            ref_audio.parent.mkdir(parents=True)
+            output_audio.parent.mkdir(parents=True)
+            ref_audio.write_bytes(b"RIFFfake")
+            output_audio.write_bytes(b"RIFFfake")
+
+            dataset_config = root / "dataset.json"
+            dataset_config.write_text(json.dumps({"dataset_root": str(dataset_root)}), encoding="utf-8")
+            metrics_config = root / "metrics.json"
+            metrics_config.write_text(json.dumps({"metrics": {}}), encoding="utf-8")
+            manifest = root / "manifest.jsonl"
+            rows = [
+                {
+                    "model": "audio_omni",
+                    "task": "T2A",
+                    "row_index": index,
+                    "sample_id": f"sample_{index}",
+                    "output_file": str(output_audio),
+                    "source": {"audio_file": "audio/sample.wav", "audio_cap": "A tone plays"},
+                }
+                for index in range(3)
+            ]
+            manifest.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+            options = EvalOptions(
+                model="audio_omni",
+                task="T2A",
+                dataset="ttas",
+                split="test",
+                manifest_path=manifest,
+                dataset_config_path=dataset_config,
+                metrics_config_path=metrics_config,
+                task_metric_map_path=root / "task_metric_map.json",
+                output_root=root / "evals",
+                metric_specs=get_metric_specs(["fad"]),
+                max_samples=1,
+                start_index=2,
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
