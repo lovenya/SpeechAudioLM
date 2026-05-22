@@ -226,6 +226,13 @@ Interactive metric smoke allocation:
 submission_scripts/interactive_eval_smoke.sh
 ```
 
+Inside the allocation, validate metric adapters against existing two-sample
+baseline outputs:
+
+```bash
+submission_scripts/run_eval_smoke_existing_manifests.sh
+```
+
 Full baseline submissions:
 
 ```bash
