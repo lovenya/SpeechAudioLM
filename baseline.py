@@ -134,11 +134,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _default_prompt_field(model: str, task: str) -> str:
+    if model == "qwen3_omni" and task == "A2S":
+        return "speech_text"
+    return default_prompt_field(task)
+
+
 def main() -> None:
     args = parse_args()
     config = load_dataset_config(Path(args.dataset_config))
     split_path = Path(args.split_file) if args.split_file else Path(config["splits"][args.split])
-    prompt_field = args.prompt_field or default_prompt_field(args.task)
+    prompt_field = args.prompt_field or _default_prompt_field(args.model, args.task)
 
     rows = iter_split_rows(
         split_path,
@@ -207,5 +213,7 @@ def main() -> None:
         resource_interval=args.resource_interval,
         continue_on_error=args.continue_on_error,
     )
+
+
 if __name__ == "__main__":
     main()

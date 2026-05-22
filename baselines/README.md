@@ -34,7 +34,8 @@ Model-specific notes:
 
 - Qwen3-Omni `A2S` is a baseline-only cascade that skips audio understanding
   and uses the paired `speech_text` as the intermediate transcript before TTS.
-  Run it with `--prompt-field speech_text`.
+  It defaults to `speech_text` even though Audio-Omni `A2S` defaults to
+  `audio_cap`.
 - `S2A`, direct `A2S`, and text-to-text reasoning metrics are deferred. Keep
   those baseline manifests, but evaluate only the final-output metric suites
   that are currently defined in `configs/task_metric_map.json`.
