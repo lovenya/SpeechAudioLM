@@ -116,7 +116,9 @@
       "model_path": null,
       "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2",
       "config_name": "fusion_stage3",
-      "sample_rate": 16000
+      "sample_rate": 16000,
+      "hf_hub_offline": "1",
+      "transformers_offline": "1"
     },
     "dnsmos": {
       "backend": null,

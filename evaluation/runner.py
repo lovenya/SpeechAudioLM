@@ -356,6 +356,12 @@ def _backend_env(options: EvalOptions, metric_configs: dict[str, dict]) -> dict[
     env["NUMBA_CACHE_DIR"] = str(cache_path.parent / "numba")
     env["MPLCONFIGDIR"] = str(cache_path.parent / "matplotlib")
     env["UTMOSV2_CHACHE"] = str(cache_path)
+    hf_hub_offline = _first_metric_config_value(metric_configs, "hf_hub_offline")
+    transformers_offline = _first_metric_config_value(metric_configs, "transformers_offline")
+    if hf_hub_offline is not None:
+        env["HF_HUB_OFFLINE"] = hf_hub_offline
+    if transformers_offline is not None:
+        env["TRANSFORMERS_OFFLINE"] = transformers_offline
     env["TF_CPP_MIN_LOG_LEVEL"] = "3"
     pythonpath = _first_metric_config_value(metric_configs, "pythonpath")
     if pythonpath:

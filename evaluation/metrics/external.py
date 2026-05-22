@@ -43,6 +43,8 @@ def backend_metadata(name: str, config: dict[str, Any], device: str, cache_dir: 
         "transformers_cache": config.get("transformers_cache"),
         "torch_home": config.get("torch_home"),
         "batch_size": config.get("batch_size"),
+        "hf_hub_offline": config.get("hf_hub_offline"),
+        "transformers_offline": config.get("transformers_offline"),
         "audio_preprocessing": {
             "sample_rate": config.get("sample_rate"),
             "resampling_policy": config.get("resampling_policy", "backend_default"),
