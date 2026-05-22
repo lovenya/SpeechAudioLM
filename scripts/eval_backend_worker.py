@@ -315,7 +315,7 @@ def _stable_clap_scores(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
     from tqdm import tqdm
 
     cfg = payload["metric_configs"].get("clap_score_t2a", {})
-    generated_dir, _reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
+    generated_dir = _stage_generated_audio_dir(payload)
     cache_dir = Path(cfg.get("cache_dir") or payload["cache_dir"])
     checkpoint = cfg.get("checkpoint", "630k-audioset-fusion-best")
     checkpoint_file = checkpoint if checkpoint.endswith(".pt") else f"{checkpoint}.pt"
@@ -414,15 +414,23 @@ def _int16_to_float32(x: Any, np: Any) -> Any:
 
 def _stage_audio_dirs(payload: dict[str, Any], reference_field: str) -> tuple[Path, Path]:
     work_dir = Path(payload["work_dir"])
-    generated_dir = work_dir / payload["backend"] / "generated"
+    generated_dir = _stage_generated_audio_dir(payload)
     reference_dir = work_dir / payload["backend"] / "reference"
-    generated_dir.mkdir(parents=True, exist_ok=True)
     reference_dir.mkdir(parents=True, exist_ok=True)
     for index, row in enumerate(payload["rows"]):
         stem = _stage_id(index, row)
-        _link_or_copy(Path(row["output_file"]), generated_dir / f"{stem}.wav")
         _link_or_copy(Path(row["source"][reference_field]), reference_dir / f"{stem}.wav")
     return generated_dir, reference_dir
+
+
+def _stage_generated_audio_dir(payload: dict[str, Any]) -> Path:
+    work_dir = Path(payload["work_dir"])
+    generated_dir = work_dir / payload["backend"] / "generated"
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    for index, row in enumerate(payload["rows"]):
+        stem = _stage_id(index, row)
+        _link_or_copy(Path(row["output_file"]), generated_dir / f"{stem}.wav")
+    return generated_dir
 
 
 def _stage_id(index: int, row: dict[str, Any]) -> str:
