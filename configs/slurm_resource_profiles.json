@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "notes": [
+    "These are starting recommendations, not final measured requirements.",
+    "Use RESOURCE_INTERVAL=300 by default so Slurm jobs record node-level CPU/RAM/VRAM every 5 minutes.",
+    "Update requested resources after reviewing /scratch/lovenya/SpeechAudioLM/logs/resources/*_summary.json."
+  ],
+  "profiles": {
+    "baseline_audiogen_t2a": {
+      "account_preference": ["rrg-ravanelm", "rrg-csubakan"],
+      "time": "02:00:00 for 200-row shards; increase for full unsharded runs",
+      "cpus_per_task": 4,
+      "mem": "48G",
+      "gpus": "h100_2g.20gb:1",
+      "script": "submission_scripts/run_baseline_audiogen_t2a.sbatch"
+    },
+    "baseline_tangoflux_t2a": {
+      "account_preference": ["rrg-ravanelm", "rrg-csubakan"],
+      "time": "02:00:00 for 200-row shards; increase for full unsharded runs",
+      "cpus_per_task": 4,
+      "mem": "64G",
+      "gpus": "h100_3g.40gb:1",
+      "script": "submission_scripts/run_baseline_tangoflux_t2a.sbatch"
+    },
+    "baseline_audio_omni_array": {
+      "account_preference": ["rrg-ravanelm", "rrg-csubakan"],
+      "time": "02:00:00 for 200-row shards; increase for full unsharded runs",
+      "cpus_per_task": 4,
+      "mem": "96G",
+      "gpus": "h100_3g.40gb:1",
+      "script": "submission_scripts/run_baseline_audio_omni_array.sbatch",
+      "tasks": ["T2A", "T2S", "A2T", "S2T", "S2A", "A2S"]
+    },
+    "baseline_qwen3_omni_a2s": {
+      "account_preference": ["rrg-ravanelm", "rrg-csubakan"],
+      "time": "02:00:00 for 200-row shards; increase for full unsharded runs",
+      "cpus_per_task": 4,
+      "mem": "160G",
+      "gpus": "h100:1",
+      "script": "submission_scripts/run_baseline_qwen3_omni_a2s.sbatch"
+    },
+    "eval_available_metrics_array": {
+      "account_preference": ["rrg-ravanelm", "rrg-csubakan"],
+      "time": "02:00:00 for smoke; 04:00:00+ for full evals",
+      "cpus_per_task": 4,
+      "mem": "96G",
+      "gpus": "h100_3g.40gb:1",
+      "script": "submission_scripts/run_eval_available_metrics_array.sbatch",
+      "notes": [
+        "T2S/AAC-only evals likely need less memory.",
+        "T2A corpus metrics are the main reason for conservative memory."
+      ]
+    }
+  }
+}

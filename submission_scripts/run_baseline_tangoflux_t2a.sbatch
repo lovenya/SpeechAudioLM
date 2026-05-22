@@ -35,6 +35,8 @@ if [ "${SHARDED:-0}" = "1" ]; then
 fi
 
 mkdir -p "$BASELINE_ROOT" "$LOG_ROOT" "$SALM_SCRATCH/logs/slurm"
+source submission_scripts/lib_resource_monitor.sh
+start_resource_monitor "baseline_${MODEL}_${TASK}_start${START_INDEX}_n${NUM_SAMPLES_VALUE}"
 
 python baseline.py \
   --model "$MODEL" \

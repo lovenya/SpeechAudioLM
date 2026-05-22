@@ -253,6 +253,13 @@ runs. Use `MAX_SAMPLES=2 sbatch submission_scripts/run_eval_available_metrics_ar
 for a compute-node evaluation smoke before full metrics. Scratch outputs are
 written under `/scratch/lovenya/SpeechAudioLM/results/`.
 
+Slurm resource requests are tracked in
+`configs/slurm_resource_profiles.json`. The submission scripts start
+`scripts/resource_monitor.py` by default and write node-level CPU, RAM, and GPU
+samples plus peak summaries under `/scratch/lovenya/SpeechAudioLM/logs/resources/`.
+Use `RESOURCE_INTERVAL=300` for five-minute samples, or `RESOURCE_INTERVAL=0`
+to disable monitoring.
+
 Rebuild or refresh the optional stable-audio-metrics env and checkpoint caches
 on an internet-capable login node:
 

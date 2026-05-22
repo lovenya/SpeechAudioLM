@@ -54,6 +54,8 @@ if [ "${SHARDED:-0}" = "1" ]; then
   SHARD_LABEL="start${START_INDEX:-0}_n${MAX_SAMPLES:-all}"
   EVAL_ROOT="$SALM_SCRATCH/results/eval_shards/$SHARD_LABEL"
 fi
+source submission_scripts/lib_resource_monitor.sh
+start_resource_monitor "eval_${MODEL}_${TASK}_${METRICS}_start${START_INDEX:-0}_n${MAX_SAMPLES:-all}"
 
 python evaluate.py \
   --model "$MODEL" \

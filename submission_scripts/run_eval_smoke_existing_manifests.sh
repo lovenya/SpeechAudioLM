@@ -20,6 +20,8 @@ export TORCH_HOME="$SALM_SCRATCH/cache/metrics/torch"
 OUT_ROOT="$SALM_SCRATCH/results/eval_smoke_existing"
 CACHE_ROOT="$SALM_SCRATCH/cache/metrics/eval_smoke_runtime"
 mkdir -p "$OUT_ROOT" "$CACHE_ROOT"
+source submission_scripts/lib_resource_monitor.sh
+start_resource_monitor "eval_smoke_existing_start${START_INDEX:-0}"
 
 python evaluate.py \
   --model audio_omni \
