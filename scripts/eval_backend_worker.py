@@ -92,18 +92,21 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
                 clap_model=cfg.get("clap_model", "MS-CLAP-2023"),
                 echecker=cfg.get("echecker", "echecker_clotho_audiocaps_base"),
                 device=device,
+                batch_size=int(cfg.get("batch_size", 1)),
                 return_all_scores=True,
             )
             _assign_sample_scores(rows, sample_metrics, "mace", sent_scores.get("mace"))
             corpus_metrics["mace"] = _scalar(corpus_scores.get("mace"))
 
         if "aac_clapsim" in metrics:
+            cfg = payload["metric_configs"].get("aac_clapsim", {})
             corpus_scores, sent_scores = clap_sim(
                 candidates,
                 audio_paths=audio_paths,
                 clap_method="audio",
-                clap_model=payload["metric_configs"].get("aac_clapsim", {}).get("model_name", "MS-CLAP-2023"),
+                clap_model=cfg.get("model_name", "MS-CLAP-2023"),
                 device=device,
+                batch_size=int(cfg.get("batch_size", 1)),
                 return_all_scores=True,
             )
             _assign_sample_scores(rows, sample_metrics, "aac_clapsim", sent_scores.get("clap_sim"))

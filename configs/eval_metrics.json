@@ -32,7 +32,8 @@
       "python": ".venvs/.venv-eval-aac/bin/python",
       "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics",
       "hf_home": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface",
-      "transformers_cache": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface"
+      "transformers_cache": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface",
+      "batch_size": 1
     },
     "spider": {
       "backend": "aac-metrics",
@@ -48,7 +49,8 @@
       "model_path": null,
       "cache_dir": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics",
       "hf_home": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface",
-      "transformers_cache": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface"
+      "transformers_cache": "/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface",
+      "batch_size": 1
     },
     "clap_score_t2a": {
       "backend": "stable-audio-metrics",
