@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smoke test audioldm_eval.")
+    parser.add_argument("--cache-dir", default="/scratch/lovenya/SpeechAudioLM/cache/metrics/audioldm_eval")
     parser.add_argument("--reference-dir", default=None)
     parser.add_argument("--generated-dir", default=None)
     parser.add_argument("--sample-rate", type=int, default=16000)
@@ -19,11 +21,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    cache_dir = args.cache_dir
+    os.environ.setdefault("XDG_CACHE_HOME", cache_dir)
+    os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(os.path.dirname(cache_dir), "numba"))
+    os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.path.dirname(cache_dir), "matplotlib"))
+    os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
+    os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
+
     from audioldm_eval import EvaluationHelper
     import torch
 
     result = {
         "backend": "audioldm_eval",
+        "cache_dir": cache_dir,
         "sample_rate": args.sample_rate,
         "device": args.device,
         "helper_imported": True,
