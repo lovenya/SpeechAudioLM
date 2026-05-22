@@ -38,6 +38,14 @@ export TORCH_HOME="$SALM_SCRATCH/cache/metrics/torch"
 
 mkdir -p "$SALM_SCRATCH/results/evals" "$SALM_SCRATCH/logs/slurm"
 
+EXTRA_ARGS=()
+if [ -n "${MAX_SAMPLES:-}" ]; then
+  EXTRA_ARGS+=(--max-samples "$MAX_SAMPLES")
+fi
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  EXTRA_ARGS+=(--dry-run)
+fi
+
 python evaluate.py \
   --model "$MODEL" \
   --task "$TASK" \
@@ -45,4 +53,5 @@ python evaluate.py \
   --baseline-root "$SALM_SCRATCH/results/baselines" \
   --output-root "$SALM_SCRATCH/results/evals" \
   --cache-dir "$SALM_SCRATCH/cache/metrics/eval_runtime" \
-  --device cuda
+  --device cuda \
+  "${EXTRA_ARGS[@]}"

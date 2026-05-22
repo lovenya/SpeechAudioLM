@@ -241,8 +241,10 @@ Available metric evaluations over completed baseline manifests:
 sbatch submission_scripts/run_eval_available_metrics_array.sbatch
 ```
 
-Use `NUM_SAMPLES=2 sbatch ...` for a compute-node smoke before full runs.
-Scratch outputs are written under `/scratch/lovenya/SpeechAudioLM/results/`.
+Use `NUM_SAMPLES=2 sbatch ...` for a compute-node baseline smoke before full
+runs. Use `MAX_SAMPLES=2 sbatch submission_scripts/run_eval_available_metrics_array.sbatch`
+for a compute-node evaluation smoke before full metrics. Scratch outputs are
+written under `/scratch/lovenya/SpeechAudioLM/results/`.
 
 Rebuild or refresh the optional stable-audio-metrics env and checkpoint caches
 on an internet-capable login node:
