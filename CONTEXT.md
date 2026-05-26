@@ -302,14 +302,13 @@ Still to smoke through `evaluate.py`:
 
 ## Cluster Migration
 
-Migration handoff docs were added locally for moving this project to another
-cluster:
+Migration handoff docs were added for moving this project to another cluster:
 
 ```text
 CLUSTER_MIGRATION_HANDOFF.md
 NEW_CLUSTER_ENV_SETUP.md
 ```
 
-These files are ignored by git under the current Markdown ignore policy. If the
-new cluster setup uses `git clone`, transfer them separately or intentionally
-force-add them after confirming the repo documentation policy.
+These files are now tracked in git for cross-cluster handoff, along with the
+other Markdown context docs. After cloning on the new cluster, verify the docs
+are present before asking Codex to make path or environment decisions.

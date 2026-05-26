@@ -60,6 +60,9 @@
 - Internal Markdown docs remain local and ignored.
 - `README.md` is the public Markdown doc intended for GitHub.
 - Small metadata artifacts, configs, splits, reports, and utility scripts are versioned.
+- Later migration work intentionally changed this boundary for handoff:
+  selected Markdown context files are now tracked so a new cluster can recover
+  the project state from git.
 
 ### HPC Setup Note
 
@@ -475,3 +478,9 @@
   by the new agent, and the custom local skill at
   `/home/lovenya/.codex/skills/update_docs/SKILL.md` should be copied to the new
   cluster if Codex there does not already have it.
+- Clarified migration transfer strategy: clone the repo and tracked handoff
+  docs, transfer the TTAS dataset and local/custom assets, recreate venvs, and
+  re-download public Hugging Face/GitHub model and metric assets when practical.
+- Copied that custom skill into the repository at
+  `codex/skills/update_docs/SKILL.md` so the GitHub clone carries the workflow
+  without depending on the old cluster home directory.

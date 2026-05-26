@@ -36,13 +36,14 @@ NEW_CLUSTER_ENV_SETUP.md
 docs/eval_backend_setup.md
 ```
 
-Also copy the custom documentation skill if it is not already installed:
+The custom documentation skill is included in the cloned repo:
 
 ```text
-/home/lovenya/.codex/skills/update_docs/SKILL.md
+codex/skills/update_docs/SKILL.md
 ```
 
-Target path on the new cluster:
+Install it into the new cluster's Codex home if repo-local skills are not
+auto-discovered:
 
 ```text
 ~/.codex/skills/update_docs/SKILL.md
@@ -55,11 +56,15 @@ Transfer these categories from the old cluster:
 ```text
 repo working tree
 dataset root
-baseline model assets
-metric caches/checkpoints
-external toolkit source trees
+local/custom baseline model assets
+external toolkit source trees that are not clean public clones
 generated outputs/logs only if needed
 ```
+
+Re-download public Hugging Face/GitHub model weights, metric checkpoints, and
+toolkit packages on the new cluster when practical. Transfer existing
+model/metric caches only when download access, quota, or time makes
+re-downloading worse than copying.
 
 The migration Markdown files are currently tracked in git for convenience, but
 verify them after clone. If any are missing, copy them separately before asking

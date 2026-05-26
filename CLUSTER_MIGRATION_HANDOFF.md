@@ -42,13 +42,11 @@ bdb2065 fix: configure metric cache roots
 b1642f1 chore: add sharded eval and baseline helpers
 ```
 
-Git intentionally ignores most local/internal Markdown, venvs, data, audio,
-checkpoints, generated results, and logs. If transferring by `git clone`, also
-copy the ignored handoff docs and external resources listed below.
-
-Migration handoff/context Markdown files are now tracked in git for easier
-migration, even though the older `.gitignore` still has broad Markdown ignore
-patterns. After cloning on the new cluster, verify these files are present:
+Git intentionally ignores venvs, data, audio, checkpoints, generated results,
+and logs. Migration handoff/context Markdown files are now tracked in git for
+easier migration, even though the older `.gitignore` still has broad Markdown
+ignore patterns. After cloning on the new cluster, verify these files are
+present:
 
 ```text
 CLUSTER_MIGRATION_HANDOFF.md
@@ -71,17 +69,24 @@ The repo-level agent instructions are tracked here:
 AGENTS.md
 ```
 
-The most important local Codex skill used for this project is:
+The most important local Codex skill used for this project has been vendored
+into this repository for clone-only migration:
 
 ```text
-/home/lovenya/.codex/skills/update_docs/SKILL.md
+codex/skills/update_docs/SKILL.md
 ```
 
-Copy that skill to the new cluster's Codex home, preserving the same relative
-path if possible:
+After cloning on the new cluster, install it into the new Codex home if Codex
+does not auto-discover repo-local skills:
 
 ```text
 ~/.codex/skills/update_docs/SKILL.md
+```
+
+The old Rorqual source path was:
+
+```text
+/home/lovenya/.codex/skills/update_docs/SKILL.md
 ```
 
 System skills were also present on Rorqual, but they are generic Codex-managed
@@ -95,9 +100,9 @@ skills rather than SpeechAudioLM-specific project knowledge:
 /home/lovenya/.codex/skills/.system/skill-installer/SKILL.md
 ```
 
-If the new Codex install already provides system skills, only the custom
-`update_docs` skill needs manual transfer. The new agent should read `AGENTS.md`,
-`CONTEXT.md`, this handoff, `NEW_CLUSTER_ENV_SETUP.md`, and
+If the new Codex install already provides system skills, only the repo-vendored
+custom `update_docs` skill needs manual installation. The new agent should read
+`AGENTS.md`, `CONTEXT.md`, this handoff, `NEW_CLUSTER_ENV_SETUP.md`, and
 `docs/eval_backend_setup.md` before changing environments or paths.
 
 ## Resource Map
@@ -351,11 +356,14 @@ debugging references if needed.
 
 Prioritize transfer order:
 
-1. Repo working tree and ignored handoff docs.
+1. Repo clone with tracked handoff docs.
 2. Dataset root and repo split/manifest files.
-3. Baseline model folders and common HF cache.
-4. Metric model folders/caches/toolkit source trees.
-5. Generated baseline/eval outputs if needed.
+3. Local/custom model assets and toolkit source trees that are not cleanly
+   recoverable from public repositories.
+4. Existing generated baseline/eval outputs only if needed for continuity.
+5. Public Hugging Face/GitHub model weights, metric checkpoints, and caches
+   should be re-downloaded on the new cluster when practical; transfer caches
+   only if download access, quota, or time makes that necessary.
 
 After transfer, run a path audit before any compute jobs:
 

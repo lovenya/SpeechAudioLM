@@ -60,3 +60,9 @@ All notable repository-level changes should be recorded here.
   and `fad,inception_score` still need final retries.
 - Recorded Codex agent knowledge transfer requirements: read tracked `AGENTS.md`
   and copy the custom `update_docs` skill to the new cluster's Codex home.
+- Clarified cluster migration docs now that handoff Markdown is tracked: clone
+  repo docs, transfer datasets/local assets, recreate venvs, and re-download
+  public model/metric assets when practical.
+- Vendored the custom `update_docs` Codex skill under
+  `codex/skills/update_docs/SKILL.md` so a GitHub clone contains the project
+  documentation workflow.
