@@ -53,6 +53,9 @@ Current evaluator status:
   runs if repeated long corpus metrics become likely.
 - Offline compute-node runs require every model/checkpoint/cache to be prepared
   before the job starts.
+- Current Rorqual config points Whisper at repo-root `.venv-eval-whisper`.
+  If the new cluster stores it under `.venvs/metrics/`, update
+  `configs/eval_metrics.json`.
 
 ## 1. OpenAI Whisper Large-v3
 
@@ -64,8 +67,8 @@ Supports:
 Install:
 
 ```bash
-python -m venv .venvs/metrics/.venv-eval-whisper
-source .venvs/metrics/.venv-eval-whisper/bin/activate
+python -m venv .venv-eval-whisper
+source .venv-eval-whisper/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -U openai-whisper
 ```
@@ -93,7 +96,7 @@ Cache directory:
 Smoke test:
 
 ```bash
-source .venvs/metrics/.venv-eval-whisper/bin/activate
+source .venv-eval-whisper/bin/activate
 python scripts/eval_backend_smoke/smoke_whisper_asr.py
 python scripts/eval_backend_smoke/smoke_whisper_asr.py --load-model
 python scripts/eval_backend_smoke/smoke_whisper_asr.py --load-model --audio /path/to/speech.wav
