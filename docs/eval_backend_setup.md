@@ -12,12 +12,12 @@ repos, or virtual environments.
 Use separate environments when dependency stacks conflict:
 
 ```text
-.venvs/metrics/.venv-eval-whisper
-.venvs/metrics/.venv-eval-aac
-.venvs/metrics/.venv-eval-utmos
-.venvs/metrics/.venv-eval-dnsmos
+.venv-eval-whisper
+.venvs/.venv-eval-aac
 .venvs/metrics/.venv-eval-audioldm-eval
 .venvs/metrics/.venv-eval-kadtk
+.venvs/metrics/.venv-eval-utmosv2
+/scratch/lovenya/SpeechAudioLM/.venvs/metrics/.venv-eval-stable-audio-metrics
 ```
 
 Keep backend assets outside git:
@@ -45,6 +45,10 @@ Current evaluator status:
 
 - `evaluate.py` already has `--metrics`, `--dry-run`, `--max-samples`, and
   `--cache-dir`.
+- `asr_wer,dwer,utmos`, `spider`, `kad`, and `clap_score_t2a,kl_passt` have
+  passed small compute-node smokes through `evaluate.py`.
+- `mace`, `aac_clapsim`, and `fad,inception_score` still need final retries
+  after the latest cache/checkpoint fixes.
 - Resume and overwrite are not implemented yet. Add them before full evaluation
   runs if repeated long corpus metrics become likely.
 - Offline compute-node runs require every model/checkpoint/cache to be prepared
@@ -187,6 +191,12 @@ Known caveats:
 - MACE needs candidate caption, reference `source.audio_cap`, and reference
   `source.audio_file`.
 - SPIDEr needs candidate caption and reference `source.audio_cap`.
+- `mace` and `aac_clapsim` use MS-CLAP and currently set `batch_size: 1` in
+  `configs/eval_metrics.json`; larger batches failed because the backend
+  collator stacked variable-length GPT-2 token tensors.
+- On Rorqual, AAC metric HF cache variables must point at:
+  `/scratch/lovenya/SpeechAudioLM/cache/metrics/aac_metrics/huggingface`.
+  The generic metric HF cache did not satisfy offline MS-CLAP loading.
 - The current evaluator should fail only when the selected metric needs this
   backend.
 
@@ -214,17 +224,21 @@ Decision status:
 - Do not use this backend for A2T AAC CLAPSim; that remains under
   `aac-metrics` as `aac_clapsim`.
 
-Install:
+Install/current setup:
 
 ```bash
-python -m venv .venvs/metrics/.venv-eval-stable-audio-metrics
-source .venvs/metrics/.venv-eval-stable-audio-metrics/bin/activate
+/path/to/python -m venv /scratch/lovenya/SpeechAudioLM/.venvs/metrics/.venv-eval-stable-audio-metrics
+source /scratch/lovenya/SpeechAudioLM/.venvs/metrics/.venv-eval-stable-audio-metrics/bin/activate
 python -m pip install --upgrade pip
 python -m pip install requests tqdm numpy scipy librosa soundfile pyloudnorm ftfy regex
 python -m pip install timm==0.4.12 --no-deps
 python -m pip install laion-clap==1.1.4 --no-deps
 python -m pip install git+https://github.com/kkoutini/passt_hear21@3d4e7cf10cd992d15e8e2da4db97c1766e79a93b
 ```
+
+The upstream `Stability-AI/stable-audio-metrics` repository is not a normal pip
+project in the revision used here. Clone/copy it as a source tree and expose
+its `src` directory with `PYTHONPATH`.
 
 Assets to download:
 
@@ -234,8 +248,10 @@ export XDG_CACHE_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/stable_audio_
 export TORCH_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/torch
 export HF_HOME=/scratch/lovenya/SpeechAudioLM/cache/metrics/huggingface
 python - <<'PY'
-import stable_audio_metrics
-print(stable_audio_metrics)
+import clap_score
+import passt_kld
+print(clap_score.__file__)
+print(passt_kld.__file__)
 PY
 ```
 
@@ -255,8 +271,8 @@ python scripts/eval_backend_smoke/smoke_clap_backend.py
 Expected output shape:
 
 - Import smoke should confirm the package imports.
-- Future folder smoke should report sample-level `clap_score_t2a` values and
-  corpus-level `kl_passt`.
+- Through `evaluate.py`, `clap_score_t2a,kl_passt` passed a two-sample
+  Audio-Omni T2A smoke after LAION-CLAP/RoBERTa cache setup.
 
 Known caveats:
 
@@ -279,9 +295,8 @@ Primary references:
 
 TODO:
 
-- Verify whether checkpoint `630k-audioset-fusion-best` is available and how the
-  package names it.
-- Add a tiny folder smoke test for `clap_score_t2a` and `kl_passt` after setup.
+- Keep source path, LAION-CLAP checkpoint, RoBERTa/HF cache root, and PaSST
+  checkpoint path explicit in `configs/eval_metrics.json` on any new cluster.
 
 ## 4. UTMOSv2
 
@@ -330,6 +345,13 @@ Known caveats:
 - This project uses UTMOSv2 from `sarulab-speech/UTMOSv2`, not the older
   SpeechMOS/UTMOS torch.hub backend.
 - UTMOS is for generated speech quality, not environmental audio quality.
+- The UTMOSv2 checkpoint at
+  `/scratch/lovenya/SpeechAudioLM/cache/metrics/utmosv2/models/fusion_stage3/fold0_s42_best_model.pth`
+  was once corrupted and had to be redownloaded. Current verified size:
+  `818531314` bytes.
+- UTMOSv2 also loads `facebook/wav2vec2-base`; run compute-node jobs with
+  offline HF flags after caching this model. `configs/eval_metrics.json` sets
+  `hf_hub_offline` and `transformers_offline` for `utmos`.
 - Record UTMOSv2 package/git commit, checkpoint/cache path, sample rate, and
   preprocessing policy.
 
@@ -445,6 +467,13 @@ print(type(helper).__name__)
 PY
 ```
 
+The VGGish torch hub files used by AudioLDM Eval should be present at:
+
+```text
+/scratch/lovenya/SpeechAudioLM/cache/metrics/torch/hub/checkpoints/vggish-10086976.pth
+/scratch/lovenya/SpeechAudioLM/cache/metrics/torch/hub/checkpoints/vggish_pca_params-970ea276.pth
+```
+
 Cache directory:
 
 ```text
@@ -477,6 +506,10 @@ Known caveats:
   `MySQL-python` and fails on Python 3 with `No module named 'ConfigParser'`.
   Use the `--no-deps` install above and install Python 3-compatible
   dependencies manually.
+- `vggish_pca_params-970ea276.pth` may require verification with
+  `torch.load(..., weights_only=False)` in newer PyTorch because it contains
+  older NumPy pickled objects. Only do this for the trusted official torchvggish
+  release asset.
 - FAD and Inception Score are corpus-level only. Do not write fake per-sample
   values. KL_PaSST is handled by `stable-audio-metrics` as `kl_passt`.
 - The toolkit accepts reference/generated folders; paired vs unpaired behavior
@@ -545,6 +578,12 @@ Known caveats:
 - Official docs state Python `>=3.9,<3.12`, Torch `>=2.1,<2.6`, and TensorFlow
   `>=2.0`. This may conflict with the current cluster Torch 2.6 baseline env,
   so keep KAD in its own venv.
+- On Rorqual, `kadtk` import first failed because its package imports
+  `from turtle import st`, which imports `tkinter`; the selected Python module
+  lacked tkinter. A small site-level workaround/stub was used in the env. On a
+  new cluster, first check whether Python includes tkinter before applying any
+  workaround.
+- `kad` passed a two-sample T2A smoke through `evaluate.py`.
 - KAD direction matters in practice: reference set should be real/ground-truth
   audio and target set should be generated audio.
 - Use `--force-emb-encode` only when intentionally ignoring cached embeddings.
@@ -558,16 +597,13 @@ Primary references:
 
 - https://github.com/YoonjinXD/kadtk
 
-## Immediate TODOs Before Backend Adapters
+## Immediate TODOs
 
-- Choose one CLAP backend/checkpoint and update `configs/eval_metrics.json`.
-- Verify `stable-audio-metrics` install and the LAION-CLAP checkpoint name for
-  `clap_score_t2a`.
-- Verify `stable-audio-metrics` PaSST setup for `kl_passt`.
-- Verify UTMOSv2 install and update `smoke_utmos.py` if the package API differs.
+- Retry `aac_clapsim` and `mace` through `evaluate.py` after the AAC cache-root
+  and batch-size fixes.
+- Retry `fad,inception_score` through `evaluate.py` after the VGGish PCA
+  checkpoint download.
 - Defer DNSMOS backend selection.
 - Add evaluator `--resume` and `--overwrite` behavior before long corpus runs.
-- Decide whether each backend will have a dedicated adapter env or whether some
-  can safely share an env.
 - After each backend smoke passes, record package versions, git commits,
   checkpoint paths, sample-rate policy, and cache dirs in `configs/eval_metrics.json`.

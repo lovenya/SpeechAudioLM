@@ -175,13 +175,17 @@ fail only when the corresponding metric is selected.
 Current metric backend status:
 
 - Smoke-passed A2T metric: `spider` through `aac-metrics` with Java 11.
-- A2T metrics still under backend-cache debugging: `mace`, `aac_clapsim`.
-- Configured/default T2A and S2A-final metrics still pending end-to-end smoke:
-  `fad`, `kad`, `inception_score` through AudioLDM Eval and KADTK.
-- Smoke-passed T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through Whisper large-v3 and UTMOSv2.
+- A2T metrics needing retry after cache/batch fixes: `mace`, `aac_clapsim`.
+- Smoke-passed T2A/S2A-final metrics: `kad`, `clap_score_t2a`, and
+  `kl_passt`.
+- T2A/S2A-final metrics needing retry after VGGish PCA download:
+  `fad`, `inception_score` through AudioLDM Eval.
+- Smoke-passed T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through
+  Whisper large-v3 and UTMOSv2.
 - Available S2T metric: internal `wer`.
-- Optional T2A/S2A-final metrics still pending end-to-end smoke:
-  `clap_score_t2a` and `kl_passt` through stable-audio-metrics.
+
+Migration handoff docs for moving this work to a new cluster are maintained
+locally in `CLUSTER_MIGRATION_HANDOFF.md` and `NEW_CLUSTER_ENV_SETUP.md`.
 
 Metric envs are intentionally split because dependency stacks conflict:
 
