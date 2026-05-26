@@ -40,6 +40,7 @@ The custom documentation skill is included in the cloned repo:
 
 ```text
 codex/skills/update_docs/SKILL.md
+codex/skills/cluster-migration/SKILL.md
 ```
 
 Install it into the new cluster's Codex home if repo-local skills are not

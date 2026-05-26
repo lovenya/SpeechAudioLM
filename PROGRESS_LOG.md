@@ -484,3 +484,6 @@
 - Copied that custom skill into the repository at
   `codex/skills/update_docs/SKILL.md` so the GitHub clone carries the workflow
   without depending on the old cluster home directory.
+- Added a reusable `cluster-migration` Codex skill and vendored it at
+  `codex/skills/cluster-migration/SKILL.md` so future projects can follow the
+  same audit, transfer, re-download, recreate, and validation workflow.

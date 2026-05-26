@@ -74,6 +74,7 @@ into this repository for clone-only migration:
 
 ```text
 codex/skills/update_docs/SKILL.md
+codex/skills/cluster-migration/SKILL.md
 ```
 
 After cloning on the new cluster, install it into the new Codex home if Codex
@@ -101,8 +102,8 @@ skills rather than SpeechAudioLM-specific project knowledge:
 ```
 
 If the new Codex install already provides system skills, only the repo-vendored
-custom `update_docs` skill needs manual installation. The new agent should read
-`AGENTS.md`, `CONTEXT.md`, this handoff, `NEW_CLUSTER_ENV_SETUP.md`, and
+custom skills need manual installation. The new agent should read `AGENTS.md`,
+`CONTEXT.md`, this handoff, `NEW_CLUSTER_ENV_SETUP.md`, and
 `docs/eval_backend_setup.md` before changing environments or paths.
 
 ## Resource Map

@@ -66,3 +66,6 @@ All notable repository-level changes should be recorded here.
 - Vendored the custom `update_docs` Codex skill under
   `codex/skills/update_docs/SKILL.md` so a GitHub clone contains the project
   documentation workflow.
+- Added a reusable `cluster-migration` Codex skill under
+  `codex/skills/cluster-migration/SKILL.md` for future cross-cluster project
+  moves.

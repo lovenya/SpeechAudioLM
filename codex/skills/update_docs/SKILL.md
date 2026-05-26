@@ -13,7 +13,7 @@ Use this skill when maintaining repository documentation. It is reusable across 
 2. Check `git status --short` before and after changes.
 3. Keep updates concise and specific; avoid duplicating the same details everywhere.
 4. Ask before making or documenting structural, dataset, split, or experiment decisions that are not already clear.
-5. Respect the repo's git visibility boundary: update ignored/internal docs locally when useful, but do not stage or push them unless the user explicitly asks.
+5. Respect the repo's git visibility boundary: check whether handoff/internal docs are meant to stay local or are intentionally tracked for migration before staging.
 6. After edits, summarize which files changed and why, and distinguish local-only docs from files intended for git.
 
 ## File Roles
@@ -48,7 +48,7 @@ Use this skill when maintaining repository documentation. It is reusable across 
 ## Update Style
 
 - Put durable policy in `AGENTS.md`, current status in `CONTEXT.md`, dated history in `PROGRESS_LOG.md`, and public project description in `README.md`.
-- In SpeechAudio LM, update `AGENTS.md`, `CONTEXT.md`, `PROGRESS_LOG.md`, `CHANGELOG.md`, and project briefs locally as needed even though they are ignored; only stage/push `README.md` among Markdown files unless told otherwise.
+- In SpeechAudio LM, `AGENTS.md`, handoff docs, context docs, and project briefs may be tracked when needed for cross-cluster migration. Confirm the current repo policy with `git ls-files '*.md' '*.MD'` before deciding what to stage.
 - Record reasoning for important choices, especially dataset, split, baseline, and HPC decisions.
 - Prefer dated bullets in progress logs over long narratives.
 - Do not turn every doc into a full project brief; each file should contain only what its role requires.
