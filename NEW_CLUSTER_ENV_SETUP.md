@@ -26,6 +26,28 @@ Recommended split:
 - venvs: recreate on the new cluster; either repo-local or scratch, depending
   on quota and filesystem policy.
 
+Before setup work, make sure Codex has the same project guidance:
+
+```text
+AGENTS.md
+CONTEXT.md
+CLUSTER_MIGRATION_HANDOFF.md
+NEW_CLUSTER_ENV_SETUP.md
+docs/eval_backend_setup.md
+```
+
+Also copy the custom documentation skill if it is not already installed:
+
+```text
+/home/lovenya/.codex/skills/update_docs/SKILL.md
+```
+
+Target path on the new cluster:
+
+```text
+~/.codex/skills/update_docs/SKILL.md
+```
+
 ## 2. Transfer Resources
 
 Transfer these categories from the old cluster:
@@ -38,6 +60,10 @@ metric caches/checkpoints
 external toolkit source trees
 generated outputs/logs only if needed
 ```
+
+The migration Markdown files are currently tracked in git for convenience, but
+verify them after clone. If any are missing, copy them separately before asking
+the new Codex agent to make path or environment decisions.
 
 Do not depend on transferred venvs. Recreate them after loading the new
 cluster's Python/CUDA/compiler modules.

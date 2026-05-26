@@ -29,7 +29,8 @@ Current best clean manifest:
 ## Git And File Safety
 
 - Never add audio files, zips, checkpoints, outputs, wandb runs, secrets, or large generated files to git.
-- Keep internal agent/handoff Markdown files local and ignored; update them when useful, but do not push them. `README.md` is the public Markdown doc.
+- Keep audio, checkpoints, outputs, and large generated artifacts out of git.
+- Migration and handoff Markdown files may be tracked when explicitly requested for cross-cluster transfer. `README.md` remains the public-facing overview.
 - Show `git status` and relevant `git diff` before suggesting commits.
 - Keep commit messages professional, concise, and informative.
 - Treat datasets, splits, and experiment outputs as decisions that need confirmation unless already documented.

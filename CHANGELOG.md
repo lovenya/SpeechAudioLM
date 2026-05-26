@@ -58,3 +58,5 @@ All notable repository-level changes should be recorded here.
 - Recorded that combined `asr_wer,dwer,utmos`, `kad`, and
   `clap_score_t2a,kl_passt` have passed smoke checks; `mace`, `aac_clapsim`,
   and `fad,inception_score` still need final retries.
+- Recorded Codex agent knowledge transfer requirements: read tracked `AGENTS.md`
+  and copy the custom `update_docs` skill to the new cluster's Codex home.

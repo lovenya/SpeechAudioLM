@@ -46,7 +46,9 @@ Git intentionally ignores most local/internal Markdown, venvs, data, audio,
 checkpoints, generated results, and logs. If transferring by `git clone`, also
 copy the ignored handoff docs and external resources listed below.
 
-Ignored handoff/context Markdown files to copy separately if useful:
+Migration handoff/context Markdown files are now tracked in git for easier
+migration, even though the older `.gitignore` still has broad Markdown ignore
+patterns. After cloning on the new cluster, verify these files are present:
 
 ```text
 CLUSTER_MIGRATION_HANDOFF.md
@@ -57,6 +59,46 @@ PROGRESS_LOG.md
 CHANGELOG.md
 reports/eval_progress_report_2026-05-22.md
 ```
+
+If any of those files are missing after clone, copy them separately from the old
+cluster before continuing setup.
+
+## Codex Agent Knowledge Transfer
+
+The repo-level agent instructions are tracked here:
+
+```text
+AGENTS.md
+```
+
+The most important local Codex skill used for this project is:
+
+```text
+/home/lovenya/.codex/skills/update_docs/SKILL.md
+```
+
+Copy that skill to the new cluster's Codex home, preserving the same relative
+path if possible:
+
+```text
+~/.codex/skills/update_docs/SKILL.md
+```
+
+System skills were also present on Rorqual, but they are generic Codex-managed
+skills rather than SpeechAudioLM-specific project knowledge:
+
+```text
+/home/lovenya/.codex/skills/.system/imagegen/SKILL.md
+/home/lovenya/.codex/skills/.system/openai-docs/SKILL.md
+/home/lovenya/.codex/skills/.system/plugin-creator/SKILL.md
+/home/lovenya/.codex/skills/.system/skill-creator/SKILL.md
+/home/lovenya/.codex/skills/.system/skill-installer/SKILL.md
+```
+
+If the new Codex install already provides system skills, only the custom
+`update_docs` skill needs manual transfer. The new agent should read `AGENTS.md`,
+`CONTEXT.md`, this handoff, `NEW_CLUSTER_ENV_SETUP.md`, and
+`docs/eval_backend_setup.md` before changing environments or paths.
 
 ## Resource Map
 

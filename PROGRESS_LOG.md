@@ -471,3 +471,7 @@
   environment names, eval smoke status, and recommended new-cluster setup order.
 - Important policy: transfer checkpoints/caches/datasets/results as external
   resources, but recreate venvs on the new cluster rather than moving them.
+- Added Codex agent knowledge transfer notes: tracked `AGENTS.md` should be read
+  by the new agent, and the custom local skill at
+  `/home/lovenya/.codex/skills/update_docs/SKILL.md` should be copied to the new
+  cluster if Codex there does not already have it.
