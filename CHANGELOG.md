@@ -89,3 +89,4 @@ All notable repository-level changes should be recorded here.
 - Made the speech-only TamIA metric smoke continue across Audio-Omni and Qwen3-Omni lanes instead of stopping at the first backend failure.
 - Recorded the completed metric cache fixes for `resampy`, KAD PANN, LAION-CLAP, and UTMOS wav2vec cache resolution.
 - Corrected the modular cascaded-baseline text-to-text Llama target to `meta-llama/Llama-3.3-70B-Instruct`.
+- Updated TamIA metric smoke scripts to set a clean runtime `HOME` so AudioLDM Eval resolves its hard-coded Cnn14 checkpoint cache under the migration cache instead of the login home directory.

@@ -34,6 +34,8 @@ Compute-node model smoke gate now passes on TamIA. Retry job `309034` completed 
 
 Metric-cache follow-up on 2026-05-28: `resampy` was installed for `audioldm_eval`; the KAD PANN checkpoint and stable-audio-metrics LAION-CLAP checkpoint are present under the clean metric cache; `facebook/wav2vec2-base` resolves offline for UTMOS only when `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` all point at `$SALM_SCRATCH/cache/metrics/huggingface`. The TamIA metric smoke scripts now export those variables.
 
+Metric smoke job `309212` then timed out in `audioldm_eval` because AudioLDM Eval hard-codes Cnn14 checkpoints under `~/.cache/audioldm_eval/ckpt` and tried Zenodo on a no-internet compute node. The metric smoke scripts now set `HOME=$SALM_SCRATCH/cache/metrics/runtime_home`; cache `Cnn14_mAP=0.431.pth` and `Cnn14_16k_mAP=0.438.pth` there before retrying the full metric smoke.
+
 ## Data Locations
 
 Dataset files live outside git:

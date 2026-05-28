@@ -17,6 +17,7 @@ module load StdEnv/2023 gcc cuda python/3.10.13
 export SALM_SCRATCH="${SALM_SCRATCH:-/scratch/l/lovenya/salm_migration_clean}"
 export PYTHONDONTWRITEBYTECODE=1
 export XDG_CACHE_HOME="$SALM_SCRATCH/cache/metrics"
+export HOME="$SALM_SCRATCH/cache/metrics/runtime_home"
 export HF_HOME="$SALM_SCRATCH/cache/metrics/huggingface"
 export HF_HUB_CACHE="$HF_HOME"
 export HUGGINGFACE_HUB_CACHE="$HF_HOME"

@@ -53,6 +53,11 @@ Current evaluator status:
   runs if repeated long corpus metrics become likely.
 - Offline compute-node runs require every model/checkpoint/cache to be prepared
   before the job starts.
+- AudioLDM Eval hard-codes PANN Cnn14 checkpoints under
+  `~/.cache/audioldm_eval/ckpt`; TamIA metric smoke scripts set `HOME` to
+  `$SALM_SCRATCH/cache/metrics/runtime_home`, so cache `Cnn14_mAP=0.431.pth`
+  and `Cnn14_16k_mAP=0.438.pth` under that path before running
+  `fad,inception_score`.
 - On TamIA, UTMOS offline `facebook/wav2vec2-base` loading requires `HF_HOME`,
   `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point
   at `$SALM_SCRATCH/cache/metrics/huggingface`. `HF_HOME` alone was not
