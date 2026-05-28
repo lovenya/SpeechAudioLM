@@ -566,6 +566,8 @@ def _link_or_copy(source: Path, target: Path) -> None:
 
 def _assign_sample_scores(rows: list[dict[str, Any]], sample_metrics: dict[str, dict[str, float]], metric: str, scores: Any) -> None:
     values = scores.detach().cpu().tolist() if hasattr(scores, "detach") else scores
+    if isinstance(values, (int, float)):
+        values = [values]
     for row, value in zip(rows, values):
         sample_metrics[str(row["row_index"])][metric] = float(value)
 
