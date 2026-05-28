@@ -83,6 +83,10 @@ Split policy is fixed at `80/10/10` with global seed `1337`, stratified by `spea
 - Dataset splits are deterministic and should be reused for downstream experiments unless a new split decision is explicitly made.
 - Experiment decisions should record both what changed and why.
 
+## Modular Cascaded Baseline Status - 2026-05-28
+
+`baseline_cascaded.py` now provides a separate modular runner for `T2A`, `T2S`, `A2T`, `S2T`, `A2S`, and `S2A` without replacing `baseline.py`. It supports current wired backends (`audio_omni`, `qwen3_omni`, `audiogen`, `tangoflux`, `reference`, `template`, `identity`) and exposes future goal backends as explicit CLI choices that fail clearly until adapters/envs are added. It writes final manifests under `results/baselines/cascaded/<pipeline>/<variant>/...` and component manifests under `components/<task>/manifest.jsonl`, so concurrent backend variants do not share output roots. Login-node dry runs and helper tests pass; compute-node end-to-end cascade smokes are still pending.
+
 ## Open Decisions
 
 - Which concrete backend/checkpoint to use for each external metric before full evaluation.

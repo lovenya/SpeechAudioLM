@@ -534,3 +534,12 @@
 - Metric smoke job `309252` verified generated-speech metrics now pass for both Audio-Omni A2S and Qwen3-Omni A2S. KADTK still executes for T2A/S2A. Remaining blockers narrowed to AudioLDM Eval rejecting one-file smoke directories and stable-audio-metrics hitting the same PyTorch 2.6 legacy checkpoint load issue for LAION-CLAP. The worker now duplicates staged one-sample AudioLDM files to satisfy its directory check and loads trusted LAION-CLAP checkpoints with `weights_only=False`.
 - Metric smoke job `309256` verified AudioLDM Eval now passes for AudioGen T2A and Audio-Omni S2A, and speech metrics still pass. The only remaining wired metric blocker was stable-audio-metrics/LAION-CLAP: its default tokenizer squeezed the batch dimension for a one-text smoke. The worker now passes a batch-preserving tokenizer for CLAPScore.
 - Refined the cascaded-baseline target model list: the text-to-text Llama option is `meta-llama/Llama-3.3-70B-Instruct`, not an older Llama 3 70B checkpoint.
+
+### Modular Cascaded Baseline
+
+- Added `baseline_cascaded.py` as a separate modular baseline entrypoint, leaving `baseline.py` for existing single-backend runs.
+- The new runner supports individual `T2A`, `T2S`, `A2T`, and `S2T` stage runs plus full `A2S` and `S2A` cascades.
+- Stage selectors are exposed through `--asr`, `--captioner`, `--text-model`, `--tts`, and `--t2a`. Current wired backends are `audio_omni`, `qwen3_omni`, `audiogen`, `tangoflux`, `reference`, `template`, and `identity`; future goal backends are accepted as named choices but fail clearly until implemented.
+- Cascaded runs write final manifests plus component manifests so intermediate text artifacts and generated `T2A`/`T2S` audio artifacts can be inspected and evaluated directly.
+- Added `cascaded` to model capabilities and added login-node-safe helper tests for cascade planning/path conventions.
+- Added `submission_scripts/run_tamia_cascaded_smokes_one_node.sbatch` for one-node modular cascade smokes across the four H100s. `bash -n` and `sbatch --test-only` passed.

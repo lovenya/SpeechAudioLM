@@ -11,6 +11,9 @@
     },
     "qwen3_omni": {
       "tasks": ["T2S", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"]
+    },
+    "cascaded": {
+      "tasks": ["T2A", "T2S", "A2T", "S2T", "S2A", "A2S"]
     }
   }
 }
