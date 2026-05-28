@@ -42,6 +42,8 @@ Metric smoke job `309252` verified `asr_wer,dwer,utmos` pass for Audio-Omni A2S 
 
 Metric smoke job `309256` verified AudioLDM Eval passes for T2A/S2A and speech metrics still pass. The only remaining wired metric blocker was LAION-CLAP one-text tokenization; the worker now passes a tokenizer that preserves the batch dimension for one-sample CLAPScore smokes.
 
+Metric smoke job `309257` narrowed the final wired-metric blocker to the PaSST checkpoint for `kl_passt`: `passt-s-f128-p16-s10-ap.476-swa.pt` must exist under `$SALM_SCRATCH/cache/metrics/torch/hub/checkpoints`. After that checkpoint was cached, metric smoke job `309283` completed with `ExitCode 0:0`; AudioLDM Eval, KADTK, stable-audio-metrics, Whisper, and UTMOS all passed through `evaluate.py` on generated retry manifests.
+
 ## Data Locations
 
 Dataset files live outside git:

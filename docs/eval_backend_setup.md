@@ -71,6 +71,12 @@ Current evaluator status:
 - LAION-CLAP default tokenization squeezes the batch dimension for a single
   text input in this environment. The worker passes a batch-preserving tokenizer
   for one-sample `clap_score_t2a` smokes.
+- `kl_passt` needs the PaSST checkpoint
+  `passt-s-f128-p16-s10-ap.476-swa.pt` under
+  `$SALM_SCRATCH/cache/metrics/torch/hub/checkpoints`; otherwise
+  `hear21passt` tries GitHub from the compute node.
+- TamIA metric smoke job `309283` passed the existing wired metrics through
+  `evaluate.py`; DNSMOS remains the main missing metric adapter.
 - On TamIA, UTMOS offline `facebook/wav2vec2-base` loading requires `HF_HOME`,
   `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point
   at `$SALM_SCRATCH/cache/metrics/huggingface`. `HF_HOME` alone was not

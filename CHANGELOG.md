@@ -93,5 +93,6 @@ All notable repository-level changes should be recorded here.
 - Patched the AudioLDM Eval worker path to load trusted legacy PANN checkpoints with `torch.load(weights_only=False)` for PyTorch 2.6 compatibility.
 - Patched one-sample AudioLDM Eval staging and LAION-CLAP checkpoint loading so metric smokes can validate FAD/Inception and CLAPScore under PyTorch 2.6.
 - Patched LAION-CLAP text tokenization in the metric worker to preserve the batch dimension for one-sample CLAPScore smokes.
+- Documented the PaSST checkpoint cache requirement and the passing TamIA wired metric smoke job `309283`.
 - Added `baseline_cascaded.py` for modular individual-stage and A2S/S2A cascaded baseline runs with stage selectors, backend-variant output roots, and component manifests.
 - Added a one-node TamIA smoke script for modular cascaded baseline paths.
