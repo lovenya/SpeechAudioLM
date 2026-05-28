@@ -36,6 +36,8 @@ Metric-cache follow-up on 2026-05-28: `resampy` was installed for `audioldm_eval
 
 Metric smoke job `309212` then timed out in `audioldm_eval` because AudioLDM Eval hard-codes Cnn14 checkpoints under `~/.cache/audioldm_eval/ckpt` and tried Zenodo on a no-internet compute node. The metric smoke scripts now set `HOME=$SALM_SCRATCH/cache/metrics/runtime_home`; cache `Cnn14_mAP=0.431.pth` and `Cnn14_16k_mAP=0.438.pth` there before retrying the full metric smoke.
 
+Metric smoke job `309247` then confirmed KADTK executes for both AudioGen T2A and Audio-Omni S2A, but a one-sample KAD corpus value is `NaN`. Remaining retry blockers are AudioLDM Eval legacy checkpoint loading under PyTorch 2.6, stable-audio-metrics `roberta-base`, and UTMOS `timm/tf_efficientnetv2_s.in21k_ft_in1k`. The AudioLDM Eval worker now sets `weights_only=False` for its legacy trusted checkpoint loads.
+
 ## Data Locations
 
 Dataset files live outside git:

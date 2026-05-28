@@ -195,15 +195,25 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
     from audioldm_eval import EvaluationHelper
     import torch
 
+    original_torch_load = torch.load
+
+    def load_legacy_checkpoint(*args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("weights_only", False)
+        return original_torch_load(*args, **kwargs)
+
     metrics = set(payload["metrics"])
     cfg = payload["metric_configs"].get("fad") or payload["metric_configs"].get("inception_score") or {}
     generated_dir, reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
-    evaluator = EvaluationHelper(
-        int(cfg.get("sample_rate", 16000)),
-        torch.device(payload["device"]),
-        backbone=cfg.get("backbone", "cnn14"),
-    )
-    raw = evaluator.main(str(generated_dir), str(reference_dir), limit_num=len(payload["rows"]))
+    try:
+        torch.load = load_legacy_checkpoint
+        evaluator = EvaluationHelper(
+            int(cfg.get("sample_rate", 16000)),
+            torch.device(payload["device"]),
+            backbone=cfg.get("backbone", "cnn14"),
+        )
+        raw = evaluator.main(str(generated_dir), str(reference_dir), limit_num=len(payload["rows"]))
+    finally:
+        torch.load = original_torch_load
     corpus_metrics: dict[str, Any] = {}
     if "fad" in metrics:
         corpus_metrics["fad"] = _scalar(raw.get("frechet_audio_distance"))

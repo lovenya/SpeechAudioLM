@@ -58,6 +58,9 @@ Current evaluator status:
   `$SALM_SCRATCH/cache/metrics/runtime_home`, so cache `Cnn14_mAP=0.431.pth`
   and `Cnn14_16k_mAP=0.438.pth` under that path before running
   `fad,inception_score`.
+- With PyTorch 2.6, those legacy PANN checkpoints must be loaded with
+  `weights_only=False`; `scripts/eval_backend_worker.py` applies this inside
+  the AudioLDM Eval worker only.
 - On TamIA, UTMOS offline `facebook/wav2vec2-base` loading requires `HF_HOME`,
   `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point
   at `$SALM_SCRATCH/cache/metrics/huggingface`. `HF_HOME` alone was not
