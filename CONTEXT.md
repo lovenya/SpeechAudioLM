@@ -38,6 +38,8 @@ Metric smoke job `309212` then timed out in `audioldm_eval` because AudioLDM Eva
 
 Metric smoke job `309247` then confirmed KADTK executes for both AudioGen T2A and Audio-Omni S2A, but a one-sample KAD corpus value is `NaN`. Remaining retry blockers are AudioLDM Eval legacy checkpoint loading under PyTorch 2.6, stable-audio-metrics `roberta-base`, and UTMOS `timm/tf_efficientnetv2_s.in21k_ft_in1k`. The AudioLDM Eval worker now sets `weights_only=False` for its legacy trusted checkpoint loads.
 
+Metric smoke job `309252` verified `asr_wer,dwer,utmos` pass for Audio-Omni A2S and Qwen3-Omni A2S after the HF cache fixes. Remaining wired-metric smoke blockers are now AudioLDM Eval one-file smoke handling and LAION-CLAP legacy checkpoint loading; `scripts/eval_backend_worker.py` has been patched for both.
+
 ## Data Locations
 
 Dataset files live outside git:

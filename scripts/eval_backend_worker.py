@@ -204,6 +204,8 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
     metrics = set(payload["metrics"])
     cfg = payload["metric_configs"].get("fad") or payload["metric_configs"].get("inception_score") or {}
     generated_dir, reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
+    _ensure_minimum_audio_files(generated_dir)
+    _ensure_minimum_audio_files(reference_dir)
     try:
         torch.load = load_legacy_checkpoint
         evaluator = EvaluationHelper(
@@ -341,7 +343,17 @@ def _stable_clap_scores(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
     if not enable_fusion:
         model_kwargs["amodel"] = "HTSAT-base"
     model = laion_clap.CLAP_Module(**model_kwargs)
-    state_dict = load_state_dict(str(checkpoint_path))
+    original_torch_load = torch.load
+
+    def load_legacy_checkpoint(*args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("weights_only", False)
+        return original_torch_load(*args, **kwargs)
+
+    try:
+        torch.load = load_legacy_checkpoint
+        state_dict = load_state_dict(str(checkpoint_path))
+    finally:
+        torch.load = original_torch_load
     state_dict.pop("text_branch.embeddings.position_ids", None)
     model.model.load_state_dict(state_dict)
     model.eval()
@@ -470,6 +482,17 @@ def _stage_generated_audio_dir(payload: dict[str, Any]) -> Path:
 
 def _stage_id(index: int, row: dict[str, Any]) -> str:
     return f"{index:06d}_{row['sample_id']}"
+
+
+def _ensure_minimum_audio_files(directory: Path, minimum: int = 2) -> None:
+    audio_files = sorted(path for path in directory.iterdir() if path.is_file() or path.is_symlink())
+    if not audio_files:
+        return
+    while len(audio_files) < minimum:
+        source = audio_files[0]
+        target = directory / f"{source.stem}_duplicate_{len(audio_files)}{source.suffix}"
+        _link_or_copy(source, target)
+        audio_files.append(target)
 
 
 def _link_or_copy(source: Path, target: Path) -> None:

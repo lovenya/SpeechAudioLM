@@ -61,6 +61,13 @@ Current evaluator status:
 - With PyTorch 2.6, those legacy PANN checkpoints must be loaded with
   `weights_only=False`; `scripts/eval_backend_worker.py` applies this inside
   the AudioLDM Eval worker only.
+- AudioLDM Eval asserts each generated/reference directory has more than one
+  file. For one-sample smoke jobs, the worker duplicates the staged generated
+  and reference WAVs inside the temporary work directory before calling the
+  backend; use multi-sample runs for meaningful corpus values.
+- LAION-CLAP checkpoints used by stable-audio-metrics also need
+  `weights_only=False` under PyTorch 2.6; the worker applies this only around
+  the trusted local checkpoint load.
 - On TamIA, UTMOS offline `facebook/wav2vec2-base` loading requires `HF_HOME`,
   `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point
   at `$SALM_SCRATCH/cache/metrics/huggingface`. `HF_HOME` alone was not

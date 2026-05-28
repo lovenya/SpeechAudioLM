@@ -91,3 +91,4 @@ All notable repository-level changes should be recorded here.
 - Corrected the modular cascaded-baseline text-to-text Llama target to `meta-llama/Llama-3.3-70B-Instruct`.
 - Updated TamIA metric smoke scripts to set a clean runtime `HOME` so AudioLDM Eval resolves its hard-coded Cnn14 checkpoint cache under the migration cache instead of the login home directory.
 - Patched the AudioLDM Eval worker path to load trusted legacy PANN checkpoints with `torch.load(weights_only=False)` for PyTorch 2.6 compatibility.
+- Patched one-sample AudioLDM Eval staging and LAION-CLAP checkpoint loading so metric smokes can validate FAD/Inception and CLAPScore under PyTorch 2.6.
