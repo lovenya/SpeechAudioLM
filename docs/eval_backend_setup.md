@@ -68,6 +68,9 @@ Current evaluator status:
 - LAION-CLAP checkpoints used by stable-audio-metrics also need
   `weights_only=False` under PyTorch 2.6; the worker applies this only around
   the trusted local checkpoint load.
+- LAION-CLAP default tokenization squeezes the batch dimension for a single
+  text input in this environment. The worker passes a batch-preserving tokenizer
+  for one-sample `clap_score_t2a` smokes.
 - On TamIA, UTMOS offline `facebook/wav2vec2-base` loading requires `HF_HOME`,
   `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point
   at `$SALM_SCRATCH/cache/metrics/huggingface`. `HF_HOME` alone was not

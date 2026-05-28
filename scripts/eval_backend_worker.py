@@ -360,8 +360,18 @@ def _stable_clap_scores(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
 
     ids = [_stage_id(index, row) for index, row in enumerate(payload["rows"])]
     texts = [row["source"].get("audio_cap") or row.get("candidate_text") or "" for row in payload["rows"]]
+
+    def batched_tokenizer(text: list[str]) -> dict[str, Any]:
+        return model.tokenize(
+            text,
+            padding="max_length",
+            truncation=True,
+            max_length=77,
+            return_tensors="pt",
+        )
+
     with torch.no_grad():
-        text_embeddings = model.get_text_embedding(texts, use_tensor=True)
+        text_embeddings = model.get_text_embedding(texts, tokenizer=batched_tokenizer, use_tensor=True)
 
     sample_metrics: dict[str, dict[str, float]] = {}
     for row, stem, text_embedding in zip(payload["rows"], ids, text_embeddings):

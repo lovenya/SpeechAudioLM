@@ -40,6 +40,8 @@ Metric smoke job `309247` then confirmed KADTK executes for both AudioGen T2A an
 
 Metric smoke job `309252` verified `asr_wer,dwer,utmos` pass for Audio-Omni A2S and Qwen3-Omni A2S after the HF cache fixes. Remaining wired-metric smoke blockers are now AudioLDM Eval one-file smoke handling and LAION-CLAP legacy checkpoint loading; `scripts/eval_backend_worker.py` has been patched for both.
 
+Metric smoke job `309256` verified AudioLDM Eval passes for T2A/S2A and speech metrics still pass. The only remaining wired metric blocker was LAION-CLAP one-text tokenization; the worker now passes a tokenizer that preserves the batch dimension for one-sample CLAPScore smokes.
+
 ## Data Locations
 
 Dataset files live outside git:
