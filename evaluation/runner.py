@@ -350,10 +350,13 @@ def _backend_env(options: EvalOptions, metric_configs: dict[str, dict]) -> dict[
     torch_home = _first_metric_config_value(metric_configs, "torch_home")
     env["XDG_CACHE_HOME"] = str(cache_path)
     env["HF_HOME"] = str(Path(hf_home)) if hf_home else str(cache_path.parent / "huggingface")
+    env["HF_HUB_CACHE"] = env["HF_HOME"]
+    env["HUGGINGFACE_HUB_CACHE"] = env["HF_HOME"]
     env["TRANSFORMERS_CACHE"] = (
         str(Path(transformers_cache)) if transformers_cache else env["HF_HOME"]
     )
     env["TORCH_HOME"] = str(Path(torch_home)) if torch_home else str(cache_path.parent / "torch")
+    env["FENSE_DATA"] = str(cache_path / "fense_data")
     env["NUMBA_CACHE_DIR"] = str(cache_path.parent / "numba")
     env["MPLCONFIGDIR"] = str(cache_path.parent / "matplotlib")
     env["UTMOSV2_CHACHE"] = str(cache_path)
@@ -397,6 +400,9 @@ def _merge_backend_result(per_sample_rows: list[dict], result: dict[str, Any]) -
 
 
 def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> str | None:
+    candidate_text = row.get("candidate_text")
+    if isinstance(candidate_text, str) and candidate_text.strip():
+        return candidate_text
     extra = row.get("model_extra")
     if not isinstance(extra, dict):
         return None
