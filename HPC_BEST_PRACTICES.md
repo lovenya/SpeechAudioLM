@@ -89,6 +89,8 @@ python -m pip install --no-index -r requirements.txt
 
 Prefer `--no-index` for normal package installs so pip uses the cluster wheelhouse instead of the public internet. Use internet installs only deliberately, for packages that are not available in the wheelhouse or for one-time downloads on an internet-capable node.
 
+When setup work has independent parts, split it across terminals to reduce wall-clock time. For example, one terminal can create a venv and install packages while another downloads model weights, ONNX files, or metric checkpoints to the agreed cache path. Only run smoke tests or import checks after both the environment and required assets are complete. Do not parallelize steps that write to the same environment, cache file, or checkpoint path.
+
 For AudioCraft/AudioGen work, the current environment is:
 
 ```bash

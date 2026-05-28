@@ -97,3 +97,4 @@ All notable repository-level changes should be recorded here.
 - Added `baseline_cascaded.py` for modular individual-stage and A2S/S2A cascaded baseline runs with stage selectors, backend-variant output roots, and component manifests.
 - Added a one-node TamIA smoke script for modular cascaded baseline paths.
 - Updated evaluation handoff docs after TamIA metric smoke `309283`: wired generated-audio and generated-speech metrics pass; DNSMOS remains unwired and needs TorchMetrics plus ONNX assets.
+- Documented the setup preference to split independent environment-install and asset-download commands across terminals when safe.

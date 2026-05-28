@@ -5,6 +5,7 @@
 - Work carefully and discuss assumptions before making structural, dataset, split, or experiment decisions.
 - Keep explanations concise, but include the reason behind important choices.
 - Keep the user in the loop during setup/debugging. Before meaningful environment, dependency, cache, model-weight, or filesystem decisions, explain what will be done, why it is needed, and how it affects the project.
+- When preparing commands for independent setup work, split parallelizable steps across terminals where safe. For example, environment creation/package installation and model/checkpoint downloads can often run independently on login or internet-capable nodes; verification commands should wait until the required env and assets both exist.
 - For permission prompts, include enough context for informed approval: the target path or command, why escalation/network/write access is needed, and what will or will not be stored in git.
 - Trivial package installs or read-only checks can stay brief, but nontrivial dependency/version choices should be discussed before trying alternatives.
 - Do not write implementation code unless the user explicitly asks for it.
