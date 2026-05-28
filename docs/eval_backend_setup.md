@@ -45,10 +45,14 @@ Current evaluator status:
 
 - `evaluate.py` already has `--metrics`, `--dry-run`, `--max-samples`, and
   `--cache-dir`.
-- `asr_wer,dwer,utmos`, `spider`, `kad`, and `clap_score_t2a,kl_passt` have
-  passed small compute-node smokes through `evaluate.py`.
-- `mace`, `aac_clapsim`, and `fad,inception_score` still need final retries
-  after the latest cache/checkpoint fixes.
+- TamIA job `309283` passed the currently wired generated-audio and
+  generated-speech metric groups through `evaluate.py`: AudioLDM Eval
+  `fad,inception_score`, KADTK `kad`, stable-audio-metrics
+  `clap_score_t2a,kl_passt`, Whisper `asr_wer,dwer`, and UTMOSv2 `utmos`.
+- Earlier AAC smokes covered SPIDEr and the MS-CLAP-backed AAC path; rerun
+  `mace,aac_clapsim,spider` on A2T/audio-captioning manifests once those
+  baseline outputs are ready on TamIA.
+- DNSMOS remains the main missing generated-speech metric adapter.
 - Resume and overwrite are not implemented yet. Add them before full evaluation
   runs if repeated long corpus metrics become likely.
 - Offline compute-node runs require every model/checkpoint/cache to be prepared
@@ -75,8 +79,6 @@ Current evaluator status:
   `passt-s-f128-p16-s10-ap.476-swa.pt` under
   `$SALM_SCRATCH/cache/metrics/torch/hub/checkpoints`; otherwise
   `hear21passt` tries GitHub from the compute node.
-- TamIA metric smoke job `309283` passed the existing wired metrics through
-  `evaluate.py`; DNSMOS remains the main missing metric adapter.
 - On TamIA, UTMOS offline `facebook/wav2vec2-base` loading requires `HF_HOME`,
   `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point
   at `$SALM_SCRATCH/cache/metrics/huggingface`. `HF_HOME` alone was not
@@ -407,6 +409,13 @@ Decision status:
   allowed for generated-speech tasks in `configs/task_metric_map.json`, but
   `configs/eval_metrics.json` still has `backend: null`, and the evaluator
   worker dispatch does not yet include a DNSMOS backend.
+- Current TamIA inspection found no prepared DNSMOS model directory under
+  `/scratch/l/lovenya/salm_migration_clean/models/metrics/dnsmos`, and the
+  checked metric envs did not have `torchmetrics` installed.
+- TorchMetrics DNSMOS uses
+  `deep_noise_suppression_mean_opinion_score(preds, fs, personalized, ...)`
+  and returns four values per sample:
+  `[p808_mos, mos_sig, mos_bak, mos_ovr]`.
 
 Install:
 
@@ -455,8 +464,10 @@ Adapter requirements:
 - Add a `torchmetrics-dnsmos` backend entry to `configs/eval_metrics.json`.
 - Add DNSMOS to the external metric dispatch in `evaluation/runner.py`.
 - Add a `torchmetrics-dnsmos` worker branch in `scripts/eval_backend_worker.py`.
+- Point TorchMetrics at the prepared project DNSMOS asset directory before
+  calling the functional API, so no compute-node download is attempted.
 - Score each generated speech output file and return per-sample `dnsmos`
-  values plus backend metadata.
+  values plus sub-scores and backend metadata.
 - After the import/asset smoke passes, verify through
   `evaluate.py --metrics dnsmos` on a one-sample generated-speech manifest.
 
