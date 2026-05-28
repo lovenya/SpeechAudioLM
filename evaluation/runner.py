@@ -229,6 +229,7 @@ def _compute_external_metrics(
         "aac-metrics": ["mace", "spider", "aac_clapsim"],
         "openai-whisper": ["asr_wer", "dwer"],
         "utmosv2": ["utmos"],
+        "torchmetrics-dnsmos": ["dnsmos"],
         "audioldm_eval": ["fad", "inception_score"],
         "kadtk": ["kad"],
         "stable-audio-metrics": ["clap_score_t2a", "kl_passt"],

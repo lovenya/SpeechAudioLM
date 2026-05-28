@@ -37,6 +37,8 @@ def main() -> None:
         result = run_whisper(payload)
     elif backend == "utmosv2":
         result = run_utmosv2(payload)
+    elif backend == "torchmetrics-dnsmos":
+        result = run_dnsmos(payload)
     elif backend == "audioldm_eval":
         result = run_audioldm_eval(payload)
     elif backend == "kadtk":
@@ -187,6 +189,53 @@ def run_utmosv2(payload: dict[str, Any]) -> dict[str, Any]:
         predictions={},
         errors={},
         packages=["utmosv2", "torch", "numpy"],
+    )
+
+
+def run_dnsmos(payload: dict[str, Any]) -> dict[str, Any]:
+    import torch
+    import torchaudio
+    import torchmetrics.functional.audio.dnsmos as dnsmos_module
+
+    from torchmetrics.functional.audio.dnsmos import deep_noise_suppression_mean_opinion_score
+
+    cfg = payload["metric_configs"].get("dnsmos", {})
+    cache_dir = Path(cfg.get("cache_dir") or payload["cache_dir"])
+    dnsmos_module.DNSMOS_DIR = str(cache_dir)
+    sample_rate = int(cfg.get("sample_rate", 16000))
+    personalized = bool(cfg.get("personalized", False))
+    num_threads = cfg.get("num_threads")
+    num_threads = int(num_threads) if num_threads is not None else None
+    device = cfg.get("runtime_device", "cpu")
+    if device == "cpu" and str(payload.get("device", "")).startswith("cuda") and cfg.get("use_gpu", False):
+        device = payload["device"]
+
+    sample_metrics: dict[str, dict[str, float]] = {}
+    for row in payload["rows"]:
+        waveform, fs = torchaudio.load(row["output_file"])
+        waveform = waveform.mean(dim=0)
+        scores = deep_noise_suppression_mean_opinion_score(
+            waveform,
+            int(fs),
+            personalized,
+            device=device,
+            num_threads=num_threads,
+        ).detach().cpu().tolist()
+        p808_mos, mos_sig, mos_bak, mos_ovr = [float(value) for value in scores]
+        sample_metrics[str(row["row_index"])] = {
+            "dnsmos": mos_ovr,
+            "dnsmos_p808_mos": p808_mos,
+            "dnsmos_mos_sig": mos_sig,
+            "dnsmos_mos_bak": mos_bak,
+            "dnsmos_mos_ovr": mos_ovr,
+        }
+    return _result(
+        payload,
+        sample_metrics=sample_metrics,
+        corpus_metrics={},
+        predictions={},
+        errors={},
+        packages=["torchmetrics", "torch", "torchaudio", "onnxruntime", "librosa", "requests"],
     )
 
 
