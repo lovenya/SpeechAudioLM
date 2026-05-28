@@ -1,11 +1,44 @@
 # Cluster Migration Handoff
 
-Last updated: 2026-05-26
+Last updated: 2026-05-28
 
 This handoff is based on the current repo, this Codex thread, and the migration
 summary supplied by the user on 2026-05-26. I do not have direct access to other
 Codex threads. If another thread has newer inference or metric status, append it
 here or reconcile before the move.
+
+## TamIA Migration Status - 2026-05-28
+
+The active TamIA clone is now integrated for login-node-safe work. Current roots:
+
+```text
+repo: /scratch/l/lovenya/SpeechAudioLM
+clean migration root: /scratch/l/lovenya/salm_migration_clean
+dataset: /scratch/l/lovenya/salm_migration_clean/datasets/ttas/extracted
+models: /scratch/l/lovenya/salm_migration_clean/models
+metric caches: /scratch/l/lovenya/salm_migration_clean/cache/metrics
+model venvs: /scratch/l/lovenya/salm_migration_clean/.venvs/models
+metric venvs: /scratch/l/lovenya/salm_migration_clean/.venvs/metrics
+```
+
+Verified on TamIA login node:
+
+- TTAS manifest validation: `22780` rows, `missing_audio 0`, `missing_speech 0`, source manifest present.
+- Model env package/import checks passed for AudioCraft, TangoFlux, Qwen3-Omni, and Audio-Omni.
+- Metric env import/smoke checks passed for Whisper, AAC/SPIDEr, stable-audio-metrics, UTMOSv2, AudioLDM Eval, and KADTK.
+- Active configs/scripts were rewritten away from old Rorqual/FIR roots to the clean TamIA root.
+- Active code/config/script path audit found no old `/project/rrg-csubakan`, `/scratch/lovenya`, `/lustre09/project/6090520`, old `rrg-*` account, or MIG GPU request patterns.
+- JSON config validation, Python syntax checks, `tests/test_evaluation.py`, and baseline dry-runs passed.
+
+Remaining gates require compute nodes, not login nodes:
+
+- metric scoring smokes through `evaluate.py` on generated baseline manifests;
+- DNSMOS backend implementation/smoke, unless an exact blocker is documented;
+- modular cascaded baseline implementation and end-to-end A2S/S2A runs.
+
+TamIA model-smoke status: retry job `309034` completed with `ExitCode 0:0` using one 4-H100 node, `--cpus-per-task=16`, and `--mem=192G`. AudioGen T2A, Qwen3-Omni A2S, Audio-Omni A2S, and Audio-Omni S2A all passed, with generated outputs under `/scratch/l/lovenya/salm_migration_clean/results/baselines_smoke_retry`. Qwen3-Omni A2S also proves the local talker workaround is functional for one sample.
+
+TamIA metric-cache status as of 2026-05-28: `resampy` is installed for `audioldm_eval`; KAD PANN and stable-audio-metrics LAION-CLAP checkpoints are cached; UTMOS `facebook/wav2vec2-base` resolves offline when `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` all point at `$SALM_SCRATCH/cache/metrics/huggingface`. The next gate is `evaluate.py` metric smoke validation on generated retry manifests.
 
 ## Goal
 

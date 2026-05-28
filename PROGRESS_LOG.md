@@ -487,3 +487,46 @@
 - Added a reusable `cluster-migration` Codex skill and vendored it at
   `codex/skills/cluster-migration/SKILL.md` so future projects can follow the
   same audit, transfer, re-download, recreate, and validation workflow.
+## 2026-05-27
+
+### TamIA Migration Integration
+
+- Completed the clean TamIA migration under `/scratch/l/lovenya/salm_migration_clean` with repo at `/scratch/l/lovenya/SpeechAudioLM`.
+- Validated TTAS against `data/manifests/ttas_clean_normalized.jsonl`: `22,780` rows, missing audio `0`, missing speech `0`, and source manifest present.
+- Verified model environments for AudioCraft, TangoFlux, Qwen3-Omni, and Audio-Omni with login-node-safe package/import checks.
+- Created and verified metric environments for Whisper, AAC metrics, stable-audio-metrics, UTMOSv2, AudioLDM Eval, and KADTK.
+- Downloaded AAC metric runtime assets into the clean cache and confirmed the tiny SPIDEr CPU smoke passes with Java 11.
+- Rewrote active dataset/model/metric config paths, backend defaults, smoke scripts, and Slurm helpers from old Rorqual/FIR roots to TamIA clean roots.
+- Updated Slurm helpers away from old `rrg-*` accounts and MIG GPU requests; TamIA jobs now use whole-node H100-style defaults and use the verified default account `aip-csubakan`.
+- Verified JSON configs, Python syntax, `tests/test_evaluation.py`, configured external path existence, and baseline dry-runs for AudioGen, TangoFlux, Qwen3-Omni, and Audio-Omni representative tasks.
+- Added `submission_scripts/run_tamia_model_smokes_one_node.sbatch` for a one-hour TamIA smoke allocation that runs four one-sample backend jobs across the four H100s using `CUDA_VISIBLE_DEVICES`.
+- Corrected AudioGen and TangoFlux Hugging Face cache variables to point at the actual migrated cache root instead of a nonexistent `hf_cache/transformers` subdirectory.
+
+### Remaining TamIA Gates
+
+- The first one-node, four-GPU model smoke ran. TangoFlux T2A and Audio-Omni T2A passed; AudioGen and Qwen3-Omni A2S exposed retry gates after environment/model-generation fixes.
+- Current next model-smoke gate: `submission_scripts/run_tamia_retry_model_smokes_one_node.sbatch`, which runs one-sample AudioGen T2A, Qwen3-Omni A2S, Audio-Omni A2S, and Audio-Omni S2A across one 4-H100 node.
+- Retry job `308995` ran with only `cpu=1,mem=2G` because the retry script had no explicit CPU/RAM request. Slurm marked the job `OUT_OF_MEMORY`; Qwen3-Omni A2S passed, while AudioGen and both Audio-Omni lanes were killed before backend conclusions could be drawn.
+- Updated the retry script to request `--cpus-per-task=16` and `--mem=192G`, keeping one node and four H100s, and added `--overwrite` to each lane so retries regenerate one-sample outputs instead of silently skipping existing files.
+- Retry job `309034` completed with `ExitCode 0:0` using `cpu=16,mem=192G,gres/gpu:h100=4`. AudioGen T2A, Qwen3-Omni A2S, Audio-Omni A2S, and Audio-Omni S2A all passed. Manifests contain only `success` rows; Qwen3-Omni has two success rows because the previous successful retry row remained appended.
+- Run `evaluate.py` metric scoring smokes after real generated baseline manifests exist. For tiny metric checks, prefer `submission_scripts/run_eval_smoke_existing_manifests.sh` inside an existing compute allocation before using the broader eval array script.
+- Metric smoke job `309048` failed at the first `audioldm_eval` group (`fad,inception_score`) because `torch.hub.load("harritaylor/torchvggish", "vggish")` could not find the Torch Hub source repo under `/scratch/l/lovenya/salm_migration_clean/cache/metrics/torch/hub` and compute nodes have no internet. The VGGish checkpoint files are present, but the source repo cache is missing.
+- Updated `submission_scripts/run_tamia_eval_smoke_retry_manifests.sbatch` to split Audioldm Eval, KAD, stable-audio-metrics, and speech metrics into separate backend groups and continue after failures, while still exiting nonzero if any group fails.
+- Use the verified default TamIA account `aip-csubakan`; `aip-ravanelm` is also associated with the user.
+
+### Goal Refinement Notes
+
+- `goal_updated.txt` now records the user/agent execution split: the agent prepares exact commands and debugs from evidence, while the user runs quota-burning downloads, env setup, and Slurm submissions unless explicitly instructing otherwise.
+- DNSMOS is now documented as the main missing metric adapter: allowed in `configs/task_metric_map.json`, but still `backend: null` in `configs/eval_metrics.json` and not dispatched by `evaluation/runner.py` or `scripts/eval_backend_worker.py`.
+- The modular cascade goal is distinct from existing backend-specific cascades: `audio_omni` A2S/S2A and `qwen3_omni` A2S smoke behavior do not yet satisfy the selectable-stage CLI requirement.
+
+## 2026-05-28
+
+### TamIA Metric Smoke Follow-Up
+
+- Confirmed the one-node model-smoke retry job `309034` is the current migration model gate pass: AudioGen T2A, Qwen3-Omni A2S, Audio-Omni A2S, and Audio-Omni S2A all produced successful smoke manifests.
+- Metric smoke job `309055` exposed remaining metric-cache/setup blockers: `audioldm_eval` needed `resampy`, KADTK needed the PANN checkpoint, and stable-audio-metrics needed the LAION-CLAP checkpoint. The user completed those setup/download steps.
+- Speech metric smoke job `309063` proved Whisper `asr_wer,dwer` runs on generated A2S audio, then failed in UTMOS because `facebook/wav2vec2-base` did not resolve from the offline Hugging Face cache.
+- Verified the UTMOS wav2vec files were present and direct local-path loading worked. Repo-id offline loading required exporting `HF_HUB_CACHE` and `HUGGINGFACE_HUB_CACHE` in addition to `HF_HOME` and `TRANSFORMERS_CACHE`; the user confirmed the corrected offline test returned OK.
+- Updated the TamIA metric smoke scripts so Slurm jobs inherit the verified Hugging Face cache variables. The speech-only metric smoke now continues to Qwen3-Omni even if Audio-Omni fails, matching the grouped full metric smoke behavior.
+- Refined the cascaded-baseline target model list: the text-to-text Llama option is `meta-llama/Llama-3.3-70B-Instruct`, not an older Llama 3 70B checkpoint.

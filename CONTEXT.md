@@ -11,6 +11,29 @@ SpeechAudio LM is a research repository for bidirectional generation between env
 - Build out the evaluation scaffold and add external metric backends in controlled environments.
 - Preserve metric reproducibility through config files, backend metadata, run configs, and explicit cache/model paths.
 
+## TamIA Migration Status - 2026-05-27
+
+The current TamIA working roots are:
+
+```text
+repo: /scratch/l/lovenya/SpeechAudioLM
+clean migration root: /scratch/l/lovenya/salm_migration_clean
+dataset: /scratch/l/lovenya/salm_migration_clean/datasets/ttas/extracted
+models: /scratch/l/lovenya/salm_migration_clean/models
+metric cache: /scratch/l/lovenya/salm_migration_clean/cache/metrics
+```
+
+Verified migration gates:
+
+- TTAS dataset validates against `data/manifests/ttas_clean_normalized.jsonl`: `22780` rows, no missing audio, no missing speech.
+- Metric envs exist under `.venvs/metrics` in the clean root and passed import/smoke checks for Whisper, AAC/SPIDEr, stable-audio-metrics, UTMOSv2, AudioLDM Eval, and KADTK.
+- Active configs, model defaults, smoke scripts, and Slurm scripts now point at the clean TamIA roots.
+- Unit tests, JSON validation, Python syntax checks, and login-node baseline dry-runs passed.
+
+Compute-node model smoke gate now passes on TamIA. Retry job `309034` completed with `ExitCode 0:0` using one 4-H100 node, `--cpus-per-task=16`, and `--mem=192G`. AudioGen T2A, Qwen3-Omni A2S, Audio-Omni A2S, and Audio-Omni S2A all passed with successful generated manifests. The next migration gate is `evaluate.py` metric scoring smokes on the generated manifests. Use the verified default account `aip-csubakan` for any further Slurm submissions.
+
+Metric-cache follow-up on 2026-05-28: `resampy` was installed for `audioldm_eval`; the KAD PANN checkpoint and stable-audio-metrics LAION-CLAP checkpoint are present under the clean metric cache; `facebook/wav2vec2-base` resolves offline for UTMOS only when `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` all point at `$SALM_SCRATCH/cache/metrics/huggingface`. The TamIA metric smoke scripts now export those variables.
+
 ## Data Locations
 
 Dataset files live outside git:

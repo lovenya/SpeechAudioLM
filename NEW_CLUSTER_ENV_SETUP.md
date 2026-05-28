@@ -1,10 +1,35 @@
 # New Cluster Environment Setup Notes
 
-Last updated: 2026-05-26
+Last updated: 2026-05-28
 
 Use this document as a practical checklist for bringing SpeechAudioLM up on a
 new cluster. It intentionally describes patterns rather than assuming the new
 cluster has Rorqual's modules, accounts, GPU names, or internet policy.
+
+## TamIA Concrete Setup - 2026-05-28
+
+For the current TamIA migration, the generic placeholders below have been
+resolved as:
+
+```bash
+export SALM_REPO=/scratch/l/lovenya/SpeechAudioLM
+export SALM_SCRATCH=/scratch/l/lovenya/salm_migration_clean
+export SALM_DATA=/scratch/l/lovenya/salm_migration_clean/datasets/ttas/extracted
+export SALM_MODELS=/scratch/l/lovenya/salm_migration_clean/models
+export SALM_METRIC_CACHE=/scratch/l/lovenya/salm_migration_clean/cache/metrics
+```
+
+The dataset, model assets, external source trees, model venvs, and metric venvs
+have been prepared under these roots. Login-node-safe verification has passed,
+and compute-node model smoke retry job `309034` passed for AudioGen T2A,
+Qwen3-Omni A2S, Audio-Omni A2S, and Audio-Omni S2A. TamIA GPU jobs should use
+whole-node GPU requests, for example `--gpus=h100:4`, and should not rely on
+compute-node internet. The current migration gate is metric scoring through
+`evaluate.py` on the generated retry smoke manifests. Metric cache follow-up on
+2026-05-28 completed the `resampy`, KAD PANN, LAION-CLAP, and UTMOS
+`facebook/wav2vec2-base` fixes; UTMOS requires `HF_HOME`, `HF_HUB_CACHE`,
+`HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point at the clean metric
+Hugging Face cache.
 
 ## 1. Establish Path Variables
 

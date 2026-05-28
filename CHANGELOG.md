@@ -69,3 +69,23 @@ All notable repository-level changes should be recorded here.
 - Added a reusable `cluster-migration` Codex skill under
   `codex/skills/cluster-migration/SKILL.md` for future cross-cluster project
   moves.
+## 2026-05-27
+
+- Integrated the TamIA clean-root migration by updating active dataset/model/metric paths, smoke scripts, and Slurm helpers to `/scratch/l/lovenya/salm_migration_clean`.
+- Verified the migrated TTAS dataset, model/metric environments, AAC metric assets, login-node-safe tests, baseline dry-runs, JSON configs, syntax checks, and configured external path existence.
+- Updated migration handoff/context docs with current TamIA roots, verified gates, and remaining compute-node-only smoke tests.
+- Added a one-node TamIA model smoke script that uses all four H100s in one allocation for one-sample AudioGen, TangoFlux, Audio-Omni, and Qwen3-Omni checks.
+- Corrected migrated AudioGen/TangoFlux Hugging Face cache variables to use the actual clean-root cache directory.
+- Documented the first TamIA one-node smoke outcome: TangoFlux T2A and Audio-Omni T2A passed, while AudioGen and Qwen3-Omni A2S require retry verification after environment/model-generation fixes.
+- Added the current retry gate around `submission_scripts/run_tamia_retry_model_smokes_one_node.sbatch`, including one-sample default behavior, one-node/four-H100 resource policy, and manifest/log/accounting inspection requirements.
+- Refined the ultimate goal and handoff docs with post-retry evidence commands, DNSMOS adapter requirements, metric-smoke resource guardrails, and the distinction between existing backend-specific cascades and the required modular selectable-stage baseline.
+- Updated the TamIA retry smoke script after job `308995`: Qwen3-Omni A2S passed, but the job was OOM-killed with `cpu=1,mem=2G`; the script now requests `--cpus-per-task=16`, `--mem=192G`, and uses `--overwrite` for retry lanes.
+- Verified TamIA retry job `309034`: AudioGen T2A, Qwen3-Omni A2S, Audio-Omni A2S, and Audio-Omni S2A all passed on one 4-H100 node with successful smoke manifests.
+- Added and revised `submission_scripts/run_tamia_eval_smoke_retry_manifests.sbatch` for metric smokes against retry manifests; job `309048` exposed the missing cached Torch Hub `harritaylor/torchvggish` source repo needed by `audioldm_eval`.
+
+## 2026-05-28
+
+- Updated TamIA metric smoke scripts with explicit Hugging Face hub cache exports required by UTMOS offline `facebook/wav2vec2-base` loading.
+- Made the speech-only TamIA metric smoke continue across Audio-Omni and Qwen3-Omni lanes instead of stopping at the first backend failure.
+- Recorded the completed metric cache fixes for `resampy`, KAD PANN, LAION-CLAP, and UTMOS wav2vec cache resolution.
+- Corrected the modular cascaded-baseline text-to-text Llama target to `meta-llama/Llama-3.3-70B-Instruct`.

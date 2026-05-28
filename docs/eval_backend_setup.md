@@ -53,6 +53,10 @@ Current evaluator status:
   runs if repeated long corpus metrics become likely.
 - Offline compute-node runs require every model/checkpoint/cache to be prepared
   before the job starts.
+- On TamIA, UTMOS offline `facebook/wav2vec2-base` loading requires `HF_HOME`,
+  `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `TRANSFORMERS_CACHE` to point
+  at `$SALM_SCRATCH/cache/metrics/huggingface`. `HF_HOME` alone was not
+  enough in the UTMOS metric environment.
 - Current Rorqual config points Whisper at repo-root `.venv-eval-whisper`.
   If the new cluster stores it under `.venvs/metrics/`, update
   `configs/eval_metrics.json`.
@@ -375,7 +379,10 @@ Supports:
 
 Decision status:
 
-- Deferred. Do not set up or implement until backend choice is revisited.
+- Backend direction selected but not wired into `evaluate.py` yet. DNSMOS is
+  allowed for generated-speech tasks in `configs/task_metric_map.json`, but
+  `configs/eval_metrics.json` still has `backend: null`, and the evaluator
+  worker dispatch does not yet include a DNSMOS backend.
 
 Install:
 
@@ -418,6 +425,16 @@ Expected output shape:
 - `asset_status` should be `true` for all three ONNX files.
 - Real DNSMOS scoring should return MOS-like scalar scores per audio once the
   adapter is implemented.
+
+Adapter requirements:
+
+- Add a `torchmetrics-dnsmos` backend entry to `configs/eval_metrics.json`.
+- Add DNSMOS to the external metric dispatch in `evaluation/runner.py`.
+- Add a `torchmetrics-dnsmos` worker branch in `scripts/eval_backend_worker.py`.
+- Score each generated speech output file and return per-sample `dnsmos`
+  values plus backend metadata.
+- After the import/asset smoke passes, verify through
+  `evaluate.py --metrics dnsmos` on a one-sample generated-speech manifest.
 
 Known caveats:
 
