@@ -7,6 +7,16 @@ from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
 
 
+def _strip_thinking_output(text: str) -> str:
+    text = text.strip()
+    if "</think>" in text:
+        text = text.split("</think>", 1)[1].strip()
+    if text.startswith("<think>"):
+        lines = [line.strip() for line in text.splitlines() if line.strip() and line.strip() != "<think>"]
+        text = lines[-1] if lines else text
+    return text.strip()
+
+
 class TextLLMRunner(BaselineRunner):
     output_subdir = "text"
     extension = ".json"
@@ -40,7 +50,15 @@ class TextLLMRunner(BaselineRunner):
 
         messages = [{"role": "user", "content": row.prompt}]
         if hasattr(self.tokenizer, "apply_chat_template"):
-            text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            try:
+                text = self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+            except TypeError:
+                text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         else:
             text = row.prompt
         inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
@@ -52,7 +70,7 @@ class TextLLMRunner(BaselineRunner):
                 pad_token_id=self.tokenizer.eos_token_id,
             )
         generated = output_ids[0, inputs["input_ids"].shape[1] :]
-        answer = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
+        answer = _strip_thinking_output(self.tokenizer.decode(generated, skip_special_tokens=True).strip())
         extra = {
             "generation_prompt": row.prompt,
             "understanding_text": answer,

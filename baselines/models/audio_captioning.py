@@ -61,6 +61,9 @@ class Qwen3OmniCaptionerRunner(BaselineRunner):
         audios, images, videos = process_mm_info(conversation, use_audio_in_video=False)
         inputs = self.processor(text=text, audio=audios, images=images, videos=videos, return_tensors="pt", padding=True)
         inputs = inputs.to(self.model.device)
+        for key, value in list(inputs.items()):
+            if getattr(value, "is_floating_point", lambda: False)():
+                inputs[key] = value.to(self.model.dtype)
         with torch.inference_mode():
             output_ids = self.model.generate(**inputs, max_new_tokens=128, do_sample=False)
         sequences = getattr(output_ids, "sequences", output_ids)

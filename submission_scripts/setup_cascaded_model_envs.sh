@@ -34,7 +34,8 @@ F5_ENV="$ENV_ROOT/.venv-cascade-f5-tts"
 create_env "$ASR_ENV"
 "$ASR_ENV/bin/python" -m pip install --upgrade \
   'torch==2.6.0+computecanada' 'torchaudio==2.6.0+computecanada' \
-  'transformers==5.3.0+computecanada' accelerate soundfile librosa sox qwen-omni-utils
+  'transformers==5.3.0+computecanada' accelerate soundfile librosa sox qwen-omni-utils \
+  'nagisa==0.2.11' 'soynlp==0.0.493'
 "$ASR_ENV/bin/python" -m pip install --no-deps --upgrade qwen-asr
 
 create_env "$CAPTION_ENV"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
@@ -77,6 +78,8 @@ class Qwen3ASRRunner(BaselineRunner):
 
     def load(self) -> None:
         import torch
+
+        _patch_qwen_asr_transformers_compat()
         from qwen_asr import Qwen3ASRModel
 
         self.model = Qwen3ASRModel.from_pretrained(
@@ -115,6 +118,21 @@ class Qwen3ASRRunner(BaselineRunner):
         }
         _write_text_result(output_path, row, "S2T", text, extra)
         return GenerationResult(output_path=output_path, sample_rate=None, extra=extra)
+
+
+def _patch_qwen_asr_transformers_compat() -> None:
+    import transformers.utils.generic as generic
+
+    if hasattr(generic, "check_model_inputs"):
+        return
+
+    def check_model_inputs(*args, **kwargs) -> Callable:
+        def decorator(fn: Callable) -> Callable:
+            return fn
+
+        return decorator
+
+    generic.check_model_inputs = check_model_inputs
 
 
 def _extract_text(result: object) -> str:

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from baseline_cascaded import _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
+from baselines.models.text_llm import _strip_thinking_output
 
 
 class CascadedBaselineTest(unittest.TestCase):
@@ -72,6 +73,14 @@ class CascadedBaselineTest(unittest.TestCase):
         args = argparse.Namespace(pipeline="T2T", text_model="qwen3_32b")
         self.assertEqual(_planned_stages(args), [{"stage": "text_to_text", "backend": "qwen3_32b"}])
 
+    def test_strip_thinking_output_prefers_final_answer(self) -> None:
+        self.assertEqual(_strip_thinking_output("<think>reasoning</think>rain on pavement"), "rain on pavement")
+
+    def test_strip_thinking_output_handles_orphan_think_prefix(self) -> None:
+        self.assertEqual(
+            _strip_thinking_output("<think>\nreasoning line\ncity traffic with idling motorcycle"),
+            "city traffic with idling motorcycle",
+        )
 
 if __name__ == "__main__":
     unittest.main()
