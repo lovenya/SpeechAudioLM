@@ -3,6 +3,13 @@
 !README.md
 !baselines/README.md
 docs/
+goal.txt
+goal_updated.txt
+
+# Cluster-local configuration and operational scripts.
+configs/slurm_resource_profiles.json
+scripts/eval_backend_smoke/
+submission_scripts/
 
 # Python cache files
 __pycache__/
