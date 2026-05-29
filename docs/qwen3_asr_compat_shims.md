@@ -83,13 +83,32 @@ The shims are scoped to `Qwen3ASRRunner.load()` through
    Temporary behavior: adds a static method pointing to the same local default
    RoPE initializer used for `ROPE_INIT_FUNCTIONS["default"]`.
 
+## Latest Failure
+
+Job `309471` was submitted after shim item 5. It advanced through weight
+loading and then failed while `qwen_asr` called
+`AutoProcessor.from_pretrained(..., fix_mistral_regex=True)`:
+
+```text
+TypeError: transformers.tokenization_utils_tokenizers.TokenizersBackend._patch_mistral_regex() got multiple values for keyword argument 'fix_mistral_regex'
+```
+
+The error path then raised a protobuf import error from Transformers'
+tokenizer fallback handling:
+
+```text
+ImportError: requires the protobuf library but it was not found in your environment.
+```
+
 ## Current Status
 
-As of job `309461`:
+As of job `309471`, Qwen3-ASR is deferred. The backend has now hit multiple
+unrelated `qwen_asr` / `transformers` API compatibility failures after local
+compatibility shims. Use the verified Whisper ASR backend for active modular
+`S2T` work.
 
-- Llama 3.3 70B `T2T` passed in the packed ASR/Llama smoke.
-- Qwen3-ASR advanced through weight loading and failed on shim item 5 above.
-- Another Qwen3-ASR retry is needed after item 5 is committed.
+Job `309461` also verified that Llama 3.3 70B `T2T` passed in the packed
+ASR/Llama smoke while Qwen3-ASR failed independently.
 
 ## Replacement Plan
 
@@ -101,6 +120,6 @@ Next cleanup path should be one of:
   `qwen_asr` package;
 - vendor/fork a small upstream patch if the official package has not caught up.
 
-If another unrelated Transformers API mismatch appears after item 5, stop
-adding shims and move to dependency-version alignment or defer `qwen3_asr` in
-favor of the already verified Whisper ASR backend.
+Do not add more runtime shims for this backend before next week's debugging
+pass. The next useful path is dependency-version alignment or a small upstream
+patch, then removing as many of the temporary shims above as possible.

@@ -62,13 +62,19 @@ Backend selectors currently exposed by the modular runner:
 
 Current adapter smoke status on TamIA:
 
-- verified by one-sample compute smoke: `whisper` for `S2T`, `f5_tts` for `T2S`, `qwen3_32b` for `T2T`, and `qwen3_omni_captioner` for `A2T`;
-- retry-ready after repo fixes: `qwen3_asr` now bypasses the installed Transformers `check_model_inputs` mismatch, the unused forced-aligner `nagisa` import path, and the missing `default` RoPE initializer in the installed Transformers build for plain `S2T`;
+- verified by one-sample compute smoke: `whisper` for `S2T`, `f5_tts`
+  for `T2S`, `qwen3_32b` and `llama3_3_70b_instruct` for `T2T`, and
+  `qwen3_omni_captioner` for `A2T`;
+- deferred: `qwen3_asr` still needs dependency-version alignment after
+  multiple TamIA retries reached unrelated `qwen_asr`/Transformers processor
+  compatibility failures; use `whisper` as the active `S2T` backend for now;
 - deferred: `audio_flamingo_next` needs a Transformers build with `musicflamingo` support; `cosyvoice3` is not exposed until its frontend dependency stack is resolved.
 
 Large text-to-text models, especially `llama3_3_70b_instruct`, should be smoked
 as a whole-node single process using tensor parallel/device-map placement rather
-than as one of four independent single-GPU lanes.
+than as one of four independent single-GPU lanes. A packed TamIA smoke has
+verified that Llama 3.3 70B can occupy GPUs 1-3 while a light single-GPU lane
+uses GPU 0, but do not pack it beside another large model.
 
 Cascaded outputs use:
 
@@ -106,6 +112,7 @@ sbatch submission_scripts/run_tamia_cascaded_fixed_adapter_retry_one_node.sbatch
 CAPTION_CUDA_VISIBLE_DEVICES=0,1,2,3 sbatch submission_scripts/run_tamia_cascaded_qwen3_caption_smoke_one_node.sbatch
 ASR_CUDA_VISIBLE_DEVICES=0 sbatch submission_scripts/run_tamia_cascaded_qwen3_asr_smoke_one_node.sbatch
 TEXT_MODEL=qwen3_32b TEXT_CUDA_VISIBLE_DEVICES=0 sbatch submission_scripts/run_tamia_cascaded_text_llm_smoke_one_node.sbatch
+TEXT_MODEL=llama3_3_70b_instruct TEXT_CUDA_VISIBLE_DEVICES=0,1,2,3 sbatch submission_scripts/run_tamia_cascaded_text_llm_smoke_one_node.sbatch
 sbatch submission_scripts/run_tamia_cascaded_packed_smokes_one_node.sbatch
 ```
 
