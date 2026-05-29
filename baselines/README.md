@@ -60,13 +60,18 @@ Backend selectors currently exposed by the modular runner:
 - TTS: `audio_omni`, `qwen3_omni`, `f5_tts`
 - T2A: `audiogen`, `tangoflux`, `audio_omni`
 
-The current compute-smoked backends are still the original conservative set:
-`audio_omni`, `qwen3_omni`, `audiogen`, `reference`, and `template`. The newly
-wired downloaded backends have lazy adapters and need dedicated environment
-checks plus one-sample compute-node smokes before production use. Large
-text-to-text models, especially `llama3_3_70b_instruct`, should be smoked as a
-whole-node single process using tensor parallel/device-map placement rather than
-as one of four independent single-GPU lanes.
+Current adapter smoke status on TamIA:
+
+- verified by one-sample compute smoke: `whisper` for `S2T`, `f5_tts` for `T2S`;
+- submitted and awaiting inspection: `qwen3_omni_captioner` for `A2T`;
+- deferred: `qwen3_asr` currently hits a known Transformers `check_model_inputs`
+  compatibility issue; `audio_flamingo_next` needs a Transformers build with
+  `musicflamingo` support; `cosyvoice3` is not exposed until its frontend
+  dependency stack is resolved.
+
+Large text-to-text models, especially `llama3_3_70b_instruct`, should be smoked
+as a whole-node single process using tensor parallel/device-map placement rather
+than as one of four independent single-GPU lanes.
 
 Cascaded outputs use:
 
@@ -96,3 +101,11 @@ sbatch submission_scripts/run_tamia_cascaded_smokes_one_node.sbatch
 It runs one-sample `S2A` and `A2S` cascades plus a `T2S` stage across a single
 4-H100 node, with per-lane logs under
 `$SALM_SCRATCH/logs/cascaded_smokes/<jobid>/`.
+
+Additional adapter smoke scripts:
+
+```bash
+sbatch submission_scripts/run_tamia_cascaded_fixed_adapter_retry_one_node.sbatch
+sbatch submission_scripts/run_tamia_cascaded_qwen3_caption_smoke_one_node.sbatch
+TEXT_MODEL=qwen3_32b sbatch submission_scripts/run_tamia_cascaded_text_llm_smoke_one_node.sbatch
+```
