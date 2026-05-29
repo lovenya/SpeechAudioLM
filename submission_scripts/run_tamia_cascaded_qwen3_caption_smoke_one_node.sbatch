@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=salm-qwen3-cap-smoke
 #SBATCH --account=aip-csubakan
-#SBATCH --time=00:30:00
+#SBATCH --time=00:15:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=48
-#SBATCH --mem=0
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=64G
 #SBATCH --gpus=h100:4
 #SBATCH --output=/scratch/l/lovenya/salm_migration_clean/logs/slurm/%x-%j.out
 
@@ -23,9 +23,10 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export PYTHONDONTWRITEBYTECODE=1
 export TOKENIZERS_PARALLELISM=false
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
-export MKL_NUM_THREADS="${MKL_NUM_THREADS:-8}"
-export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-8}"
+export RESOURCE_INTERVAL="${RESOURCE_INTERVAL:-30}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-2}"
+export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-2}"
 
 START_INDEX="${START_INDEX:-0}"
 NUM_SAMPLES_VALUE="${NUM_SAMPLES:-1}"
