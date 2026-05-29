@@ -154,7 +154,19 @@ def _patch_qwen_asr_transformers_compat() -> None:
         nagisa.tagging = tagging
         sys.modules["nagisa"] = nagisa
 
+    _patch_qwen_asr_rope_module_compat()
     _patch_qwen_asr_config_compat()
+
+
+def _patch_qwen_asr_rope_module_compat() -> None:
+    try:
+        from qwen_asr.core.transformers_backend.modeling_qwen3_asr import Qwen3ASRThinkerTextRotaryEmbedding
+    except ImportError:
+        return
+    if not hasattr(Qwen3ASRThinkerTextRotaryEmbedding, "compute_default_rope_parameters"):
+        Qwen3ASRThinkerTextRotaryEmbedding.compute_default_rope_parameters = staticmethod(
+            _compute_default_rope_parameters
+        )
 
 
 def _patch_qwen_asr_config_compat() -> None:
