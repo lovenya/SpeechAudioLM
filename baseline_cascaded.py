@@ -15,7 +15,7 @@ from baselines.models.base import BaselineRunner, GenerationResult
 from project_conventions import baseline_output_root, default_prompt_field
 
 
-PIPELINES = ("T2A", "T2S", "A2T", "S2T", "A2S", "S2A")
+PIPELINES = ("T2A", "T2S", "A2T", "S2T", "T2T", "A2S", "S2A")
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,6 +41,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asr", default="audio_omni", choices=["audio_omni", "reference", "whisper", "qwen3_asr"])
     parser.add_argument("--captioner", default="audio_omni", choices=["audio_omni", "reference", "audio_flamingo_next", "qwen3_omni_captioner"])
     parser.add_argument("--text-model", default="template", choices=["template", "identity", "qwen3_32b", "llama3_3_70b_instruct"])
+    parser.add_argument(
+        "--text-mode",
+        default="speech_to_audio_description",
+        choices=["speech_to_audio_description", "audio_description_to_speech"],
+        help="Standalone T2T conversion mode; cascades set this implicitly.",
+    )
     parser.add_argument("--tts", default="audio_omni", choices=["audio_omni", "qwen3_omni", "f5_tts"])
     parser.add_argument("--t2a", default="audiogen", choices=["audiogen", "tangoflux", "audio_omni"])
 
@@ -178,6 +184,11 @@ class ModularCascade:
         if pipeline == "S2T":
             text = self._transcribe_speech(row, output_root)
             stages = [_text_stage_record("asr", self.args.asr, text)]
+            output_file = self._write_final_text(output_root, row, text, stages)
+            return self._text_success_record(row, text, output_file, stages, run_config)
+        if pipeline == "T2T":
+            text = self._convert_text(row.prompt, self.args.text_mode, output_root, row)
+            stages = [_text_stage_record("text_to_text", self.args.text_model, text)]
             output_file = self._write_final_text(output_root, row, text, stages)
             return self._text_success_record(row, text, output_file, stages, run_config)
         if pipeline == "A2S":
@@ -461,6 +472,8 @@ def _pipeline_prompt_field(pipeline: str) -> str:
         return default_prompt_field("A2T" if pipeline in {"A2T", "A2S"} else "T2A")
     if pipeline in {"T2S", "S2T", "S2A"}:
         return default_prompt_field("S2T" if pipeline in {"S2T", "S2A"} else "T2S")
+    if pipeline == "T2T":
+        return default_prompt_field("S2T")
     raise ValueError(f"Unsupported pipeline: {pipeline}")
 
 
@@ -502,6 +515,7 @@ def _run_config(args: argparse.Namespace, split_path: Path, prompt_field: str) -
         "asr": args.asr,
         "captioner": args.captioner,
         "text_model": args.text_model,
+        "text_mode": args.text_mode,
         "tts": args.tts,
         "t2a": args.t2a,
         "duration": args.duration,
@@ -548,6 +562,8 @@ def _planned_stages(args: argparse.Namespace) -> list[dict]:
             {"stage": "text_to_text", "backend": args.text_model},
             {"stage": "text_to_audio", "backend": args.t2a},
         ]
+    if args.pipeline == "T2T":
+        return [{"stage": "text_to_text", "backend": args.text_model}]
     stage = {
         "A2T": ("audio_captioning", args.captioner),
         "S2T": ("asr", args.asr),

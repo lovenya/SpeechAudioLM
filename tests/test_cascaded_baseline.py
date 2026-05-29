@@ -68,6 +68,10 @@ class CascadedBaselineTest(unittest.TestCase):
             ],
         )
 
+    def test_planned_stages_for_t2t(self) -> None:
+        args = argparse.Namespace(pipeline="T2T", text_model="qwen3_32b")
+        self.assertEqual(_planned_stages(args), [{"stage": "text_to_text", "backend": "qwen3_32b"}])
+
 
 if __name__ == "__main__":
     unittest.main()

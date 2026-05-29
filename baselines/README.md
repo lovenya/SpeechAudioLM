@@ -44,8 +44,8 @@ Model-specific notes:
 
 `baseline_cascaded.py` is the modular entrypoint for stage-wise and cascaded
 runs. It is separate from `baseline.py`, which remains the single-backend runner.
-The cascaded runner supports individual pipelines (`T2A`, `T2S`, `A2T`, `S2T`)
-and full cascades (`A2S`, `S2A`) with selectors for each stage:
+The cascaded runner supports individual pipelines (`T2A`, `T2S`, `A2T`, `S2T`,
+`T2T`) and full cascades (`A2S`, `S2A`) with selectors for each stage:
 
 ```bash
 python baseline_cascaded.py --pipeline S2A --asr reference --text-model template --t2a audiogen --num-samples 1 --dry-run
