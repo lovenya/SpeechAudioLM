@@ -29,7 +29,7 @@ class Qwen3OmniRunner(BaselineRunner):
         super().__init__(**kwargs)
         if self.task not in {"T2S", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"}:
             raise ValueError("Qwen3-Omni supports --task T2S, A2S, pseudo_t2a_direct, or pseudo_t2a_phoneme")
-        self.model_path = self.model_path or "/project/rrg-csubakan/lovenya/models/qwen3-omni-30b-a3b-instruct"
+        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/qwen3-omni-30b-a3b-instruct"
         self.speaker = qwen_speaker
         self.template = self.prompt_template or qwen_template or self._default_template()
         self.model = None

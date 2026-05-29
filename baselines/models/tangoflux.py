@@ -12,13 +12,13 @@ from baselines.models.base import BaselineRunner, GenerationResult
 class TangoFluxRunner(BaselineRunner):
     def __init__(
         self,
-        tangoflux_source_dir: str = "/project/rrg-csubakan/lovenya/models/tangoflux",
+        tangoflux_source_dir: str = "/scratch/l/lovenya/salm_migration_clean/models/tangoflux",
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
         if self.task != "T2A":
             raise ValueError("TangoFlux supports only --task T2A")
-        self.model_path = self.model_path or "/project/rrg-csubakan/lovenya/models/tangoflux"
+        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/tangoflux"
         self.source_dir = tangoflux_source_dir
         self.model = None
 

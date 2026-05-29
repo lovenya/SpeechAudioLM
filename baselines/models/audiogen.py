@@ -11,7 +11,7 @@ class AudioGenRunner(BaselineRunner):
         super().__init__(**kwargs)
         if self.task != "T2A":
             raise ValueError("AudioGen supports only --task T2A")
-        self.model_path = self.model_path or "/project/rrg-csubakan/lovenya/models/audiogen-medium"
+        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/audiogen-medium"
         self.model = None
 
     def load(self) -> None:

@@ -23,12 +23,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="test")
     parser.add_argument(
         "--shard-root",
-        default="/scratch/lovenya/SpeechAudioLM/results/baselines_shards",
+        default="/scratch/l/lovenya/salm_migration_clean/results/baselines_shards",
         help="Root containing shard output directories.",
     )
     parser.add_argument(
         "--output-root",
-        default="/scratch/lovenya/SpeechAudioLM/results/baselines",
+        default="/scratch/l/lovenya/salm_migration_clean/results/baselines",
         help="Canonical baseline output root to write merged manifest under.",
     )
     parser.add_argument("--overwrite", action="store_true", help="Replace an existing merged manifest.")

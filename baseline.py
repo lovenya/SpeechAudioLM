@@ -108,22 +108,22 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tangoflux-source-dir",
-        default="/project/rrg-csubakan/lovenya/models/tangoflux",
+        default="/scratch/l/lovenya/salm_migration_clean/models/tangoflux",
         help="TangoFlux source/model directory.",
     )
     parser.add_argument(
         "--audio-omni-config",
-        default="/project/rrg-csubakan/lovenya/models/audio-omni/Audio-Omni.json",
+        default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/Audio-Omni.json",
         help="Audio-Omni config path.",
     )
     parser.add_argument(
         "--audio-omni-ckpt",
-        default="/project/rrg-csubakan/lovenya/models/audio-omni/model.ckpt",
+        default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/model.ckpt",
         help="Audio-Omni checkpoint path.",
     )
     parser.add_argument(
         "--audio-omni-source-dir",
-        default="/project/rrg-csubakan/lovenya/src/Audio-Omni",
+        default="/scratch/l/lovenya/salm_migration_clean/code/Audio-Omni",
         help="Audio-Omni source directory. Used internally for relative config assets.",
     )
     parser.add_argument(
