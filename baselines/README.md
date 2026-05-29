@@ -107,6 +107,7 @@ Additional adapter smoke scripts:
 ```bash
 sbatch submission_scripts/run_tamia_cascaded_fixed_adapter_retry_one_node.sbatch
 sbatch submission_scripts/run_tamia_cascaded_qwen3_caption_smoke_one_node.sbatch
+sbatch submission_scripts/run_tamia_cascaded_qwen3_asr_smoke_one_node.sbatch
 TEXT_MODEL=qwen3_32b sbatch submission_scripts/run_tamia_cascaded_text_llm_smoke_one_node.sbatch
 sbatch submission_scripts/run_tamia_cascaded_packed_smokes_one_node.sbatch
 ```
