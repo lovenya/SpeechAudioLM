@@ -52,19 +52,21 @@ python baseline_cascaded.py --pipeline S2A --asr reference --text-model template
 python baseline_cascaded.py --pipeline A2S --captioner reference --text-model template --tts audio_omni --num-samples 1 --dry-run
 ```
 
-Current wired backends are deliberately conservative:
+Backend selectors currently exposed by the modular runner:
 
-- ASR: `audio_omni`, `reference`
-- audio captioning: `audio_omni`, `reference`
-- text-to-text: `template`, `identity`
-- TTS: `audio_omni`, `qwen3_omni`
+- ASR: `audio_omni`, `reference`, `whisper`, `qwen3_asr`
+- audio captioning: `audio_omni`, `reference`, `audio_flamingo_next`, `qwen3_omni_captioner`
+- text-to-text: `template`, `identity`, `qwen3_32b`, `llama3_3_70b_instruct`
+- TTS: `audio_omni`, `qwen3_omni`, `f5_tts`
 - T2A: `audiogen`, `tangoflux`, `audio_omni`
 
-The CLI also names target future backends from the project goal, but they raise
-clear unsupported-backend errors until their model assets, environments, and
-adapters are added: `whisper`, `qwen3_asr`, `audio_flamingo_next`,
-`qwen3_omni_captioner`, `qwen3_32b`, `llama3_3_70b_instruct`, `f5_tts`, and
-`cosyvoice3`.
+The current compute-smoked backends are still the original conservative set:
+`audio_omni`, `qwen3_omni`, `audiogen`, `reference`, and `template`. The newly
+wired downloaded backends have lazy adapters and need dedicated environment
+checks plus one-sample compute-node smokes before production use. Large
+text-to-text models, especially `llama3_3_70b_instruct`, should be smoked as a
+whole-node single process using tensor parallel/device-map placement rather than
+as one of four independent single-GPU lanes.
 
 Cascaded outputs use:
 

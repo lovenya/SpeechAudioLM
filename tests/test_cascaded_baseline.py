@@ -57,14 +57,14 @@ class CascadedBaselineTest(unittest.TestCase):
             pipeline="A2S",
             captioner="audio_flamingo_next",
             text_model="llama3_3_70b_instruct",
-            tts="cosyvoice3",
+            tts="f5_tts",
         )
         self.assertEqual(
             _planned_stages(args),
             [
                 {"stage": "audio_captioning", "backend": "audio_flamingo_next"},
                 {"stage": "text_to_text", "backend": "llama3_3_70b_instruct"},
-                {"stage": "text_to_speech", "backend": "cosyvoice3"},
+                {"stage": "text_to_speech", "backend": "f5_tts"},
             ],
         )
 

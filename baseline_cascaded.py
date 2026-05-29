@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asr", default="audio_omni", choices=["audio_omni", "reference", "whisper", "qwen3_asr"])
     parser.add_argument("--captioner", default="audio_omni", choices=["audio_omni", "reference", "audio_flamingo_next", "qwen3_omni_captioner"])
     parser.add_argument("--text-model", default="template", choices=["template", "identity", "qwen3_32b", "llama3_3_70b_instruct"])
-    parser.add_argument("--tts", default="audio_omni", choices=["audio_omni", "qwen3_omni", "f5_tts", "cosyvoice3"])
+    parser.add_argument("--tts", default="audio_omni", choices=["audio_omni", "qwen3_omni", "f5_tts"])
     parser.add_argument("--t2a", default="audiogen", choices=["audiogen", "tangoflux", "audio_omni"])
 
     parser.add_argument("--model-path", default=None, help="Fallback model path override for single-backend runs.")
@@ -57,6 +57,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--audio-omni-config", default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/Audio-Omni.json")
     parser.add_argument("--audio-omni-ckpt", default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/model.ckpt")
     parser.add_argument("--audio-omni-source-dir", default="/scratch/l/lovenya/salm_migration_clean/code/Audio-Omni")
+    parser.add_argument("--f5-tts-source-dir", default="/scratch/l/lovenya/salm_migration_clean/code/cascaded/F5-TTS")
+    parser.add_argument("--f5-tts-vocoder-path", default="/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/vocos-mel-24khz")
     return parser.parse_args()
 
 
@@ -90,6 +92,7 @@ class ModularCascade:
         self.args = args
         self.dataset_root = dataset_root
         self._runners: dict[tuple[str, str], BaselineRunner] = {}
+        self._run_config: dict = {}
 
     def run(
         self,
@@ -103,6 +106,11 @@ class ModularCascade:
         log_root.mkdir(parents=True, exist_ok=True)
         final_manifest = output_root / "manifest.jsonl"
         run_config_path = output_root / "run_config.json"
+        self._run_config = run_config
+        if self.args.overwrite:
+            _unlink_if_exists(final_manifest)
+            for component_manifest in (output_root / "components").glob("*/manifest.jsonl"):
+                _unlink_if_exists(component_manifest)
         run_config_path.write_text(json.dumps(run_config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
         processed = 0
@@ -174,8 +182,7 @@ class ModularCascade:
             return self._text_success_record(row, text, output_file, stages, run_config)
         if pipeline == "A2S":
             audio_description = self._caption_audio(row, output_root)
-            speech_text = self._audio_description_to_speech(audio_description)
-            self._write_component_text(output_root, "text_to_text", row, speech_text, {"input_text": audio_description})
+            speech_text = self._convert_text(audio_description, "audio_description_to_speech", output_root, row)
             result = self._generate_tts(speech_text, row, output_path)
             self._append_component_manifest(output_root, "T2S", row, result.output_path, result.sample_rate, result.extra)
             stages = [
@@ -186,8 +193,7 @@ class ModularCascade:
             return self._success_record(row, output_path, result.sample_rate, stages, result.extra, run_config)
         if pipeline == "S2A":
             transcript = self._transcribe_speech(row, output_root)
-            audio_prompt = self._speech_to_audio_description(transcript)
-            self._write_component_text(output_root, "text_to_text", row, audio_prompt, {"input_text": transcript})
+            audio_prompt = self._convert_text(transcript, "speech_to_audio_description", output_root, row)
             result = self._generate_t2a(audio_prompt, row, output_path)
             self._append_component_manifest(output_root, "T2A", row, result.output_path, result.sample_rate, result.extra)
             stages = [
@@ -203,10 +209,10 @@ class ModularCascade:
             text = _required_text(row, "audio_cap")
             self._write_component_text(output_root, "A2T", row, text, {"backend": "reference"})
             return text
-        if self.args.captioner != "audio_omni":
+        if self.args.captioner not in {"audio_omni", "audio_flamingo_next", "qwen3_omni_captioner"}:
             raise ValueError(f"Captioner backend is not wired yet: {self.args.captioner}")
         text_output = self._component_output_path(output_root, "A2T", row, ".json")
-        result = self._runner("audio_omni", "A2T").generate(row, text_output)
+        result = self._runner(self.args.captioner, "A2T").generate(row, text_output)
         text = str(result.extra.get("understanding_text") or "").strip()
         self._append_component_manifest(output_root, "A2T", row, text_output, None, result.extra, text)
         return text
@@ -216,10 +222,10 @@ class ModularCascade:
             text = _required_text(row, "speech_text")
             self._write_component_text(output_root, "S2T", row, text, {"backend": "reference"})
             return text
-        if self.args.asr != "audio_omni":
+        if self.args.asr not in {"audio_omni", "whisper", "qwen3_asr"}:
             raise ValueError(f"ASR backend is not wired yet: {self.args.asr}")
         text_output = self._component_output_path(output_root, "S2T", row, ".json")
-        result = self._runner("audio_omni", "S2T").generate(row, text_output)
+        result = self._runner(self.args.asr, "S2T").generate(row, text_output)
         text = str(result.extra.get("understanding_text") or "").strip()
         self._append_component_manifest(output_root, "S2T", row, text_output, None, result.extra, text)
         return text
@@ -242,6 +248,29 @@ class ModularCascade:
             raise ValueError(f"Text model backend is not wired yet: {self.args.text_model}")
         return f"Environmental audio matching this spoken situation: {transcript.strip()}"
 
+    def _convert_text(self, input_text: str, mode: str, output_root: Path, row: PromptRow) -> str:
+        if self.args.text_model == "identity":
+            text = input_text
+            self._write_component_text(output_root, "text_to_text", row, text, {"input_text": input_text, "mode": mode})
+            return text
+        if self.args.text_model == "template":
+            if mode == "audio_description_to_speech":
+                text = self._audio_description_to_speech(input_text)
+            elif mode == "speech_to_audio_description":
+                text = self._speech_to_audio_description(input_text)
+            else:
+                raise ValueError(f"Unsupported text conversion mode: {mode}")
+            self._write_component_text(output_root, "text_to_text", row, text, {"input_text": input_text, "mode": mode})
+            return text
+        if self.args.text_model not in {"qwen3_32b", "llama3_3_70b_instruct"}:
+            raise ValueError(f"Text model backend is not wired yet: {self.args.text_model}")
+        prompt = _text_conversion_prompt(input_text, mode)
+        text_output = self._component_output_path(output_root, "text_to_text", row, ".json")
+        result = self._runner(self.args.text_model, "text_to_text").generate(_with_prompt(row, prompt), text_output)
+        text = str(result.extra.get("understanding_text") or "").strip()
+        self._append_component_manifest(output_root, "text_to_text", row, text_output, None, {**result.extra, "input_text": input_text, "mode": mode}, text)
+        return text
+
     def _generate_t2a(self, prompt: str, row: PromptRow, output_path: Path) -> GenerationResult:
         prompt_row = _with_prompt(row, prompt)
         return self._runner(self.args.t2a, "T2A").generate(prompt_row, output_path)
@@ -252,6 +281,8 @@ class ModularCascade:
             return self._runner("audio_omni", "T2S").generate(prompt_row, output_path)
         if self.args.tts == "qwen3_omni":
             return self._runner("qwen3_omni", "T2S").generate(prompt_row, output_path)
+        if self.args.tts == "f5_tts":
+            return self._runner(self.args.tts, "T2S").generate(prompt_row, output_path)
         raise ValueError(f"TTS backend is not wired yet: {self.args.tts}")
 
     def _runner(self, model: str, task: str) -> BaselineRunner:
@@ -273,6 +304,8 @@ class ModularCascade:
                 audio_omni_config=self.args.audio_omni_config,
                 audio_omni_ckpt=self.args.audio_omni_ckpt,
                 audio_omni_source_dir=self.args.audio_omni_source_dir,
+                f5_tts_source_dir=self.args.f5_tts_source_dir,
+                f5_tts_vocoder_path=self.args.f5_tts_vocoder_path,
             )
             print(f"loading stage model={model} task={task}")
             runner.load()
@@ -360,6 +393,12 @@ class ModularCascade:
         record = {
             "model": "cascaded",
             "task": task,
+            "pipeline": self._run_config.get("pipeline"),
+            "variant": self._run_config.get("variant"),
+            "dataset": self._run_config.get("dataset"),
+            "split": self._run_config.get("split"),
+            "split_file": self._run_config.get("split_file"),
+            "prompt_field": self._run_config.get("prompt_field"),
             "status": "success",
             "row_index": row.row_index,
             "sample_id": row.sample_id,
@@ -527,6 +566,29 @@ def _required_text(row: PromptRow, field: str) -> str:
 
 def _with_prompt(row: PromptRow, prompt: str) -> PromptRow:
     return PromptRow(row_index=row.row_index, sample_id=row.sample_id, prompt=prompt, record=row.record)
+
+
+def _unlink_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _text_conversion_prompt(input_text: str, mode: str) -> str:
+    if mode == "audio_description_to_speech":
+        return (
+            "Convert this environmental audio description into one short natural speech transcript. "
+            "Return only the spoken words, without quotation marks or explanation.\n\n"
+            f"Audio description: {input_text.strip()}"
+        )
+    if mode == "speech_to_audio_description":
+        return (
+            "Convert this speech transcript into one concise environmental audio-generation prompt. "
+            "Describe the likely sound scene and return only the prompt, without explanation.\n\n"
+            f"Speech transcript: {input_text.strip()}"
+        )
+    raise ValueError(f"Unsupported text conversion mode: {mode}")
 
 
 def _stage_record(stage: str, backend: str, prompt: str, output_path: Path) -> dict:
