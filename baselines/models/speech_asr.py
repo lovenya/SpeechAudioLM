@@ -154,6 +154,27 @@ def _patch_qwen_asr_transformers_compat() -> None:
         nagisa.tagging = tagging
         sys.modules["nagisa"] = nagisa
 
+    _patch_qwen_asr_config_compat()
+
+
+def _patch_qwen_asr_config_compat() -> None:
+    try:
+        from qwen_asr.core.transformers_backend.configuration_qwen3_asr import Qwen3ASRThinkerConfig
+    except ImportError:
+        return
+    if getattr(Qwen3ASRThinkerConfig, "_salm_pad_token_patch", False):
+        return
+
+    original_init = Qwen3ASRThinkerConfig.__init__
+
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        if not hasattr(self, "pad_token_id"):
+            self.pad_token_id = None
+
+    Qwen3ASRThinkerConfig.__init__ = patched_init
+    Qwen3ASRThinkerConfig._salm_pad_token_patch = True
+
 
 def _compute_default_rope_parameters(config=None, device=None, seq_len: int | None = None, layer_type: str | None = None):
     import torch

@@ -91,6 +91,16 @@ class CascadedBaselineTest(unittest.TestCase):
         rope_utils.ROPE_INIT_FUNCTIONS = {}
         utils = types.ModuleType("transformers.utils")
         transformers = types.ModuleType("transformers")
+        qwen_asr = types.ModuleType("qwen_asr")
+        qwen_core = types.ModuleType("qwen_asr.core")
+        qwen_backend = types.ModuleType("qwen_asr.core.transformers_backend")
+        qwen_config = types.ModuleType("qwen_asr.core.transformers_backend.configuration_qwen3_asr")
+
+        class Qwen3ASRThinkerConfig:
+            def __init__(self) -> None:
+                self.audio_token_id = 151676
+
+        qwen_config.Qwen3ASRThinkerConfig = Qwen3ASRThinkerConfig
         utils.generic = generic
         transformers.utils = utils
         transformers.modeling_rope_utils = rope_utils
@@ -98,16 +108,26 @@ class CascadedBaselineTest(unittest.TestCase):
         old_utils = sys.modules.get("transformers.utils")
         old_generic = sys.modules.get("transformers.utils.generic")
         old_rope_utils = sys.modules.get("transformers.modeling_rope_utils")
+        old_qwen_asr = sys.modules.get("qwen_asr")
+        old_qwen_core = sys.modules.get("qwen_asr.core")
+        old_qwen_backend = sys.modules.get("qwen_asr.core.transformers_backend")
+        old_qwen_config = sys.modules.get("qwen_asr.core.transformers_backend.configuration_qwen3_asr")
         sys.modules["transformers"] = transformers
         sys.modules["transformers.utils"] = utils
         sys.modules["transformers.utils.generic"] = generic
         sys.modules["transformers.modeling_rope_utils"] = rope_utils
+        sys.modules["qwen_asr"] = qwen_asr
+        sys.modules["qwen_asr.core"] = qwen_core
+        sys.modules["qwen_asr.core.transformers_backend"] = qwen_backend
+        sys.modules["qwen_asr.core.transformers_backend.configuration_qwen3_asr"] = qwen_config
         sys.modules.pop("nagisa", None)
         try:
             _patch_qwen_asr_transformers_compat()
             self.assertTrue(hasattr(generic, "check_model_inputs"))
             self.assertIn("default", rope_utils.ROPE_INIT_FUNCTIONS)
             self.assertIn("nagisa", sys.modules)
+            thinker_config = Qwen3ASRThinkerConfig()
+            self.assertIsNone(thinker_config.pad_token_id)
             tagged = sys.modules["nagisa"].tagging("engine idle")
             self.assertEqual(tagged.words, ["engine idle"])
         finally:
@@ -128,6 +148,16 @@ class CascadedBaselineTest(unittest.TestCase):
                 sys.modules.pop("transformers.modeling_rope_utils", None)
             else:
                 sys.modules["transformers.modeling_rope_utils"] = old_rope_utils
+            for name, old_module in (
+                ("qwen_asr", old_qwen_asr),
+                ("qwen_asr.core", old_qwen_core),
+                ("qwen_asr.core.transformers_backend", old_qwen_backend),
+                ("qwen_asr.core.transformers_backend.configuration_qwen3_asr", old_qwen_config),
+            ):
+                if old_module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = old_module
 
 if __name__ == "__main__":
     unittest.main()
