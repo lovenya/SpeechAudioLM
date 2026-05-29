@@ -594,15 +594,16 @@ def _unlink_if_exists(path: Path) -> None:
 def _text_conversion_prompt(input_text: str, mode: str) -> str:
     if mode == "audio_description_to_speech":
         return (
-            "Convert this environmental audio description into one short natural speech transcript. "
-            "Return only the spoken words, without quotation marks or explanation.\n\n"
+            "Based on this environmental audio description, write a short speech transcript that could naturally "
+            "correspond to the scene. Return only the spoken words, with no explanation and no follow-up question.\n\n"
             f"Audio description: {input_text.strip()}"
         )
     if mode == "speech_to_audio_description":
         return (
-            "Convert this speech transcript into one concise environmental audio-generation prompt. "
-            "Describe the likely sound scene and return only the prompt, without explanation.\n\n"
-            f"Speech transcript: {input_text.strip()}"
+            "Based on this speech content, describe a likely environmental audio scene that could correspond to it. "
+            "Return only one concise audio description suitable for text-to-audio generation. "
+            "Do not explain your reasoning and do not ask follow-up questions.\n\n"
+            f"Speech content: {input_text.strip()}"
         )
     raise ValueError(f"Unsupported text conversion mode: {mode}")
 
