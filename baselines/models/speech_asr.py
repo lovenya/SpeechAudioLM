@@ -20,18 +20,22 @@ class WhisperASRRunner(BaselineRunner):
 
     def load(self) -> None:
         import torch
-        from transformers import pipeline
+        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
         dtype = torch.float16 if self.device.startswith("cuda") and torch.cuda.is_available() else torch.float32
         device = _pipeline_device(self.device) if torch.cuda.is_available() else -1
+        processor = AutoProcessor.from_pretrained(self.model_path, local_files_only=True)
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(
+            self.model_path,
+            local_files_only=True,
+            dtype=dtype,
+        )
         self.pipe = pipeline(
             "automatic-speech-recognition",
-            model=self.model_path,
-            tokenizer=self.model_path,
-            feature_extractor=self.model_path,
-            torch_dtype=dtype,
+            model=model,
+            tokenizer=processor.tokenizer,
+            feature_extractor=processor.feature_extractor,
             device=device,
-            local_files_only=True,
         )
 
     def generate(self, row: PromptRow, output_path: Path) -> GenerationResult:

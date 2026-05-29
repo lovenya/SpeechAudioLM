@@ -50,8 +50,35 @@ create_env "$TEXT_ENV"
 create_env "$F5_ENV"
 "$F5_ENV/bin/python" -m pip install --upgrade \
   'torch==2.6.0+computecanada' 'torchaudio==2.6.0+computecanada' \
-  soundfile cached_path hydra-core omegaconf vocos huggingface_hub
+  soundfile cached_path hydra-core omegaconf vocos huggingface_hub matplotlib \
+  numpy==1.26.4 librosa pydub pypinyin safetensors tomli torchdiffeq \
+  transformers transformers_stream_generator unidecode x_transformers
 "$F5_ENV/bin/python" -m pip install --no-deps -e "$SALM_SCRATCH/code/cascaded/F5-TTS"
+
+"$F5_ENV/bin/python" - <<'PY'
+from pathlib import Path
+init_file = Path("/scratch/l/lovenya/salm_migration_clean/code/cascaded/F5-TTS/src/f5_tts/model/__init__.py")
+text = init_file.read_text()
+text = text.replace("from f5_tts.model.trainer import Trainer\n", "")
+text = text.replace(
+    "__all__ = [\"CFM\", \"UNetT\", \"DiT\", \"MMDiT\", \"Trainer\"]",
+    "__all__ = [\"CFM\", \"UNetT\", \"DiT\", \"MMDiT\"]",
+)
+init_file.write_text(text)
+print(f"Patched F5-TTS inference init at {init_file}")
+PY
+
+"$F5_ENV/bin/python" - <<'PY'
+from pathlib import Path
+utils_file = Path("/scratch/l/lovenya/salm_migration_clean/code/cascaded/F5-TTS/src/f5_tts/model/utils.py")
+text = utils_file.read_text()
+text = text.replace(
+    "import rjieba\n",
+    "try:\n    import rjieba\nexcept ImportError:\n    class _FallbackRjieba:\n        @staticmethod\n        def cut(text):\n            return [text]\n\n    rjieba = _FallbackRjieba()\n",
+)
+utils_file.write_text(text)
+print(f"Patched F5-TTS rjieba fallback at {utils_file}")
+PY
 "$F5_ENV/bin/python" - <<'PY'
 from huggingface_hub import hf_hub_download
 from pathlib import Path
