@@ -113,6 +113,17 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
             )
             _assign_sample_scores(rows, sample_metrics, "aac_clapsim", sent_scores.get("clap_sim"))
             corpus_metrics["aac_clapsim"] = _scalar(corpus_scores.get("clap_sim"))
+
+        if "fense" in metrics:
+            corpus_scores, sent_scores = aac_evaluate(
+                candidates,
+                references,
+                metrics=["fense"],
+                cache_path=cache_path,
+                device=device,
+            )
+            _assign_sample_scores(rows, sample_metrics, "fense", sent_scores.get("fense"))
+            corpus_metrics["fense"] = _scalar(corpus_scores.get("fense"))
     finally:
         if java_tool_options is not None:
             os.environ["JAVA_TOOL_OPTIONS"] = java_tool_options

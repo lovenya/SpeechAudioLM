@@ -64,9 +64,11 @@
       "resampling_policy": "backend_default"
     },
     "fense": {
-      "backend": null,
-      "model_name": null,
-      "model_path": null
+      "backend": "aac-metrics",
+      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-aac/bin/python",
+      "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics",
+      "hf_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
+      "transformers_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface"
     },
     "spider_max": {
       "backend": null,

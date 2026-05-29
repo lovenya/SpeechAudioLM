@@ -60,6 +60,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertEqual(select_metrics("A2S", "asr_wer", mapping).metric_names, ["asr_wer"])
         self.assertEqual(select_metrics("A2T", "mace", mapping).metric_names, ["mace"])
         self.assertEqual(select_metrics("A2T", "aac_clapsim", mapping).metric_names, ["aac_clapsim"])
+        self.assertEqual(select_metrics("A2T", "fense", mapping).metric_names, ["fense"])
 
     def test_task_metric_mapping_rejects_invalid_pairs(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))

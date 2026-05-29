@@ -226,7 +226,7 @@ def _compute_external_metrics(
     selected = {spec.name for spec in options.metric_specs if spec.external}
     corpus_metrics: dict[str, Any] = {}
     backend_metrics = {
-        "aac-metrics": ["mace", "spider", "aac_clapsim"],
+        "aac-metrics": ["mace", "spider", "aac_clapsim", "fense"],
         "openai-whisper": ["asr_wer", "dwer"],
         "utmosv2": ["utmos"],
         "torchmetrics-dnsmos": ["dnsmos"],
@@ -408,7 +408,7 @@ def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> st
         return None
     if metric_name in {"wer", "semantic_equivalence"}:
         keys = ("understanding_text", "decoded_text", "converted_prompt", "generation_prompt")
-    elif metric_name in {"mace", "spider", "aac_clapsim"}:
+    elif metric_name in {"mace", "spider", "aac_clapsim", "fense"}:
         keys = ("converted_prompt", "generation_prompt", "decoded_text", "understanding_text")
     else:
         keys = ("generation_prompt", "converted_prompt", "understanding_text", "decoded_text")
