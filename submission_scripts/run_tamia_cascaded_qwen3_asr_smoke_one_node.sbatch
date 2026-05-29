@@ -3,8 +3,8 @@
 #SBATCH --account=aip-csubakan
 #SBATCH --time=00:30:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=48
-#SBATCH --mem=0
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=192G
 #SBATCH --gpus=h100:4
 #SBATCH --output=/scratch/l/lovenya/salm_migration_clean/logs/slurm/%x-%j.out
 
