@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Callable
+import sys
+import types
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
@@ -123,16 +125,27 @@ class Qwen3ASRRunner(BaselineRunner):
 def _patch_qwen_asr_transformers_compat() -> None:
     import transformers.utils.generic as generic
 
-    if hasattr(generic, "check_model_inputs"):
-        return
+    if not hasattr(generic, "check_model_inputs"):
+        def check_model_inputs(*args, **kwargs) -> Callable:
+            def decorator(fn: Callable) -> Callable:
+                return fn
 
-    def check_model_inputs(*args, **kwargs) -> Callable:
-        def decorator(fn: Callable) -> Callable:
-            return fn
+            return decorator
 
-        return decorator
+        generic.check_model_inputs = check_model_inputs
 
-    generic.check_model_inputs = check_model_inputs
+    if "nagisa" not in sys.modules:
+        nagisa = types.ModuleType("nagisa")
+
+        class _NagisaResult:
+            def __init__(self, text: str) -> None:
+                self.words = [text] if text else []
+
+        def tagging(text: str) -> _NagisaResult:
+            return _NagisaResult(text)
+
+        nagisa.tagging = tagging
+        sys.modules["nagisa"] = nagisa
 
 
 def _extract_text(result: object) -> str:

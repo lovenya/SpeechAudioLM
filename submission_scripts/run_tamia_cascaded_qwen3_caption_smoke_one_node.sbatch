@@ -30,6 +30,7 @@ export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-8}"
 START_INDEX="${START_INDEX:-0}"
 NUM_SAMPLES_VALUE="${NUM_SAMPLES:-1}"
 STEPS="${STEPS:-16}"
+CAPTION_CUDA_VISIBLE_DEVICES="${CAPTION_CUDA_VISIBLE_DEVICES:-}"
 BASELINE_ROOT="$SALM_SCRATCH/results/baselines_cascaded_qwen3_caption_smoke"
 LOG_ROOT="$SALM_SCRATCH/logs/baselines_cascaded_qwen3_caption_smoke"
 JOB_LOG_ROOT="$SALM_SCRATCH/logs/cascaded_qwen3_caption_smokes/${SLURM_JOB_ID:-manual}"
@@ -40,6 +41,9 @@ source submission_scripts/lib_resource_monitor.sh
 start_resource_monitor "tamia_cascaded_qwen3_caption_smoke_one_node"
 
 source "$SALM_SCRATCH/.venvs/models/.venv-cascade-caption/bin/activate"
+if [ -n "$CAPTION_CUDA_VISIBLE_DEVICES" ]; then
+  export CUDA_VISIBLE_DEVICES="$CAPTION_CUDA_VISIBLE_DEVICES"
+fi
 echo "[cascaded_a2t_qwen3_omni_captioner] host=$(hostname) cuda_visible_devices=${CUDA_VISIBLE_DEVICES:-all} started=$(date -Is)"
 python baseline_cascaded.py \
   --pipeline A2T \
