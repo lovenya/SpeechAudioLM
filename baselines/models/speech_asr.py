@@ -134,6 +134,13 @@ def _patch_qwen_asr_transformers_compat() -> None:
 
         generic.check_model_inputs = check_model_inputs
 
+    try:
+        from transformers import modeling_rope_utils
+    except ImportError:
+        modeling_rope_utils = None
+    if modeling_rope_utils is not None and "default" not in modeling_rope_utils.ROPE_INIT_FUNCTIONS:
+        modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
     if "nagisa" not in sys.modules:
         nagisa = types.ModuleType("nagisa")
 
@@ -146,6 +153,31 @@ def _patch_qwen_asr_transformers_compat() -> None:
 
         nagisa.tagging = tagging
         sys.modules["nagisa"] = nagisa
+
+
+def _compute_default_rope_parameters(config=None, device=None, seq_len: int | None = None, layer_type: str | None = None):
+    import torch
+
+    if config is None:
+        raise ValueError("config is required for default RoPE parameters")
+    if hasattr(config, "standardize_rope_params"):
+        config.standardize_rope_params()
+    rope_parameters = getattr(config, "rope_parameters", None)
+    if isinstance(rope_parameters, dict):
+        if layer_type is not None and isinstance(rope_parameters.get(layer_type), dict):
+            rope_parameters = rope_parameters[layer_type]
+    else:
+        rope_parameters = getattr(config, "rope_scaling", {}) or {}
+
+    base = rope_parameters.get("rope_theta", getattr(config, "rope_theta", 10000.0))
+    partial_rotary_factor = rope_parameters.get(
+        "partial_rotary_factor",
+        getattr(config, "partial_rotary_factor", 1.0),
+    )
+    head_dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim))
+    return inv_freq, 1.0
 
 
 def _extract_text(result: object) -> str:

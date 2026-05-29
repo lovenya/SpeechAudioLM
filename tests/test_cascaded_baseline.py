@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
+import types
 import unittest
 from pathlib import Path
 
 from baseline_cascaded import _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
+from baselines.models.speech_asr import _patch_qwen_asr_transformers_compat
 from baselines.models.text_llm import _strip_thinking_output
 
 
@@ -81,6 +84,50 @@ class CascadedBaselineTest(unittest.TestCase):
             _strip_thinking_output("<think>\nreasoning line\ncity traffic with idling motorcycle"),
             "city traffic with idling motorcycle",
         )
+
+    def test_qwen_asr_compat_patch_injects_nagisa_stub(self) -> None:
+        generic = types.ModuleType("transformers.utils.generic")
+        rope_utils = types.ModuleType("transformers.modeling_rope_utils")
+        rope_utils.ROPE_INIT_FUNCTIONS = {}
+        utils = types.ModuleType("transformers.utils")
+        transformers = types.ModuleType("transformers")
+        utils.generic = generic
+        transformers.utils = utils
+        transformers.modeling_rope_utils = rope_utils
+        old_transformers = sys.modules.get("transformers")
+        old_utils = sys.modules.get("transformers.utils")
+        old_generic = sys.modules.get("transformers.utils.generic")
+        old_rope_utils = sys.modules.get("transformers.modeling_rope_utils")
+        sys.modules["transformers"] = transformers
+        sys.modules["transformers.utils"] = utils
+        sys.modules["transformers.utils.generic"] = generic
+        sys.modules["transformers.modeling_rope_utils"] = rope_utils
+        sys.modules.pop("nagisa", None)
+        try:
+            _patch_qwen_asr_transformers_compat()
+            self.assertTrue(hasattr(generic, "check_model_inputs"))
+            self.assertIn("default", rope_utils.ROPE_INIT_FUNCTIONS)
+            self.assertIn("nagisa", sys.modules)
+            tagged = sys.modules["nagisa"].tagging("engine idle")
+            self.assertEqual(tagged.words, ["engine idle"])
+        finally:
+            sys.modules.pop("nagisa", None)
+            if old_transformers is None:
+                sys.modules.pop("transformers", None)
+            else:
+                sys.modules["transformers"] = old_transformers
+            if old_utils is None:
+                sys.modules.pop("transformers.utils", None)
+            else:
+                sys.modules["transformers.utils"] = old_utils
+            if old_generic is None:
+                sys.modules.pop("transformers.utils.generic", None)
+            else:
+                sys.modules["transformers.utils.generic"] = old_generic
+            if old_rope_utils is None:
+                sys.modules.pop("transformers.modeling_rope_utils", None)
+            else:
+                sys.modules["transformers.modeling_rope_utils"] = old_rope_utils
 
 if __name__ == "__main__":
     unittest.main()

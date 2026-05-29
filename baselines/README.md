@@ -62,9 +62,8 @@ Backend selectors currently exposed by the modular runner:
 
 Current adapter smoke status on TamIA:
 
-- verified by one-sample compute smoke: `whisper` for `S2T`, `f5_tts` for `T2S`, `qwen3_32b` for `T2T`;
-- retry-ready after repo fixes: `qwen3_omni_captioner` for `A2T` now gets past model load and has a dtype-casting fix for its last observed `float` vs `bfloat16` failure;
-- retry-ready after repo fixes: `qwen3_asr` now bypasses the installed Transformers `check_model_inputs` mismatch and the unused forced-aligner `nagisa` import path for plain `S2T`;
+- verified by one-sample compute smoke: `whisper` for `S2T`, `f5_tts` for `T2S`, `qwen3_32b` for `T2T`, and `qwen3_omni_captioner` for `A2T`;
+- retry-ready after repo fixes: `qwen3_asr` now bypasses the installed Transformers `check_model_inputs` mismatch, the unused forced-aligner `nagisa` import path, and the missing `default` RoPE initializer in the installed Transformers build for plain `S2T`;
 - deferred: `audio_flamingo_next` needs a Transformers build with `musicflamingo` support; `cosyvoice3` is not exposed until its frontend dependency stack is resolved.
 
 Large text-to-text models, especially `llama3_3_70b_instruct`, should be smoked
