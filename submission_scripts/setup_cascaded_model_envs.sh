@@ -40,6 +40,7 @@ create_env "$ASR_ENV"
 create_env "$CAPTION_ENV"
 "$CAPTION_ENV/bin/python" -m pip install --upgrade \
   'torch==2.6.0+computecanada' 'torchaudio==2.6.0+computecanada' \
+  'torchvision==0.21.0+computecanada' \
   'transformers==5.3.0+computecanada' accelerate soundfile qwen-omni-utils
 
 create_env "$TEXT_ENV"

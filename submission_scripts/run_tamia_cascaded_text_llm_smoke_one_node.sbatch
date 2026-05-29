@@ -28,6 +28,7 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-8}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-8}"
 
 TEXT_MODEL="${TEXT_MODEL:-qwen3_32b}"
+TEXT_CUDA_VISIBLE_DEVICES="${TEXT_CUDA_VISIBLE_DEVICES:-}"
 START_INDEX="${START_INDEX:-0}"
 NUM_SAMPLES_VALUE="${NUM_SAMPLES:-1}"
 STEPS="${STEPS:-32}"
@@ -49,6 +50,9 @@ source submission_scripts/lib_resource_monitor.sh
 start_resource_monitor "tamia_cascaded_text_llm_smoke_one_node_${TEXT_MODEL}"
 
 source "$SALM_SCRATCH/.venvs/models/.venv-cascade-text/bin/activate"
+if [ -n "$TEXT_CUDA_VISIBLE_DEVICES" ]; then
+  export CUDA_VISIBLE_DEVICES="$TEXT_CUDA_VISIBLE_DEVICES"
+fi
 echo "[cascaded_t2t_${TEXT_MODEL}] host=$(hostname) cuda_visible_devices=${CUDA_VISIBLE_DEVICES:-all} started=$(date -Is)"
 python baseline_cascaded.py \
   --pipeline T2T \

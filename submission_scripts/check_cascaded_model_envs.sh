@@ -30,7 +30,7 @@ PY
 check_env asr "$SALM_SCRATCH/.venvs/models/.venv-cascade-asr/bin/python" \
   torch torchaudio transformers qwen_asr soundfile
 check_env caption "$SALM_SCRATCH/.venvs/models/.venv-cascade-caption/bin/python" \
-  torch torchaudio transformers qwen_omni_utils soundfile
+  torch torchaudio torchvision transformers qwen_omni_utils soundfile
 check_env text "$SALM_SCRATCH/.venvs/models/.venv-cascade-text/bin/python" \
   torch transformers accelerate safetensors
 check_env f5_tts "$SALM_SCRATCH/.venvs/models/.venv-cascade-f5-tts/bin/python" \
