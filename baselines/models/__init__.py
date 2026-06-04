@@ -52,4 +52,8 @@ def get_runner(name: str, **kwargs) -> BaselineRunner:
         from baselines.models.tts_cascade import F5TTSRunner
 
         return F5TTSRunner(**kwargs)
+    if name == "cosyvoice3":
+        from baselines.models.tts_cascade import CosyVoice3Runner
+
+        return CosyVoice3Runner(**kwargs)
     raise ValueError(f"Unknown baseline model: {name}")

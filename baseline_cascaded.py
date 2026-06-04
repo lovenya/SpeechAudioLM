@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
         choices=["speech_to_audio_description", "audio_description_to_speech"],
         help="Standalone T2T conversion mode; cascades set this implicitly.",
     )
-    parser.add_argument("--tts", default="audio_omni", choices=["audio_omni", "qwen3_omni", "f5_tts"])
+    parser.add_argument("--tts", default="audio_omni", choices=["audio_omni", "qwen3_omni", "f5_tts", "cosyvoice3"])
     parser.add_argument("--t2a", default="audiogen", choices=["audiogen", "tangoflux", "audio_omni"])
 
     parser.add_argument("--model-path", default=None, help="Fallback model path override for single-backend runs.")
@@ -99,6 +99,7 @@ class ModularCascade:
         self.dataset_root = dataset_root
         self._runners: dict[tuple[str, str], BaselineRunner] = {}
         self._run_config: dict = {}
+        self._load_times: dict[str, float] = {}
 
     def run(
         self,
@@ -157,8 +158,14 @@ class ModularCascade:
                 else:
                     processed += 1
                     record["generation_seconds"] = round(time.time() - row_start, 3)
+                record["model_load_seconds"] = dict(self._load_times)
+                record["model_load_seconds_total"] = round(sum(self._load_times.values()), 3)
                 manifest.write(json.dumps(record, ensure_ascii=False) + "\n")
                 manifest.flush()
+        (output_root / "model_load_times.json").write_text(
+            json.dumps(self._load_times, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         print(
             f"done processed={processed} skipped={skipped} failed={failed} "
             f"elapsed={time.time() - started:.2f}s"
@@ -292,7 +299,7 @@ class ModularCascade:
             return self._runner("audio_omni", "T2S").generate(prompt_row, output_path)
         if self.args.tts == "qwen3_omni":
             return self._runner("qwen3_omni", "T2S").generate(prompt_row, output_path)
-        if self.args.tts == "f5_tts":
+        if self.args.tts in {"f5_tts", "cosyvoice3"}:
             return self._runner(self.args.tts, "T2S").generate(prompt_row, output_path)
         raise ValueError(f"TTS backend is not wired yet: {self.args.tts}")
 
@@ -319,7 +326,12 @@ class ModularCascade:
                 f5_tts_vocoder_path=self.args.f5_tts_vocoder_path,
             )
             print(f"loading stage model={model} task={task}")
+            load_start = time.time()
             runner.load()
+            load_seconds = round(time.time() - load_start, 3)
+            load_key = f"{task}:{model}"
+            self._load_times[load_key] = load_seconds
+            print(f"model_loaded stage={load_key} seconds={load_seconds}")
             self._runners[key] = runner
         return self._runners[key]
 

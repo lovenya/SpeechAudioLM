@@ -45,8 +45,8 @@ class F5TTSRunner(BaselineRunner):
     def generate(self, row: PromptRow, output_path: Path) -> GenerationResult:
         if self.model is None:
             raise RuntimeError("F5-TTS model is not loaded")
-        ref_audio = self._record_path(row, "speech_file")
-        ref_text = _required_record_text(row, "speech_text")
+        ref_audio = self._record_path(row, _reference_field(row, "reference_speech_file", "speech_file"))
+        ref_text = _required_record_text(row, _reference_field(row, "reference_speech_text", "speech_text"))
         gen_text = self._format_prompt(row.prompt)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         wav, sr, _ = self.model.infer(
@@ -111,8 +111,8 @@ class CosyVoice3Runner(BaselineRunner):
         import torch
         import torchaudio
 
-        ref_audio = self._record_path(row, "speech_file")
-        ref_text = _required_record_text(row, "speech_text")
+        ref_audio = self._record_path(row, _reference_field(row, "reference_speech_file", "speech_file"))
+        ref_text = _required_record_text(row, _reference_field(row, "reference_speech_text", "speech_text"))
         gen_text = self._format_prompt(row.prompt)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         chunks = []
@@ -144,6 +144,11 @@ class CosyVoice3Runner(BaselineRunner):
             ],
         }
         return GenerationResult(output_path=output_path, sample_rate=int(self.model.sample_rate), extra=extra)
+
+
+def _reference_field(row: PromptRow, preferred: str, fallback: str) -> str:
+    value = row.record.get(preferred)
+    return preferred if isinstance(value, str) and value.strip() else fallback
 
 
 def _required_record_text(row: PromptRow, field: str) -> str:

@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from baseline_cascaded import _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
+from baselines.models.audio_captioning import _patch_audio_flamingo_next_transformers_compat
 from baselines.models.speech_asr import _patch_qwen_asr_transformers_compat
 from baselines.models.text_llm import _strip_thinking_output
 
@@ -72,6 +73,10 @@ class CascadedBaselineTest(unittest.TestCase):
             ],
         )
 
+    def test_planned_stages_for_cosyvoice3_t2s(self) -> None:
+        args = argparse.Namespace(pipeline="T2S", asr="reference", captioner="reference", text_model="template", tts="cosyvoice3", t2a="audiogen")
+        self.assertEqual(_planned_stages(args), [{"stage": "text_to_speech", "backend": "cosyvoice3"}])
+
     def test_planned_stages_for_t2t(self) -> None:
         args = argparse.Namespace(pipeline="T2T", text_model="qwen3_32b")
         self.assertEqual(_planned_stages(args), [{"stage": "text_to_text", "backend": "qwen3_32b"}])
@@ -85,7 +90,53 @@ class CascadedBaselineTest(unittest.TestCase):
             "city traffic with idling motorcycle",
         )
 
-    def test_qwen_asr_compat_patch_injects_nagisa_stub(self) -> None:
+    def test_audio_flamingo_next_compat_patch_registers_musicflamingo_alias(self) -> None:
+        transformers = types.ModuleType("transformers")
+
+        class AudioFlamingo3Config:
+            pass
+
+        class AudioFlamingo3ForConditionalGeneration:
+            pass
+
+        class AudioFlamingo3Processor:
+            pass
+
+        class AutoRegistry:
+            registered = []
+
+            @classmethod
+            def register(cls, *args, **kwargs):
+                cls.registered.append((args, kwargs))
+
+        class AutoConfig(AutoRegistry):
+            registered = []
+
+        class AutoProcessor(AutoRegistry):
+            registered = []
+
+        transformers.AudioFlamingo3Config = AudioFlamingo3Config
+        transformers.AudioFlamingo3ForConditionalGeneration = AudioFlamingo3ForConditionalGeneration
+        transformers.AudioFlamingo3Processor = AudioFlamingo3Processor
+        transformers.AutoConfig = AutoConfig
+        transformers.AutoProcessor = AutoProcessor
+        old_transformers = sys.modules.get("transformers")
+        sys.modules["transformers"] = transformers
+        try:
+            _patch_audio_flamingo_next_transformers_compat()
+            self.assertTrue(issubclass(transformers.MusicFlamingoConfig, AudioFlamingo3Config))
+            self.assertEqual(transformers.MusicFlamingoConfig.model_type, "musicflamingo")
+            self.assertIs(transformers.MusicFlamingoForConditionalGeneration, AudioFlamingo3ForConditionalGeneration)
+            self.assertIs(transformers.MusicFlamingoProcessor, AudioFlamingo3Processor)
+            self.assertEqual(AutoConfig.registered[0][0], ("musicflamingo", transformers.MusicFlamingoConfig))
+            self.assertEqual(AutoProcessor.registered[0][0], (transformers.MusicFlamingoConfig, AudioFlamingo3Processor))
+        finally:
+            if old_transformers is None:
+                sys.modules.pop("transformers", None)
+            else:
+                sys.modules["transformers"] = old_transformers
+
+    def test_qwen_asr_compat_patch_adds_transformers_helpers(self) -> None:
         generic = types.ModuleType("transformers.utils.generic")
         rope_utils = types.ModuleType("transformers.modeling_rope_utils")
         rope_utils.ROPE_INIT_FUNCTIONS = {}
@@ -120,18 +171,21 @@ class CascadedBaselineTest(unittest.TestCase):
         sys.modules["qwen_asr.core"] = qwen_core
         sys.modules["qwen_asr.core.transformers_backend"] = qwen_backend
         sys.modules["qwen_asr.core.transformers_backend.configuration_qwen3_asr"] = qwen_config
-        sys.modules.pop("nagisa", None)
         try:
             _patch_qwen_asr_transformers_compat()
-            self.assertTrue(hasattr(generic, "check_model_inputs"))
+            def direct_fn():
+                return None
+
+            def decorated_fn():
+                return None
+
+            self.assertIs(generic.check_model_inputs(direct_fn), direct_fn)
+            self.assertIs(generic.check_model_inputs()(decorated_fn), decorated_fn)
             self.assertIn("default", rope_utils.ROPE_INIT_FUNCTIONS)
-            self.assertIn("nagisa", sys.modules)
+            self.assertNotIn("nagisa", sys.modules)
             thinker_config = Qwen3ASRThinkerConfig()
             self.assertIsNone(thinker_config.pad_token_id)
-            tagged = sys.modules["nagisa"].tagging("engine idle")
-            self.assertEqual(tagged.words, ["engine idle"])
         finally:
-            sys.modules.pop("nagisa", None)
             if old_transformers is None:
                 sys.modules.pop("transformers", None)
             else:
