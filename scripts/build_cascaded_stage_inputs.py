@@ -2,7 +2,7 @@
 """Build stage input split files from upstream cascaded manifests.
 
 Generated split files should be written outside git, typically under
-/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation_metadata/<run_id>/stage_inputs/.
+/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation_metadata/ttas_val/stage_inputs/.
 """
 
 from __future__ import annotations
