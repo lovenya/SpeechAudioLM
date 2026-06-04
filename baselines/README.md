@@ -57,18 +57,24 @@ Backend selectors currently exposed by the modular runner:
 - ASR: `audio_omni`, `reference`, `whisper`, `qwen3_asr`
 - audio captioning: `audio_omni`, `reference`, `audio_flamingo_next`, `qwen3_omni_captioner`
 - text-to-text: `template`, `identity`, `qwen3_32b`, `llama3_3_70b_instruct`
-- TTS: `audio_omni`, `qwen3_omni`, `f5_tts`
+- TTS: `audio_omni`, `qwen3_omni`, `f5_tts`, `cosyvoice3`
 - T2A: `audiogen`, `tangoflux`, `audio_omni`
 
 Current adapter smoke status on TamIA:
 
-- verified by one-sample compute smoke: `whisper` for `S2T`, `f5_tts`
-  for `T2S`, `qwen3_32b` and `llama3_3_70b_instruct` for `T2T`, and
-  `qwen3_omni_captioner` for `A2T`;
-- deferred: `qwen3_asr` still needs dependency-version alignment after
-  multiple TamIA retries reached unrelated `qwen_asr`/Transformers processor
-  compatibility failures; use `whisper` as the active `S2T` backend for now;
-- deferred: `audio_flamingo_next` needs a Transformers build with `musicflamingo` support; `cosyvoice3` is not exposed until its frontend dependency stack is resolved.
+- one-sample backend smoke coverage exists for all selected 32-combination
+  backends: `whisper`, `qwen3_asr`, `audio_flamingo_next`,
+  `qwen3_omni_captioner`, `qwen3_32b`, `llama3_3_70b_instruct`, `f5_tts`,
+  `cosyvoice3`, `audiogen`, and `tangoflux`;
+- Qwen3-ASR must use the upgraded py312 env:
+  `$SALM_SCRATCH/.venvs/models/.venv-cascade-qwen3-asr-py312`; do not install
+  `nagisa`, because it pulls a DyNet source build and can overload login nodes;
+- `audio_flamingo_next` now uses native `MusicFlamingo*` Transformers classes
+  in the upgraded caption environment; a local AudioFlamingo3 compatibility
+  fallback remains only for older environments without MusicFlamingo support;
+- `cosyvoice3` works for simple English TTS with CosyVoice's fallback frontend
+  when launched with `cuda/12.6`, `arrow/17.0.0`, and `python/3.10.13`; full
+  WeText/ttsfrd text normalization is still deferred.
 
 Large text-to-text models, especially `llama3_3_70b_instruct`, should be smoked
 as a whole-node single process using tensor parallel/device-map placement rather
@@ -94,6 +100,8 @@ Component manifests are intended for direct `evaluate.py --manifest ...` calls
 when the component task is evaluable. In cascades, `components/text_to_text`
 stores intermediate text prompts, while `components/T2A` and `components/T2S`
 point at generated audio files.
+
+The active validation experiment is defined in `configs/cascaded_baseline_variations.json`: `2` ASR choices x `2` captioners x `2` text models x `2` TTS models x `2` T2A models = `32` paired combinations on the `val` split (`2,277` rows). Run stage-wise and reuse shared stage outputs rather than rerunning the same ASR/caption/text stages for every final combination.
 
 A one-node TamIA smoke script is available for current wired modular paths:
 

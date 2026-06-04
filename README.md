@@ -180,6 +180,8 @@ Current metric backend status:
   `fad`, `inception_score` through AudioLDM Eval.
 - Smoke-passed T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through
   Whisper large-v3 and UTMOSv2.
+- Smoke-passed T2S/A2S generated-speech quality metric: `dnsmos` through
+  TorchMetrics DNSMOS with cached ONNX assets.
 - Available S2T metric: internal `wer`.
 
 Migration handoff docs for moving this work to a new cluster are maintained
@@ -193,6 +195,7 @@ Metric envs are intentionally split because dependency stacks conflict:
 .venvs/metrics/.venv-eval-audioldm-eval
 .venvs/metrics/.venv-eval-kadtk
 .venvs/metrics/.venv-eval-utmosv2
+.venvs/metrics/.venv-eval-dnsmos
 /scratch/lovenya/SpeechAudioLM/.venvs/metrics/.venv-eval-stable-audio-metrics
 ```
 
@@ -213,6 +216,8 @@ Metric notes:
 - Generated-speech `asr_wer` is `WER(reference_transcript, ASR(generated_speech))`.
 - Generated-speech `dwer` is directional:
   `WER(ASR(reference_speech), ASR(generated_speech))`.
+- Generated-speech `dnsmos` is computed per sample and summarized with the
+  other sample-level metrics.
 - For text-to-audio, FAD, KAD, KL_PaSST, and Inception Score are corpus-level
   only. T2A CLAPscore is computed per sample and aggregated when the
   stable-audio-metrics env is available.

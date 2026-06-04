@@ -1,0 +1,495 @@
+{
+  "schema_version": 1,
+  "dataset": "ttas",
+  "split": "val",
+  "sample_count_target": 2277,
+  "combination_count": 32,
+  "full_run_strategy": "single validation-split pass per selected stage/model; no data sharding unless a calibration smoke shows a wall-time problem",
+  "resource_policy": {
+    "cluster": "TamIA",
+    "allocation_note": "TamIA GPU jobs allocate a whole H100 node; pack independent stage jobs only when peak VRAM and model placement make that safe.",
+    "headroom_multiplier": 1.3,
+    "parallel_stage_aggregation": {
+      "wall_time_seconds": "max of parallel model/stage wall times",
+      "model_load_seconds": "max of parallel model load times within the stage",
+      "gpu_memory_gb": "sum of parallel model peak GPU memory",
+      "gpu_hours": "sum of all participating model GPU-hours"
+    }
+  },
+  "axes": {
+    "asr": [
+      "whisper",
+      "qwen3_asr"
+    ],
+    "captioner": [
+      "audio_flamingo_next",
+      "qwen3_omni_captioner"
+    ],
+    "text_model": [
+      "llama3_3_70b_instruct",
+      "qwen3_32b"
+    ],
+    "tts": [
+      "f5_tts",
+      "cosyvoice3"
+    ],
+    "t2a": [
+      "audiogen",
+      "tangoflux"
+    ]
+  },
+  "text_prompts": {
+    "speech_to_audio_description": "Based on this speech content, describe a likely environmental audio scene that could correspond to it. Return only one concise audio description suitable for text-to-audio generation. Do not explain your reasoning and do not ask follow-up questions.",
+    "audio_description_to_speech": "Based on this environmental audio description, write a short speech transcript that could naturally correspond to the scene. Return only the spoken words, with no explanation and no follow-up question."
+  },
+  "variations": [
+    {
+      "id": "v01_whisper_afn_llama_f5_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v02_whisper_afn_llama_f5_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v03_whisper_afn_llama_cosy_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v04_whisper_afn_llama_cosy_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v05_whisper_afn_qwen32_f5_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v06_whisper_afn_qwen32_f5_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v07_whisper_afn_qwen32_cosy_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v08_whisper_afn_qwen32_cosy_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v09_whisper_qwencap_llama_f5_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v10_whisper_qwencap_llama_f5_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v11_whisper_qwencap_llama_cosy_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v12_whisper_qwencap_llama_cosy_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v13_whisper_qwencap_qwen32_f5_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v14_whisper_qwencap_qwen32_f5_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v15_whisper_qwencap_qwen32_cosy_audiogen",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v16_whisper_qwencap_qwen32_cosy_tango",
+      "stage1": {
+        "asr": "whisper",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v17_qwenasr_afn_llama_f5_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v18_qwenasr_afn_llama_f5_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v19_qwenasr_afn_llama_cosy_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v20_qwenasr_afn_llama_cosy_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v21_qwenasr_afn_qwen32_f5_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v22_qwenasr_afn_qwen32_f5_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v23_qwenasr_afn_qwen32_cosy_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v24_qwenasr_afn_qwen32_cosy_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "audio_flamingo_next"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v25_qwenasr_qwencap_llama_f5_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v26_qwenasr_qwencap_llama_f5_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v27_qwenasr_qwencap_llama_cosy_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v28_qwenasr_qwencap_llama_cosy_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "llama3_3_70b_instruct"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v29_qwenasr_qwencap_qwen32_f5_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v30_qwenasr_qwencap_qwen32_f5_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "f5_tts",
+        "t2a": "tangoflux"
+      }
+    },
+    {
+      "id": "v31_qwenasr_qwencap_qwen32_cosy_audiogen",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "audiogen"
+      }
+    },
+    {
+      "id": "v32_qwenasr_qwencap_qwen32_cosy_tango",
+      "stage1": {
+        "asr": "qwen3_asr",
+        "captioner": "qwen3_omni_captioner"
+      },
+      "stage2": {
+        "text_model": "qwen3_32b"
+      },
+      "stage3": {
+        "tts": "cosyvoice3",
+        "t2a": "tangoflux"
+      }
+    }
+  ]
+}

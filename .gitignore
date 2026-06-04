@@ -8,6 +8,8 @@ goal_updated.txt
 
 # Cluster-local configuration and operational scripts.
 configs/slurm_resource_profiles.json
+configs/*resource*usage*.json
+configs/*resource*accounting*.json
 scripts/eval_backend_smoke/
 submission_scripts/
 
@@ -36,6 +38,8 @@ checkpoints/
 outputs/
 results/
 logs/
+resource_usage*.json
+resource_accounting*.json
 wandb/
 generated/
 samples/
