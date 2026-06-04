@@ -17,6 +17,35 @@ def _strip_thinking_output(text: str) -> str:
     return text.strip()
 
 
+def _patch_transformers_optional_scipy_import() -> None:
+    """Avoid importing broken optional scipy stacks for CausalLM text generation."""
+    import importlib.machinery
+    import sys
+    import types
+
+    if "scipy.optimize" in sys.modules:
+        return
+
+    scipy = sys.modules.get("scipy")
+    if scipy is None:
+        scipy = types.ModuleType("scipy")
+        scipy.__path__ = []
+        scipy.__spec__ = importlib.machinery.ModuleSpec("scipy", loader=None, is_package=True)
+        sys.modules["scipy"] = scipy
+    elif getattr(scipy, "__spec__", None) is None:
+        scipy.__spec__ = importlib.machinery.ModuleSpec("scipy", loader=None, is_package=True)
+
+    optimize = types.ModuleType("scipy.optimize")
+    optimize.__spec__ = importlib.machinery.ModuleSpec("scipy.optimize", loader=None)
+
+    def linear_sum_assignment(*args, **kwargs):
+        raise RuntimeError("scipy.optimize.linear_sum_assignment is not available in this text LLM environment")
+
+    optimize.linear_sum_assignment = linear_sum_assignment
+    scipy.optimize = optimize
+    sys.modules["scipy.optimize"] = optimize
+
+
 class TextLLMRunner(BaselineRunner):
     output_subdir = "text"
     extension = ".json"
@@ -29,6 +58,8 @@ class TextLLMRunner(BaselineRunner):
         self.model = None
 
     def load(self) -> None:
+        _patch_transformers_optional_scipy_import()
+
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 

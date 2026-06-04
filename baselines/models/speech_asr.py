@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Callable
-import sys
-import types
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
@@ -123,16 +121,20 @@ class Qwen3ASRRunner(BaselineRunner):
 
 
 def _patch_qwen_asr_transformers_compat() -> None:
+    _patch_transformers_sklearn_metrics_import()
+
     import transformers.utils.generic as generic
 
-    if not hasattr(generic, "check_model_inputs"):
-        def check_model_inputs(*args, **kwargs) -> Callable:
-            def decorator(fn: Callable) -> Callable:
-                return fn
+    def check_model_inputs(*args, **kwargs) -> Callable:
+        if args and callable(args[0]) and len(args) == 1 and not kwargs:
+            return args[0]
 
-            return decorator
+        def decorator(fn: Callable) -> Callable:
+            return fn
 
-        generic.check_model_inputs = check_model_inputs
+        return decorator
+
+    generic.check_model_inputs = check_model_inputs
 
     try:
         from transformers import modeling_rope_utils
@@ -141,21 +143,37 @@ def _patch_qwen_asr_transformers_compat() -> None:
     if modeling_rope_utils is not None and "default" not in modeling_rope_utils.ROPE_INIT_FUNCTIONS:
         modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
-    if "nagisa" not in sys.modules:
-        nagisa = types.ModuleType("nagisa")
-
-        class _NagisaResult:
-            def __init__(self, text: str) -> None:
-                self.words = [text] if text else []
-
-        def tagging(text: str) -> _NagisaResult:
-            return _NagisaResult(text)
-
-        nagisa.tagging = tagging
-        sys.modules["nagisa"] = nagisa
-
     _patch_qwen_asr_rope_module_compat()
     _patch_qwen_asr_config_compat()
+
+
+def _patch_transformers_sklearn_metrics_import() -> None:
+    """Avoid importing broken optional sklearn/pandas stacks for ASR-only use."""
+    import importlib.machinery
+    import sys
+    import types
+
+    if "sklearn.metrics" in sys.modules:
+        return
+
+    sklearn = sys.modules.get("sklearn")
+    if sklearn is None:
+        sklearn = types.ModuleType("sklearn")
+        sklearn.__path__ = []
+        sklearn.__spec__ = importlib.machinery.ModuleSpec("sklearn", loader=None, is_package=True)
+        sys.modules["sklearn"] = sklearn
+    elif getattr(sklearn, "__spec__", None) is None:
+        sklearn.__spec__ = importlib.machinery.ModuleSpec("sklearn", loader=None, is_package=True)
+
+    metrics = types.ModuleType("sklearn.metrics")
+    metrics.__spec__ = importlib.machinery.ModuleSpec("sklearn.metrics", loader=None)
+
+    def roc_curve(*args, **kwargs):
+        raise RuntimeError("sklearn.metrics.roc_curve is not available in this ASR environment")
+
+    metrics.roc_curve = roc_curve
+    sklearn.metrics = metrics
+    sys.modules["sklearn.metrics"] = metrics
 
 
 def _patch_qwen_asr_rope_module_compat() -> None:
