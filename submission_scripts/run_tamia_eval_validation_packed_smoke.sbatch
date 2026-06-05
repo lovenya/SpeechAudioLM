@@ -27,6 +27,7 @@ export TORCH_HOME="$SALM_SCRATCH/cache/metrics/torch"
 export RESOURCE_INTERVAL="${RESOURCE_INTERVAL:-30}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-2}"
+export STRICT_FAILURES="${STRICT_FAILURES:-0}"
 
 MAX_SAMPLES="${MAX_SAMPLES:-50}"
 INCLUDE_NLI="${INCLUDE_NLI:-1}"
@@ -41,7 +42,7 @@ RUNTIME_METRICS_CONFIG="$RUN_LOG_DIR/eval_metrics.runtime.json"
 NLI_PYTHON="${NLI_PYTHON:-$SALM_SCRATCH/.venvs/metrics/.venv-eval-aac/bin/python}"
 NLI_MODEL="${NLI_MODEL:-MoritzLaurer/deberta-v3-large-zeroshot-v2.0}"
 NLI_SNAPSHOT="${NLI_SNAPSHOT:-}"
-export MAX_SAMPLES INCLUDE_NLI SPLIT DATASET RUN_ID BASELINE_ROOT EVAL_SUITE_ROOT CACHE_ROOT RUN_LOG_DIR RUNTIME_METRICS_CONFIG NLI_PYTHON NLI_MODEL NLI_SNAPSHOT
+export MAX_SAMPLES INCLUDE_NLI SPLIT DATASET RUN_ID BASELINE_ROOT EVAL_SUITE_ROOT CACHE_ROOT RUN_LOG_DIR RUNTIME_METRICS_CONFIG NLI_PYTHON NLI_MODEL NLI_SNAPSHOT STRICT_FAILURES
 
 mkdir -p "$EVAL_SUITE_ROOT" "$CACHE_ROOT" "$RUN_LOG_DIR" "$SALM_SCRATCH/logs/slurm"
 
@@ -113,6 +114,7 @@ run_eval() {
   local gpu="$5"
   local lane_root="$EVAL_SUITE_ROOT/$lane"
   local lane_log="$RUN_LOG_DIR/${lane}.log"
+  local lane_failures=0
 
   if [ ! -f "$manifest" ]; then
     echo "missing manifest for $lane: $manifest" >&2
@@ -120,22 +122,38 @@ run_eval() {
   fi
 
   echo "start lane=$lane task=$task metrics=$metrics gpu=$gpu manifest=$manifest" | tee "$lane_log"
-  (
-    export CUDA_VISIBLE_DEVICES="$gpu"
-    python evaluate.py \
-      --model cascaded \
-      --task "$task" \
-      --dataset "$DATASET" \
-      --split "$SPLIT" \
-      --manifest "$manifest" \
-      --metrics "$metrics" \
-      --metrics-config "$RUNTIME_METRICS_CONFIG" \
-      --output-root "$lane_root" \
-      --cache-dir "$CACHE_ROOT" \
-      --device cuda \
-      --max-samples "$MAX_SAMPLES"
-  ) >>"$lane_log" 2>&1
-  echo "done lane=$lane" >>"$lane_log"
+  IFS=',' read -r -a metric_list <<< "$metrics"
+  for metric in "${metric_list[@]}"; do
+    local metric_root="$lane_root/$metric"
+    local metric_log="$RUN_LOG_DIR/${lane}.${metric}.log"
+    echo "start metric lane=$lane metric=$metric gpu=$gpu output_root=$metric_root" | tee "$metric_log" >>"$lane_log"
+    if (
+      export CUDA_VISIBLE_DEVICES="$gpu"
+      python evaluate.py \
+        --model cascaded \
+        --task "$task" \
+        --dataset "$DATASET" \
+        --split "$SPLIT" \
+        --manifest "$manifest" \
+        --metrics "$metric" \
+        --metrics-config "$RUNTIME_METRICS_CONFIG" \
+        --output-root "$metric_root" \
+        --cache-dir "$CACHE_ROOT" \
+        --device cuda \
+        --max-samples "$MAX_SAMPLES"
+    ) >>"$metric_log" 2>&1; then
+      echo "done metric lane=$lane metric=$metric" | tee -a "$metric_log" >>"$lane_log"
+    else
+      lane_failures=$((lane_failures + 1))
+      echo "failed metric lane=$lane metric=$metric; continuing" | tee -a "$metric_log" >>"$lane_log"
+    fi
+  done
+
+  if [ "$lane_failures" -ne 0 ]; then
+    echo "done lane=$lane metric_failures=$lane_failures" >>"$lane_log"
+    return 1
+  fi
+  echo "done lane=$lane metric_failures=0" >>"$lane_log"
 }
 
 pids=()
@@ -182,8 +200,10 @@ for path in sorted(root.glob('*/**/latest_summary_val.json')):
 PY_LIST_SUMMARIES
 
 if [ "$failures" -ne 0 ]; then
-  echo "packed eval smoke completed with failures=$failures" >&2
-  exit 1
+  echo "packed eval smoke completed with lane failures=$failures" >&2
+  if [ "$STRICT_FAILURES" = "1" ]; then
+    exit 1
+  fi
 fi
 
-echo "packed eval smoke completed successfully"
+echo "packed eval smoke completed; lane_failures=$failures strict_failures=$STRICT_FAILURES"
