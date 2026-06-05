@@ -145,7 +145,7 @@ def _validate_rows(rows: list[dict], specs: list[MetricSpec], dataset_root: Path
                 errors.append(f"{sid}: output_file does not exist: {output}")
         for spec in specs:
             for field in spec.required_source_fields:
-                value = source.get(field)
+                value = _source_field_value(source, field, dataset_root)
                 if not isinstance(value, str) or not value.strip():
                     errors.append(f"{sid}: metric {spec.name} requires source.{field}")
                 elif field in {"audio_file", "speech_file"} and not _resolve_reference(dataset_root, value).is_file():
@@ -541,7 +541,7 @@ def _run_backend_worker(
         source = source_record(row)
         backend_source = dict(source)
         for field in ("audio_file", "speech_file"):
-            value = backend_source.get(field)
+            value = _source_field_value(source, field, dataset_root)
             if isinstance(value, str) and value:
                 backend_source[field] = str(_resolve_reference(dataset_root, value))
         backend_rows.append(
@@ -786,12 +786,45 @@ def _references(source: dict, specs: list[MetricSpec], dataset_root: Path) -> di
     fields = sorted({field for spec in specs for field in spec.required_source_fields})
     refs = {}
     for field in fields:
-        value = source.get(field)
+        value = _source_field_value(source, field, dataset_root)
         if field in {"audio_file", "speech_file"} and isinstance(value, str):
             refs[field] = str(_resolve_reference(dataset_root, value))
         else:
             refs[field] = value
     return refs
+
+
+def _source_field_value(source: dict, field: str, dataset_root: Path) -> Any:
+    value = source.get(field)
+    if field not in {"audio_file", "speech_file"}:
+        return value
+    if isinstance(value, str) and value.strip() and _resolve_reference(dataset_root, value).is_file():
+        return value
+
+    # Cascaded stage manifests may store synthetic stage-local paths at the
+    # top level while preserving the original TTAS pair under nested source keys.
+    for candidate in _nested_source_values(source, field):
+        if isinstance(candidate, str) and candidate.strip() and _resolve_reference(dataset_root, candidate).is_file():
+            return candidate
+    return value
+
+
+def _nested_source_values(source: dict, field: str) -> list[Any]:
+    candidates: list[Any] = []
+    original_row = source.get("original_row")
+    if isinstance(original_row, dict):
+        for key in ("_demo_source", "source", "original_source"):
+            nested = original_row.get(key)
+            if isinstance(nested, dict):
+                candidates.append(nested.get(field))
+        nested_original = original_row.get("original_row")
+        if isinstance(nested_original, dict):
+            candidates.append(nested_original.get(field))
+    for key in ("_demo_source", "original_source"):
+        nested = source.get(key)
+        if isinstance(nested, dict):
+            candidates.append(nested.get(field))
+    return candidates
 
 
 def _resolve_reference(dataset_root: Path, value: str) -> Path:
