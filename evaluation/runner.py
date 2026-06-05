@@ -537,13 +537,22 @@ def _nli_input_text_and_direction(task: str, row: dict, source: dict) -> tuple[s
 
 
 def _infer_t2t_direction(row: dict, source: dict) -> str:
-    mode = _nested_text(row, ("model_extra", "mode")) or _nested_text(source, ("stage_provenance", "mode"))
+    mode = (
+        _nested_text(row, ("model_extra", "mode"))
+        or _nested_text(row, ("text_mode",))
+        or _nested_text(source, ("stage_provenance", "mode"))
+    )
     pipeline = row.get("pipeline") or source.get("pipeline") or _nested_text(source, ("stage_provenance", "pipeline"))
-    if mode == "speech_to_audio_description" or pipeline == "S2A":
+    variant = row.get("variant")
+    if mode == "speech_to_audio_description" or pipeline == "S2A" or _looks_like_lane(variant, "s2a"):
         return "speech_to_audio"
-    if mode == "audio_description_to_speech" or pipeline == "A2S":
+    if mode == "audio_description_to_speech" or pipeline == "A2S" or _looks_like_lane(variant, "a2s"):
         return "audio_to_speech"
     return "text_to_text"
+
+
+def _looks_like_lane(value: object, token: str) -> bool:
+    return isinstance(value, str) and token in value.lower().split("_")
 
 
 def _first_text_value(row: dict, source: dict, fields: tuple[str, ...]) -> str | None:

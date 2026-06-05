@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=salm-eval-val-smoke
+#SBATCH --account=aip-csubakan
+#SBATCH --time=01:00:00
+#SBATCH --cpus-per-task=48
+#SBATCH --mem=0
+#SBATCH --gpus=h100:4
+#SBATCH --output=/scratch/l/lovenya/salm_migration_clean/logs/slurm/%x-%j.out
+
+set -euo pipefail
+
+cd /scratch/l/lovenya/SpeechAudioLM
+module --force purge
+module load StdEnv/2023 gcc cuda java/11.0.22 python/3.10.13
+unset JAVA_TOOL_OPTIONS
+
+export SALM_SCRATCH="${SALM_SCRATCH:-/scratch/l/lovenya/salm_migration_clean}"
+export PYTHONDONTWRITEBYTECODE=1
+export XDG_CACHE_HOME="$SALM_SCRATCH/cache/metrics"
+export HF_HOME="$SALM_SCRATCH/cache/metrics/huggingface"
+export HF_HUB_CACHE="$HF_HOME"
+export HUGGINGFACE_HUB_CACHE="$HF_HOME"
+export TRANSFORMERS_CACHE="$HF_HOME"
+export TORCH_HOME="$SALM_SCRATCH/cache/metrics/torch"
+export RESOURCE_INTERVAL="${RESOURCE_INTERVAL:-30}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-2}"
+
+MAX_SAMPLES="${MAX_SAMPLES:-20}"
+INCLUDE_NLI="${INCLUDE_NLI:-1}"
+SPLIT="val"
+DATASET="ttas"
+RUN_ID="${RUN_ID:-$(TZ=America/Toronto date +%Y%m%dT%H%M%S%z)}"
+BASELINE_ROOT="$SALM_SCRATCH/results/cascaded_full_validation/ttas_val/cascaded"
+EVAL_SUITE_ROOT="${EVAL_SUITE_ROOT:-$SALM_SCRATCH/results/evals/validation_smoke_packed}"
+CACHE_ROOT="${CACHE_ROOT:-$SALM_SCRATCH/cache/metrics/eval_runtime}"
+RUN_LOG_DIR="$SALM_SCRATCH/logs/eval_packed/validation_smoke/$RUN_ID"
+RUNTIME_METRICS_CONFIG="$RUN_LOG_DIR/eval_metrics.runtime.json"
+NLI_PYTHON="${NLI_PYTHON:-$SALM_SCRATCH/.venvs/metrics/.venv-eval-aac/bin/python}"
+NLI_MODEL="${NLI_MODEL:-MoritzLaurer/deberta-v3-large-zeroshot-v2.0}"
+export MAX_SAMPLES INCLUDE_NLI SPLIT DATASET RUN_ID BASELINE_ROOT EVAL_SUITE_ROOT CACHE_ROOT RUN_LOG_DIR RUNTIME_METRICS_CONFIG NLI_PYTHON NLI_MODEL
+
+mkdir -p "$EVAL_SUITE_ROOT" "$CACHE_ROOT" "$RUN_LOG_DIR" "$SALM_SCRATCH/logs/slurm"
+
+python - <<'PY_RUNTIME_CONFIG'
+import json
+import os
+from pathlib import Path
+src = Path('configs/eval_metrics.json')
+dst = Path(os.environ['RUNTIME_METRICS_CONFIG'])
+data = json.loads(src.read_text(encoding='utf-8'))
+nli = data['metrics'].setdefault('nli_contradiction', {})
+nli.update({
+    'backend': 'dedicated-script',
+    'script': 'scripts/run_nli_contradiction_helper.py',
+    'script_backend': 'hf',
+    'python': os.environ['NLI_PYTHON'],
+    'model_name': os.environ['NLI_MODEL'],
+    'hf_home': os.environ['HF_HOME'],
+    'transformers_cache': os.environ['HF_HOME'],
+    'hf_hub_offline': '1',
+    'transformers_offline': '1',
+    'batch_size': 8,
+    'contradiction_threshold': 0.7,
+    'allow_stub_fallback': False,
+})
+dst.parent.mkdir(parents=True, exist_ok=True)
+dst.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+print(f'runtime_metrics_config={dst}')
+PY_RUNTIME_CONFIG
+
+if [ "$INCLUDE_NLI" = "1" ]; then
+  if [ ! -x "$NLI_PYTHON" ]; then
+    echo "missing NLI python: $NLI_PYTHON" >&2
+    exit 2
+  fi
+  "$NLI_PYTHON" - <<'PY_NLI_PREFLIGHT'
+import os
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+model = os.environ['NLI_MODEL']
+AutoTokenizer.from_pretrained(model, local_files_only=True)
+AutoModelForSequenceClassification.from_pretrained(model, local_files_only=True)
+print(f'nli_model_available={model}')
+PY_NLI_PREFLIGHT
+fi
+
+source submission_scripts/lib_resource_monitor.sh
+start_resource_monitor "eval_validation_packed_smoke_n${MAX_SAMPLES}"
+
+run_eval() {
+  local lane="$1"
+  local task="$2"
+  local metrics="$3"
+  local manifest="$4"
+  local gpu="$5"
+  local lane_root="$EVAL_SUITE_ROOT/$lane"
+  local lane_log="$RUN_LOG_DIR/${lane}.log"
+
+  if [ ! -f "$manifest" ]; then
+    echo "missing manifest for $lane: $manifest" >&2
+    return 2
+  fi
+
+  echo "start lane=$lane task=$task metrics=$metrics gpu=$gpu manifest=$manifest" | tee "$lane_log"
+  (
+    export CUDA_VISIBLE_DEVICES="$gpu"
+    python evaluate.py \
+      --model cascaded \
+      --task "$task" \
+      --dataset "$DATASET" \
+      --split "$SPLIT" \
+      --manifest "$manifest" \
+      --metrics "$metrics" \
+      --metrics-config "$RUNTIME_METRICS_CONFIG" \
+      --output-root "$lane_root" \
+      --cache-dir "$CACHE_ROOT" \
+      --device cuda \
+      --max-samples "$MAX_SAMPLES"
+  ) >>"$lane_log" 2>&1
+  echo "done lane=$lane" >>"$lane_log"
+}
+
+pids=()
+failures=0
+launch() {
+  run_eval "$@" &
+  pids+=("$!")
+}
+
+T2A_METRICS="fad,kad,inception_score,clap_score_t2a,kl_passt"
+launch full_s2a_whisper_qwen32_audiogen T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_whisper_qwen32_audiogen/ttas/val/manifest.jsonl" 0
+launch full_s2a_whisper_qwen32_tangoflux T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_whisper_qwen32_tangoflux/ttas/val/manifest.jsonl" 1
+launch full_s2a_qwen3_asr_qwen32_audiogen T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_qwen3_asr_qwen32_audiogen/ttas/val/manifest.jsonl" 2
+launch full_s2a_qwen3_asr_qwen32_tangoflux T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_qwen3_asr_qwen32_tangoflux/ttas/val/manifest.jsonl" 3
+launch full_s2a_whisper_llama_audiogen T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_whisper_llama_audiogen/ttas/val/manifest.jsonl" 0
+launch full_s2a_whisper_llama_tangoflux T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_whisper_llama_tangoflux/ttas/val/manifest.jsonl" 1
+launch full_s2a_qwen3_asr_llama_audiogen T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_qwen3_asr_llama_audiogen/ttas/val/manifest.jsonl" 2
+launch full_s2a_qwen3_asr_llama_tangoflux T2A "$T2A_METRICS" "$BASELINE_ROOT/T2A/full_s2a_qwen3_asr_llama_tangoflux/ttas/val/manifest.jsonl" 3
+
+T2S_METRICS="asr_wer,dwer,utmos,dnsmos"
+launch full_a2s_qwencap_qwen32_f5_tts T2S "$T2S_METRICS" "$BASELINE_ROOT/T2S/full_a2s_qwencap_qwen32_f5_tts/ttas/val/manifest.jsonl" 0
+launch full_a2s_qwencap_qwen32_cosyvoice3 T2S "$T2S_METRICS" "$BASELINE_ROOT/T2S/full_a2s_qwencap_qwen32_cosyvoice3/ttas/val/manifest.jsonl" 1
+launch full_a2s_qwencap_llama_f5_tts T2S "$T2S_METRICS" "$BASELINE_ROOT/T2S/full_a2s_qwencap_llama_f5_tts/ttas/val/manifest.jsonl" 2
+launch full_a2s_qwencap_llama_cosyvoice3 T2S "$T2S_METRICS" "$BASELINE_ROOT/T2S/full_a2s_qwencap_llama_cosyvoice3/ttas/val/manifest.jsonl" 3
+
+if [ "$INCLUDE_NLI" = "1" ]; then
+  launch full_a2s_afn_qwen32_t2t T2T nli_contradiction "$BASELINE_ROOT/T2T/full_a2s_afn_qwen32_t2t/ttas/val/manifest.jsonl" 0
+  launch full_a2s_afn_llama_t2t T2T nli_contradiction "$BASELINE_ROOT/T2T/full_a2s_afn_llama_t2t/ttas/val/manifest.jsonl" 1
+fi
+
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then
+    failures=$((failures + 1))
+  fi
+done
+
+python - <<'PY_LIST_SUMMARIES'
+import os
+from pathlib import Path
+root = Path(os.environ['EVAL_SUITE_ROOT'])
+print('eval_suite_root=', root)
+for path in sorted(root.glob('*/**/latest_summary_val.json')):
+    print(path)
+PY_LIST_SUMMARIES
+
+if [ "$failures" -ne 0 ]; then
+  echo "packed eval smoke completed with failures=$failures" >&2
+  exit 1
+fi
+
+echo "packed eval smoke completed successfully"
