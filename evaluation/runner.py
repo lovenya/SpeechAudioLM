@@ -233,6 +233,7 @@ def _compute_external_metrics(
         "audioldm_eval": ["fad", "inception_score"],
         "kadtk": ["kad"],
         "stable-audio-metrics": ["clap_score_t2a", "kl_passt"],
+        "dedicated-script": ["nli_contradiction"],
     }
     supported = {name for names in backend_metrics.values() for name in names}
     unsupported = sorted(selected - supported)
@@ -245,7 +246,10 @@ def _compute_external_metrics(
         metric_names = [name for name in candidate_metrics if name in selected]
         if not metric_names:
             continue
-        result = _run_backend_worker(options, rows, dataset_root, metrics_config, work_dir, backend, metric_names)
+        if backend == "dedicated-script":
+            result = _run_dedicated_script_metrics(options, rows, metrics_config, work_dir, metric_names)
+        else:
+            result = _run_backend_worker(options, rows, dataset_root, metrics_config, work_dir, backend, metric_names)
         _merge_backend_result(per_sample_rows, result)
         for metric_name, metadata in result.get("metric_backends", {}).items():
             if metric_name in metric_backend_metadata:
@@ -259,6 +263,120 @@ def _compute_external_metrics(
             }
         )
     return corpus_metrics
+
+
+def _run_dedicated_script_metrics(
+    options: EvalOptions,
+    rows: list[dict],
+    metrics_config: dict[str, dict],
+    work_dir: Path,
+    metric_names: list[str],
+) -> dict[str, Any]:
+    if metric_names != ["nli_contradiction"]:
+        raise MetricUnavailableError(f"Unsupported dedicated-script metrics: {metric_names}")
+    config = metrics_config.get("nli_contradiction", {})
+    script = Path(config.get("script", "scripts/run_nli_contradiction_helper.py"))
+    if not script.is_absolute():
+        script = Path(__file__).resolve().parents[1] / script
+    if not script.is_file():
+        raise MetricUnavailableError(f"NLI contradiction helper script does not exist: {script}")
+
+    metric_work_dir = work_dir / "dedicated-script" / "nli_contradiction"
+    metric_work_dir.mkdir(parents=True, exist_ok=True)
+    input_path = metric_work_dir / "input.jsonl"
+    output_path = metric_work_dir / "output.jsonl"
+    summary_path = metric_work_dir / "summary.json"
+    stdout_path = metric_work_dir / "stdout.log"
+
+    helper_rows = []
+    errors: dict[str, dict[str, str]] = {}
+    for ordinal, row in enumerate(rows):
+        row_index = row.get("row_index", ordinal)
+        if not is_successful_generation(row):
+            continue
+        try:
+            source = source_record(row)
+            generated_text = _prediction_text_for_metric(row, "nli_contradiction")
+            if not generated_text:
+                raise EvaluationError("nli_contradiction requires generated text in candidate_text/model_extra")
+            input_text, direction = _nli_input_text_and_direction(options.task, row, source)
+            helper_rows.append(
+                {
+                    "row_index": row_index,
+                    "pair_id": sample_id(row, ordinal),
+                    "sample_id": sample_id(row, ordinal),
+                    "split": options.split,
+                    "direction": direction,
+                    "primary_audio_class": source.get("primary_audio_class") or row.get("primary_audio_class"),
+                    "input_text": input_text,
+                    "generated_text": generated_text,
+                }
+            )
+        except Exception as exc:
+            errors[str(row_index)] = {"nli_contradiction": f"{type(exc).__name__}: {exc}"}
+
+    write_jsonl(input_path, helper_rows)
+    if helper_rows:
+        python = Path(config.get("python") or sys.executable)
+        command = [
+            str(python),
+            str(script),
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--summary-output",
+            str(summary_path),
+            "--backend",
+            str(config.get("script_backend", config.get("runtime_backend", "hf"))),
+            "--model",
+            str(config.get("model_name", config.get("model_path") or "MoritzLaurer/deberta-v3-large-zeroshot-v2.0")),
+            "--device",
+            options.device,
+            "--batch-size",
+            str(config.get("batch_size", 8)),
+            "--contradiction-threshold",
+            str(config.get("contradiction_threshold", 0.7)),
+        ]
+        if config.get("allow_stub_fallback"):
+            command.append("--allow-stub-fallback")
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=Path(__file__).resolve().parents[1],
+            env=_backend_env(options, {"nli_contradiction": config}),
+        )
+        stdout_path.write_text(completed.stdout, encoding="utf-8")
+        if completed.returncode != 0:
+            raise MetricUnavailableError(f"NLI contradiction helper failed. See {stdout_path} for details.")
+    else:
+        output_path.write_text("", encoding="utf-8")
+        write_json(summary_path, {"total_pairs_processed": 0, "nli_model": config.get("model_name")})
+
+    sample_metrics: dict[str, dict[str, float]] = {}
+    predictions: dict[str, dict[str, Any]] = {}
+    if output_path.is_file():
+        for item in iter_jsonl(output_path):
+            result = item.record
+            row_index = str(result["row_index"])
+            sample_metrics[row_index] = {"nli_contradiction": float(result["max_contradiction_probability"])}
+            predictions[row_index] = {"nli_contradiction": result}
+    return {
+        "sample_metrics": sample_metrics,
+        "predictions": predictions,
+        "errors": errors,
+        "metric_backends": {
+            "nli_contradiction": {
+                "backend": "dedicated-script",
+                "script": str(script),
+                "work_dir": str(metric_work_dir),
+                "output": str(output_path),
+                "summary": str(summary_path),
+            }
+        },
+    }
 
 
 def _run_backend_worker(
@@ -399,10 +517,61 @@ def _merge_backend_result(per_sample_rows: list[dict], result: dict[str, Any]) -
             row["errors"].update(errors)
 
 
+def _nli_input_text_and_direction(task: str, row: dict, source: dict) -> tuple[str, str]:
+    direction = row.get("direction")
+    if direction in {"speech_to_audio", "audio_to_speech"}:
+        candidate_fields = ("speech_text",) if direction == "speech_to_audio" else ("audio_cap", "audio_caption")
+    elif task == "T2T":
+        explicit = _first_text_value(row, source, ("input_text", "prompt"))
+        if explicit:
+            return explicit, _infer_t2t_direction(row, source)
+        direction = _infer_t2t_direction(row, source)
+        candidate_fields = ("speech_text",) if direction == "speech_to_audio" else ("audio_cap", "audio_caption", "speech_text")
+    else:
+        raise EvaluationError("nli_contradiction is defined for the T2T/intermediate-text stage or explicit text-pair rows")
+    for field in candidate_fields:
+        value = source.get(field) or row.get(field)
+        if isinstance(value, str) and value.strip():
+            return value, str(direction)
+    raise EvaluationError(f"nli_contradiction could not find input text for direction {direction}")
+
+
+def _infer_t2t_direction(row: dict, source: dict) -> str:
+    mode = _nested_text(row, ("model_extra", "mode")) or _nested_text(source, ("stage_provenance", "mode"))
+    pipeline = row.get("pipeline") or source.get("pipeline") or _nested_text(source, ("stage_provenance", "pipeline"))
+    if mode == "speech_to_audio_description" or pipeline == "S2A":
+        return "speech_to_audio"
+    if mode == "audio_description_to_speech" or pipeline == "A2S":
+        return "audio_to_speech"
+    return "text_to_text"
+
+
+def _first_text_value(row: dict, source: dict, fields: tuple[str, ...]) -> str | None:
+    extra = row.get("model_extra") if isinstance(row.get("model_extra"), dict) else {}
+    for field in fields:
+        for record in (row, source, extra):
+            value = record.get(field) if isinstance(record, dict) else None
+            if isinstance(value, str) and value.strip():
+                return value
+    return None
+
+
+def _nested_text(record: dict, keys: tuple[str, ...]) -> str | None:
+    value: object = record
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> str | None:
     candidate_text = row.get("candidate_text")
     if isinstance(candidate_text, str) and candidate_text.strip():
         return candidate_text
+    generated_text = row.get("generated_text")
+    if isinstance(generated_text, str) and generated_text.strip():
+        return generated_text
     extra = row.get("model_extra")
     if not isinstance(extra, dict):
         return None
@@ -410,6 +579,8 @@ def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> st
         keys = ("understanding_text", "decoded_text", "converted_prompt", "generation_prompt")
     elif metric_name in {"mace", "spider", "aac_clapsim", "fense"}:
         keys = ("converted_prompt", "generation_prompt", "decoded_text", "understanding_text")
+    elif metric_name == "nli_contradiction":
+        keys = ("generated_text", "generation_prompt", "converted_prompt", "understanding_text", "decoded_text")
     else:
         keys = ("generation_prompt", "converted_prompt", "understanding_text", "decoded_text")
     for key in keys:

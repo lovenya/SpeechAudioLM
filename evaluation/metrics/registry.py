@@ -30,6 +30,12 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
+    "nli_contradiction": MetricSpec(
+        name="nli_contradiction",
+        level="sample",
+        requires_hypothesis_text=True,
+        external=True,
+    ),
     "asr_wer": MetricSpec(
         name="asr_wer",
         level="sample",

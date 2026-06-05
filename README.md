@@ -183,6 +183,10 @@ Current metric backend status:
 - Smoke-passed T2S/A2S generated-speech quality metric: `dnsmos` through
   TorchMetrics DNSMOS with cached ONNX assets.
 - Available S2T metric: internal `wer`.
+- Available T2T helper metric: `nli_contradiction` for entailment/neutral/
+  contradiction checks between input text and generated text. This is not a
+  final audio metric; future G-Eval-style text judging should use the same T2T
+  stage boundary.
 
 Migration handoff docs for moving this work to a new cluster are maintained
 locally in `CLUSTER_MIGRATION_HANDOFF.md` and `NEW_CLUSTER_ENV_SETUP.md`.
@@ -213,6 +217,9 @@ Metric notes:
   evaluated by running `--task S2T` on the S2T component manifest.
 - A2S final-output evaluation uses generated-speech metrics. Caption metrics
   are evaluated by running `--task A2T` on the A2T component manifest.
+- T2T-stage evaluation compares input transcript/description text against the
+  generated transcript/caption/description text. Use `--task T2T --metrics
+  nli_contradiction` on the text-to-text component manifest.
 - Generated-speech `asr_wer` is `WER(reference_transcript, ASR(generated_speech))`.
 - Generated-speech `dwer` is directional:
   `WER(ASR(reference_speech), ASR(generated_speech))`.

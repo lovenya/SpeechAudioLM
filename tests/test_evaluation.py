@@ -9,7 +9,7 @@ from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
-from evaluation.runner import EvalOptions, dry_run
+from evaluation.runner import EvalOptions, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import baseline_output_root, eval_model_root
 
@@ -31,6 +31,8 @@ class EvaluationScaffoldTest(unittest.TestCase):
         validate_model_task("audio_omni", "A2T", caps)
         validate_model_task("audio_omni", "S2T", caps)
         validate_model_task("qwen3_omni", "A2S", caps)
+        validate_model_task("cascaded", "T2T", caps)
+        validate_model_task("qwen3_32b", "T2T", caps)
         with self.assertRaises(EvaluationError):
             validate_model_task("tangoflux", "T2S", caps)
 
@@ -58,6 +60,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertEqual(select_metrics("T2A", "clap_score_t2a", mapping).metric_names, ["clap_score_t2a"])
         self.assertEqual(select_metrics("S2A", "fad", mapping).metric_names, ["fad"])
         self.assertEqual(select_metrics("A2S", "asr_wer", mapping).metric_names, ["asr_wer"])
+        self.assertEqual(select_metrics("T2T", "nli_contradiction", mapping).metric_names, ["nli_contradiction"])
         self.assertEqual(select_metrics("A2T", "mace", mapping).metric_names, ["mace"])
         self.assertEqual(select_metrics("A2T", "aac_clapsim", mapping).metric_names, ["aac_clapsim"])
         self.assertEqual(select_metrics("A2T", "fense", mapping).metric_names, ["fense"])
@@ -78,6 +81,10 @@ class EvaluationScaffoldTest(unittest.TestCase):
             select_metrics("S2A", "wer", mapping)
         with self.assertRaises(EvaluationError):
             select_metrics("A2S", "mace", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("S2A", "nli_contradiction", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("A2S", "nli_contradiction", mapping)
 
     def test_task_metric_mapping_selects_defaults(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
@@ -85,6 +92,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertEqual(select_metrics("T2A", None, mapping).metric_names, ["fad", "kad", "inception_score"])
         self.assertEqual(select_metrics("S2A", None, mapping).metric_names, ["fad", "kad", "inception_score"])
         self.assertEqual(select_metrics("T2S", None, mapping).metric_names, ["asr_wer", "dwer", "utmos"])
+        self.assertEqual(select_metrics("T2T", None, mapping).metric_names, ["nli_contradiction"])
 
     def test_metric_specific_validation_does_not_require_unused_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -193,6 +201,75 @@ class EvaluationScaffoldTest(unittest.TestCase):
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
+
+    def test_nli_contradiction_runs_as_dedicated_script_metric(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_root = root / "dataset"
+            output_root = root / "evals"
+            dataset_root.mkdir()
+            dataset_config = root / "dataset.json"
+            dataset_config.write_text(json.dumps({"dataset_root": str(dataset_root)}), encoding="utf-8")
+            metrics_config = root / "metrics.json"
+            metrics_config.write_text(
+                json.dumps(
+                    {
+                        "metrics": {
+                            "nli_contradiction": {
+                                "backend": "dedicated-script",
+                                "script": "scripts/run_nli_contradiction_helper.py",
+                                "script_backend": "stub",
+                                "contradiction_threshold": 0.7,
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manifest = root / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "model": "cascaded",
+                        "task": "T2T",
+                        "pipeline": "S2A",
+                        "row_index": 0,
+                        "sample_id": "sample",
+                        "generated_text": "A dog is barking loudly outside.",
+                        "source": {
+                            "speech_text": "Can someone close the window?",
+                            "primary_audio_class": "domestic_pets",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            options = EvalOptions(
+                model="cascaded",
+                task="T2T",
+                dataset="ttas",
+                split="val",
+                manifest_path=manifest,
+                dataset_config_path=dataset_config,
+                metrics_config_path=metrics_config,
+                task_metric_map_path=root / "task_metric_map.json",
+                output_root=output_root,
+                metric_specs=get_metric_specs(["nli_contradiction"]),
+                max_samples=None,
+                start_index=0,
+                cache_dir=root / "cache",
+                device="cpu",
+                command=["evaluate.py"],
+            )
+
+            paths = run_evaluation(options)
+            per_sample = [json.loads(line) for line in paths["per_sample"].read_text(encoding="utf-8").splitlines()]
+            self.assertIn("nli_contradiction", per_sample[0]["metrics"])
+            self.assertIn("nli_contradiction", per_sample[0]["predictions"])
+            self.assertEqual(per_sample[0]["predictions"]["nli_contradiction"]["direction"], "speech_to_audio")
+            summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+            self.assertIn("nli_contradiction", summary["metric_summaries"])
 
 
 if __name__ == "__main__":
