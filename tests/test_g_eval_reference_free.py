@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.run_g_eval_reference_free import StubJudge, build_prompt, run_g_eval
+
+
+class GEvalReferenceFreeTest(unittest.TestCase):
+    def test_prompt_contains_reference_free_criteria(self) -> None:
+        prompt = build_prompt(
+            direction="audio_to_speech",
+            input_text="A dog is barking outside.",
+            generated_text="Can someone close the window?",
+            nli_summary="Not available.",
+        )
+
+        self.assertIn("not exact reference matching", prompt)
+        self.assertIn("Causal / situational plausibility", prompt)
+        self.assertIn('"overall_score": <1-5>', prompt)
+
+    def test_run_g_eval_writes_rows_summary_and_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_path = root / "pairs.jsonl"
+            output_path = root / "g_eval.jsonl"
+            summary_path = root / "summary.json"
+            summary_csv_path = root / "summary.csv"
+            cache_dir = root / "cache"
+            rows = [
+                {
+                    "row_index": 0,
+                    "pair_id": "a",
+                    "split": "val",
+                    "direction": "audio_to_speech",
+                    "input_text": "A dog is barking outside.",
+                    "generated_text": "Can someone close the window?",
+                    "primary_audio_class": "domestic_pets",
+                }
+            ]
+            input_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+            summary = run_g_eval(
+                input_path=input_path,
+                output_path=output_path,
+                summary_output=summary_path,
+                summary_csv_output=summary_csv_path,
+                judge=StubJudge(),
+                cache_dir=cache_dir,
+                batch_size=1,
+            )
+
+            output_rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(output_rows[0]["overall_score"], 4)
+            self.assertEqual(output_rows[0]["judge_model"], "stub_g_eval_reference_free")
+            self.assertEqual(summary["valid_judgments"], 1)
+            self.assertTrue(summary_csv_path.is_file())
+            self.assertEqual(len(list(cache_dir.glob("*.json"))), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -152,6 +152,21 @@
       "batch_size": 8,
       "allow_stub_fallback": false,
       "note": "Helper metric for contradiction detection only; neutral is not failure and entailment is not required."
+    },
+    "g_eval_reference_free": {
+      "backend": "dedicated-script",
+      "script": "scripts/run_g_eval_reference_free.py",
+      "script_backend": "vllm",
+      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-prometheus-vllm/bin/python",
+      "model_name": "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0",
+      "tensor_parallel_size": 4,
+      "temperature": 0.0,
+      "max_tokens": 512,
+      "batch_size": 8,
+      "gpu_memory_utilization": 0.9,
+      "trust_remote_code": true,
+      "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/g_eval_reference_free",
+      "note": "Reference-free T2T G-Eval judge using Prometheus 2 8x7B via vLLM on 4 H100s."
     }
   }
 }

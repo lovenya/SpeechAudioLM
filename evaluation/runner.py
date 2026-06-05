@@ -233,7 +233,7 @@ def _compute_external_metrics(
         "audioldm_eval": ["fad", "inception_score"],
         "kadtk": ["kad"],
         "stable-audio-metrics": ["clap_score_t2a", "kl_passt"],
-        "dedicated-script": ["nli_contradiction"],
+        "dedicated-script": ["nli_contradiction", "g_eval_reference_free"],
     }
     supported = {name for names in backend_metrics.values() for name in names}
     unsupported = sorted(selected - supported)
@@ -272,23 +272,128 @@ def _run_dedicated_script_metrics(
     work_dir: Path,
     metric_names: list[str],
 ) -> dict[str, Any]:
-    if metric_names != ["nli_contradiction"]:
+    supported_order = ["nli_contradiction", "g_eval_reference_free"]
+    ordered_names = [name for name in supported_order if name in metric_names]
+    if sorted(ordered_names) != sorted(metric_names):
         raise MetricUnavailableError(f"Unsupported dedicated-script metrics: {metric_names}")
-    config = metrics_config.get("nli_contradiction", {})
-    script = Path(config.get("script", "scripts/run_nli_contradiction_helper.py"))
+
+    merged: dict[str, Any] = {
+        "sample_metrics": {},
+        "predictions": {},
+        "errors": {},
+        "metric_backends": {},
+    }
+    prediction_context: dict[str, dict[str, Any]] = {}
+    for metric_name in ordered_names:
+        result = _run_single_dedicated_script_metric(
+            options,
+            rows,
+            metrics_config,
+            work_dir,
+            metric_name,
+            prediction_context,
+        )
+        _merge_result_dicts(merged, result)
+        for row_index, predictions in result.get("predictions", {}).items():
+            prediction_context.setdefault(str(row_index), {}).update(predictions)
+    return merged
+
+
+def _run_single_dedicated_script_metric(
+    options: EvalOptions,
+    rows: list[dict],
+    metrics_config: dict[str, dict],
+    work_dir: Path,
+    metric_name: str,
+    prediction_context: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    config = metrics_config.get(metric_name, {})
+    script = Path(config.get("script", _default_dedicated_script(metric_name)))
     if not script.is_absolute():
         script = Path(__file__).resolve().parents[1] / script
     if not script.is_file():
-        raise MetricUnavailableError(f"NLI contradiction helper script does not exist: {script}")
+        raise MetricUnavailableError(f"Dedicated metric script does not exist for {metric_name}: {script}")
 
-    metric_work_dir = work_dir / "dedicated-script" / "nli_contradiction"
+    metric_work_dir = work_dir / "dedicated-script" / metric_name
     metric_work_dir.mkdir(parents=True, exist_ok=True)
     input_path = metric_work_dir / "input.jsonl"
     output_path = metric_work_dir / "output.jsonl"
     summary_path = metric_work_dir / "summary.json"
     stdout_path = metric_work_dir / "stdout.log"
 
-    helper_rows = []
+    helper_rows, errors = _dedicated_text_pair_rows(options, rows, metric_name, prediction_context)
+    write_jsonl(input_path, helper_rows)
+    if helper_rows:
+        python = Path(config.get("python") or sys.executable)
+        command = _dedicated_script_command(
+            metric_name,
+            python,
+            script,
+            input_path,
+            output_path,
+            summary_path,
+            metric_work_dir,
+            config,
+            options,
+        )
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=Path(__file__).resolve().parents[1],
+            env=_backend_env(options, {metric_name: config}),
+        )
+        stdout_path.write_text(completed.stdout, encoding="utf-8")
+        if completed.returncode != 0:
+            raise MetricUnavailableError(f"Dedicated metric {metric_name!r} failed. See {stdout_path} for details.")
+    else:
+        output_path.write_text("", encoding="utf-8")
+        write_json(summary_path, {"total_pairs_processed": 0, "metric": metric_name, "judge_model": config.get("model_name")})
+
+    sample_metrics: dict[str, dict[str, float]] = {}
+    predictions: dict[str, dict[str, Any]] = {}
+    if output_path.is_file():
+        for item in iter_jsonl(output_path):
+            result = item.record
+            row_index = str(result["row_index"])
+            metric_value = _dedicated_metric_value(metric_name, result)
+            if metric_value is not None:
+                sample_metrics[row_index] = {metric_name: metric_value}
+            predictions[row_index] = {metric_name: result}
+    return {
+        "sample_metrics": sample_metrics,
+        "predictions": predictions,
+        "errors": errors,
+        "metric_backends": {
+            metric_name: {
+                "backend": "dedicated-script",
+                "script": str(script),
+                "work_dir": str(metric_work_dir),
+                "output": str(output_path),
+                "summary": str(summary_path),
+            }
+        },
+    }
+
+
+def _default_dedicated_script(metric_name: str) -> str:
+    defaults = {
+        "nli_contradiction": "scripts/run_nli_contradiction_helper.py",
+        "g_eval_reference_free": "scripts/run_g_eval_reference_free.py",
+    }
+    if metric_name not in defaults:
+        raise MetricUnavailableError(f"No default dedicated script for metric {metric_name!r}")
+    return defaults[metric_name]
+
+
+def _dedicated_text_pair_rows(
+    options: EvalOptions,
+    rows: list[dict],
+    metric_name: str,
+    prediction_context: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
+    helper_rows: list[dict[str, Any]] = []
     errors: dict[str, dict[str, str]] = {}
     for ordinal, row in enumerate(rows):
         row_index = row.get("row_index", ordinal)
@@ -296,28 +401,41 @@ def _run_dedicated_script_metrics(
             continue
         try:
             source = source_record(row)
-            generated_text = _prediction_text_for_metric(row, "nli_contradiction")
+            generated_text = _prediction_text_for_metric(row, metric_name)
             if not generated_text:
-                raise EvaluationError("nli_contradiction requires generated text in candidate_text/model_extra")
+                raise EvaluationError(f"{metric_name} requires generated text in candidate_text/generated_text/model_extra")
             input_text, direction = _nli_input_text_and_direction(options.task, row, source)
-            helper_rows.append(
-                {
-                    "row_index": row_index,
-                    "pair_id": sample_id(row, ordinal),
-                    "sample_id": sample_id(row, ordinal),
-                    "split": options.split,
-                    "direction": direction,
-                    "primary_audio_class": source.get("primary_audio_class") or row.get("primary_audio_class"),
-                    "input_text": input_text,
-                    "generated_text": generated_text,
-                }
-            )
+            helper_row = {
+                "row_index": row_index,
+                "pair_id": sample_id(row, ordinal),
+                "sample_id": sample_id(row, ordinal),
+                "split": options.split,
+                "direction": direction,
+                "primary_audio_class": source.get("primary_audio_class") or row.get("primary_audio_class"),
+                "input_text": input_text,
+                "generated_text": generated_text,
+            }
+            nli_context = prediction_context.get(str(row_index), {}).get("nli_contradiction")
+            if metric_name == "g_eval_reference_free" and isinstance(nli_context, dict):
+                helper_row["nli_contradiction"] = nli_context
+            helper_rows.append(helper_row)
         except Exception as exc:
-            errors[str(row_index)] = {"nli_contradiction": f"{type(exc).__name__}: {exc}"}
+            errors[str(row_index)] = {metric_name: f"{type(exc).__name__}: {exc}"}
+    return helper_rows, errors
 
-    write_jsonl(input_path, helper_rows)
-    if helper_rows:
-        python = Path(config.get("python") or sys.executable)
+
+def _dedicated_script_command(
+    metric_name: str,
+    python: Path,
+    script: Path,
+    input_path: Path,
+    output_path: Path,
+    summary_path: Path,
+    metric_work_dir: Path,
+    config: dict[str, Any],
+    options: EvalOptions,
+) -> list[str]:
+    if metric_name == "nli_contradiction":
         command = [
             str(python),
             str(script),
@@ -340,43 +458,55 @@ def _run_dedicated_script_metrics(
         ]
         if config.get("allow_stub_fallback"):
             command.append("--allow-stub-fallback")
-        completed = subprocess.run(
-            command,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            cwd=Path(__file__).resolve().parents[1],
-            env=_backend_env(options, {"nli_contradiction": config}),
-        )
-        stdout_path.write_text(completed.stdout, encoding="utf-8")
-        if completed.returncode != 0:
-            raise MetricUnavailableError(f"NLI contradiction helper failed. See {stdout_path} for details.")
-    else:
-        output_path.write_text("", encoding="utf-8")
-        write_json(summary_path, {"total_pairs_processed": 0, "nli_model": config.get("model_name")})
+        return command
+    if metric_name == "g_eval_reference_free":
+        command = [
+            str(python),
+            str(script),
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--summary-output",
+            str(summary_path),
+            "--summary-csv-output",
+            str(metric_work_dir / "summary.csv"),
+            "--backend",
+            str(config.get("script_backend", config.get("runtime_backend", "vllm"))),
+            "--model",
+            str(config.get("model_name", config.get("model_path") or "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0")),
+            "--batch-size",
+            str(config.get("batch_size", 8)),
+            "--cache-dir",
+            str(config.get("cache_dir") or metric_work_dir / "cache"),
+            "--tensor-parallel-size",
+            str(config.get("tensor_parallel_size", 4)),
+            "--temperature",
+            str(config.get("temperature", 0.0)),
+            "--max-tokens",
+            str(config.get("max_tokens", 512)),
+            "--gpu-memory-utilization",
+            str(config.get("gpu_memory_utilization", 0.9)),
+        ]
+        if config.get("trust_remote_code", True):
+            command.append("--trust-remote-code")
+        return command
+    raise MetricUnavailableError(f"Unsupported dedicated-script metric: {metric_name}")
 
-    sample_metrics: dict[str, dict[str, float]] = {}
-    predictions: dict[str, dict[str, Any]] = {}
-    if output_path.is_file():
-        for item in iter_jsonl(output_path):
-            result = item.record
-            row_index = str(result["row_index"])
-            sample_metrics[row_index] = {"nli_contradiction": float(result["max_contradiction_probability"])}
-            predictions[row_index] = {"nli_contradiction": result}
-    return {
-        "sample_metrics": sample_metrics,
-        "predictions": predictions,
-        "errors": errors,
-        "metric_backends": {
-            "nli_contradiction": {
-                "backend": "dedicated-script",
-                "script": str(script),
-                "work_dir": str(metric_work_dir),
-                "output": str(output_path),
-                "summary": str(summary_path),
-            }
-        },
-    }
+
+def _dedicated_metric_value(metric_name: str, result: dict[str, Any]) -> float | None:
+    if metric_name == "nli_contradiction":
+        return float(result["max_contradiction_probability"])
+    if metric_name == "g_eval_reference_free" and isinstance(result.get("overall_score"), (int, float)):
+        return float(result["overall_score"])
+    return None
+
+
+def _merge_result_dicts(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key in ("sample_metrics", "predictions", "errors"):
+        for row_index, values in source.get(key, {}).items():
+            target.setdefault(key, {}).setdefault(str(row_index), {}).update(values)
+    target.setdefault("metric_backends", {}).update(source.get("metric_backends", {}))
 
 
 def _run_backend_worker(

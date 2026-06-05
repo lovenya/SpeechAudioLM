@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=salm-eval-val-smoke
 #SBATCH --account=aip-csubakan
-#SBATCH --time=01:00:00
+#SBATCH --time=00:40:00
 #SBATCH --cpus-per-task=48
 #SBATCH --mem=0
 #SBATCH --gpus=h100:4
@@ -21,12 +21,14 @@ export HF_HOME="$SALM_SCRATCH/cache/metrics/huggingface"
 export HF_HUB_CACHE="$HF_HOME"
 export HUGGINGFACE_HUB_CACHE="$HF_HOME"
 export TRANSFORMERS_CACHE="$HF_HOME"
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 export TORCH_HOME="$SALM_SCRATCH/cache/metrics/torch"
 export RESOURCE_INTERVAL="${RESOURCE_INTERVAL:-30}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-2}"
 
-MAX_SAMPLES="${MAX_SAMPLES:-20}"
+MAX_SAMPLES="${MAX_SAMPLES:-50}"
 INCLUDE_NLI="${INCLUDE_NLI:-1}"
 SPLIT="val"
 DATASET="ttas"
@@ -38,9 +40,24 @@ RUN_LOG_DIR="$SALM_SCRATCH/logs/eval_packed/validation_smoke/$RUN_ID"
 RUNTIME_METRICS_CONFIG="$RUN_LOG_DIR/eval_metrics.runtime.json"
 NLI_PYTHON="${NLI_PYTHON:-$SALM_SCRATCH/.venvs/metrics/.venv-eval-aac/bin/python}"
 NLI_MODEL="${NLI_MODEL:-MoritzLaurer/deberta-v3-large-zeroshot-v2.0}"
-export MAX_SAMPLES INCLUDE_NLI SPLIT DATASET RUN_ID BASELINE_ROOT EVAL_SUITE_ROOT CACHE_ROOT RUN_LOG_DIR RUNTIME_METRICS_CONFIG NLI_PYTHON NLI_MODEL
+NLI_SNAPSHOT="${NLI_SNAPSHOT:-}"
+export MAX_SAMPLES INCLUDE_NLI SPLIT DATASET RUN_ID BASELINE_ROOT EVAL_SUITE_ROOT CACHE_ROOT RUN_LOG_DIR RUNTIME_METRICS_CONFIG NLI_PYTHON NLI_MODEL NLI_SNAPSHOT
 
 mkdir -p "$EVAL_SUITE_ROOT" "$CACHE_ROOT" "$RUN_LOG_DIR" "$SALM_SCRATCH/logs/slurm"
+
+if [ "$INCLUDE_NLI" = "1" ] && [ -z "$NLI_SNAPSHOT" ]; then
+  NLI_SNAPSHOT="$("$SALM_SCRATCH/.venvs/download/.venv-hf-download/bin/python" - <<'PY_NLI_SNAPSHOT'
+import os
+from huggingface_hub import snapshot_download
+print(snapshot_download(
+    os.environ["NLI_MODEL"],
+    cache_dir=os.environ["HF_HOME"],
+    local_files_only=True,
+))
+PY_NLI_SNAPSHOT
+)"
+  export NLI_SNAPSHOT
+fi
 
 python - <<'PY_RUNTIME_CONFIG'
 import json
@@ -55,7 +72,7 @@ nli.update({
     'script': 'scripts/run_nli_contradiction_helper.py',
     'script_backend': 'hf',
     'python': os.environ['NLI_PYTHON'],
-    'model_name': os.environ['NLI_MODEL'],
+    'model_name': os.environ.get('NLI_SNAPSHOT') or os.environ['NLI_MODEL'],
     'hf_home': os.environ['HF_HOME'],
     'transformers_cache': os.environ['HF_HOME'],
     'hf_hub_offline': '1',
@@ -77,7 +94,7 @@ if [ "$INCLUDE_NLI" = "1" ]; then
   "$NLI_PYTHON" - <<'PY_NLI_PREFLIGHT'
 import os
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-model = os.environ['NLI_MODEL']
+model = os.environ.get('NLI_SNAPSHOT') or os.environ['NLI_MODEL']
 AutoTokenizer.from_pretrained(model, local_files_only=True)
 AutoModelForSequenceClassification.from_pretrained(model, local_files_only=True)
 print(f'nli_model_available={model}')

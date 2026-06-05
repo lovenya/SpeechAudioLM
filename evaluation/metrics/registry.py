@@ -36,6 +36,12 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
+    "g_eval_reference_free": MetricSpec(
+        name="g_eval_reference_free",
+        level="sample",
+        requires_hypothesis_text=True,
+        external=True,
+    ),
     "asr_wer": MetricSpec(
         name="asr_wer",
         level="sample",
