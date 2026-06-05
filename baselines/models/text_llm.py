@@ -79,7 +79,8 @@ class TextLLMRunner(BaselineRunner):
             raise RuntimeError("Text LLM is not loaded")
         import torch
 
-        messages = [{"role": "user", "content": row.prompt}]
+        formatted_prompt = self._format_prompt(row.prompt)
+        messages = [{"role": "user", "content": formatted_prompt}]
         if hasattr(self.tokenizer, "apply_chat_template"):
             try:
                 text = self.tokenizer.apply_chat_template(
@@ -91,7 +92,7 @@ class TextLLMRunner(BaselineRunner):
             except TypeError:
                 text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         else:
-            text = row.prompt
+            text = formatted_prompt
         inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
         with torch.inference_mode():
             output_ids = self.model.generate(
@@ -103,7 +104,8 @@ class TextLLMRunner(BaselineRunner):
         generated = output_ids[0, inputs["input_ids"].shape[1] :]
         answer = _strip_thinking_output(self.tokenizer.decode(generated, skip_special_tokens=True).strip())
         extra = {
-            "generation_prompt": row.prompt,
+            "generation_prompt": formatted_prompt,
+            "input_text": row.prompt,
             "understanding_text": answer,
             "backend": "text_llm",
             "stages": [
@@ -111,6 +113,7 @@ class TextLLMRunner(BaselineRunner):
                     "stage": "text_to_text",
                     "method": "transformers.AutoModelForCausalLM.generate",
                     "input_text": row.prompt,
+                    "generation_prompt": formatted_prompt,
                     "output_text": answer,
                     "output_file": str(output_path),
                 }

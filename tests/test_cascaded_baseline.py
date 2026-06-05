@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -9,7 +11,8 @@ from pathlib import Path
 from baseline_cascaded import _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
 from baselines.models.audio_captioning import _patch_audio_flamingo_next_transformers_compat
 from baselines.models.speech_asr import _patch_qwen_asr_transformers_compat
-from baselines.models.text_llm import _strip_thinking_output
+from baselines.dataset import PromptRow
+from baselines.models.text_llm import TextLLMRunner, _strip_thinking_output
 
 
 class CascadedBaselineTest(unittest.TestCase):
@@ -80,6 +83,73 @@ class CascadedBaselineTest(unittest.TestCase):
     def test_planned_stages_for_t2t(self) -> None:
         args = argparse.Namespace(pipeline="T2T", text_model="qwen3_32b")
         self.assertEqual(_planned_stages(args), [{"stage": "text_to_text", "backend": "qwen3_32b"}])
+
+
+    def test_text_llm_applies_prompt_template(self) -> None:
+        class FakeTensor:
+            shape = (1, 3)
+
+            def to(self, device):
+                return self
+
+        class FakeInputs(dict):
+            def to(self, device):
+                return self
+
+        class FakeTokenizer:
+            eos_token_id = 0
+
+            def __init__(self):
+                self.messages = None
+                self.encoded_text = None
+
+            def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True, enable_thinking=False):
+                self.messages = messages
+                return messages[0]["content"]
+
+            def __call__(self, text, return_tensors):
+                self.encoded_text = text
+                return FakeInputs({"input_ids": FakeTensor()})
+
+            def decode(self, generated, skip_special_tokens=True):
+                return "converted text"
+
+        class FakeGenerated:
+            def __getitem__(self, key):
+                return [1, 2, 3]
+
+        class FakeModel:
+            device = "cpu"
+
+            def generate(self, **kwargs):
+                return FakeGenerated()
+
+        old_torch = sys.modules.get("torch")
+        sys.modules["torch"] = types.SimpleNamespace(inference_mode=lambda: contextlib.nullcontext())
+        try:
+            runner = TextLLMRunner(
+                model_path=None,
+                device="cpu",
+                duration=0,
+                steps=25,
+                seed=0,
+                task="text_to_text",
+                prompt_template="Direction instruction: {prompt}",
+            )
+            runner.tokenizer = FakeTokenizer()
+            runner.model = FakeModel()
+            row = PromptRow(row_index=0, sample_id="sample", prompt="raw upstream text", record={})
+            with tempfile.TemporaryDirectory() as tmp:
+                result = runner.generate(row, Path(tmp) / "out.json")
+            self.assertEqual(runner.tokenizer.messages[0]["content"], "Direction instruction: raw upstream text")
+            self.assertEqual(runner.tokenizer.encoded_text, "Direction instruction: raw upstream text")
+            self.assertEqual(result.extra["input_text"], "raw upstream text")
+            self.assertEqual(result.extra["generation_prompt"], "Direction instruction: raw upstream text")
+        finally:
+            if old_torch is None:
+                sys.modules.pop("torch", None)
+            else:
+                sys.modules["torch"] = old_torch
 
     def test_strip_thinking_output_prefers_final_answer(self) -> None:
         self.assertEqual(_strip_thinking_output("<think>reasoning</think>rain on pavement"), "rain on pavement")

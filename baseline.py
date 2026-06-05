@@ -12,18 +12,46 @@ from baselines.run import dry_run_inference, run_inference
 from project_conventions import baseline_output_root, default_prompt_field
 
 
+
+TEXT_CONVERSION_TEMPLATES = {
+    "speech_to_audio_description": (
+        "Based on this speech content, describe a likely environmental audio scene that could correspond to it. "
+        "Return only one concise audio description suitable for text-to-audio generation. "
+        "Do not explain your reasoning and do not ask follow-up questions.\n\n"
+        "Speech content: {prompt}"
+    ),
+    "audio_description_to_speech": (
+        "Based on this environmental audio description, write a short speech transcript that could naturally "
+        "correspond to the scene. Return only the spoken words, with no explanation and no follow-up question.\n\n"
+        "Audio description: {prompt}"
+    ),
+}
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run baseline inference on a TTAS split.")
     parser.add_argument(
         "--model",
         required=True,
-        choices=["audiogen", "tangoflux", "qwen3_omni", "audio_omni"],
+        choices=[
+            "audiogen",
+            "tangoflux",
+            "qwen3_omni",
+            "audio_omni",
+            "whisper",
+            "qwen3_asr",
+            "qwen3_32b",
+            "llama3_3_70b_instruct",
+            "qwen3_omni_captioner",
+            "audio_flamingo_next",
+            "f5_tts",
+            "cosyvoice3",
+        ],
         help="Baseline model backend to run.",
     )
     parser.add_argument(
         "--task",
         default="T2A",
-        choices=["T2A", "T2S", "A2T", "S2T", "S2A", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"],
+        choices=["T2A", "T2S", "A2T", "S2T", "T2T", "text_to_text", "S2A", "A2S", "pseudo_t2a_direct", "pseudo_t2a_phoneme"],
         help="Inference task. Backends validate which tasks they support.",
     )
     parser.add_argument(
@@ -97,6 +125,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional instruction template. Use {prompt} where the row prompt should be inserted.",
     )
     parser.add_argument(
+        "--text-mode",
+        default=None,
+        choices=["speech_to_audio_description", "audio_description_to_speech"],
+        help="Direction-specific T2T template to apply when --prompt-template is not provided.",
+    )
+    parser.add_argument(
         "--qwen-speaker",
         default="Ethan",
         help="Qwen3-Omni voice name. Known upstream options include Ethan, Chelsie, and Aiden.",
@@ -137,6 +171,8 @@ def parse_args() -> argparse.Namespace:
 def _default_prompt_field(model: str, task: str) -> str:
     if model == "qwen3_omni" and task == "A2S":
         return "speech_text"
+    if task in {"T2T", "text_to_text"}:
+        return "speech_text"
     return default_prompt_field(task)
 
 
@@ -145,6 +181,12 @@ def main() -> None:
     config = load_dataset_config(Path(args.dataset_config))
     split_path = Path(args.split_file) if args.split_file else Path(config["splits"][args.split])
     prompt_field = args.prompt_field or _default_prompt_field(args.model, args.task)
+    runner_task = "text_to_text" if args.task == "T2T" else args.task
+    prompt_template = args.prompt_template
+    if runner_task == "text_to_text" and prompt_template is None:
+        if args.text_mode is None:
+            raise SystemExit("T2T/text_to_text requires --prompt-template or --text-mode")
+        prompt_template = TEXT_CONVERSION_TEMPLATES[args.text_mode]
 
     rows = iter_split_rows(
         split_path,
@@ -170,6 +212,8 @@ def main() -> None:
         "duration": args.duration,
         "steps": args.steps,
         "seed": args.seed,
+        "text_mode": args.text_mode,
+        "prompt_template": prompt_template,
     }
     try:
         runner = get_runner(
@@ -179,8 +223,8 @@ def main() -> None:
             duration=args.duration,
             steps=args.steps,
             seed=args.seed,
-            task=args.task,
-            prompt_template=args.prompt_template,
+            task=runner_task,
+            prompt_template=prompt_template,
             dataset_root=config.get("dataset_root"),
             qwen_speaker=args.qwen_speaker,
             qwen_template=args.qwen_template,
