@@ -41,6 +41,17 @@ class AudioTagPrepTest(unittest.TestCase):
         self.assertEqual(retained.primary, "speech")
         self.assertTrue(retained.used_fallback)
 
+    def test_gap_limited_fallback_stops_at_confidence_cliff(self) -> None:
+        retained = retain_tags(
+            [("clear", 0.8), ("also_clear", 0.78), ("weak", 0.2)],
+            tag_threshold=0.9,
+            min_tags=3,
+            fallback_top_k=3,
+            fallback_max_score_gap=0.25,
+        )
+        self.assertEqual(retained.tags, ["clear", "also_clear"])
+        self.assertTrue(retained.used_fallback)
+
     def test_no_predictions_has_no_primary_tag(self) -> None:
         retained = retain_tags([], tag_threshold=0.6, min_tags=1, fallback_top_k=3)
         self.assertEqual(retained.tags, [])
@@ -86,8 +97,10 @@ class AudioTagPrepTest(unittest.TestCase):
                 tag_threshold=0.6,
                 min_tags=1,
                 fallback_top_k=2,
+                fallback_max_score_gap=0.25,
                 max_samples=None,
                 store_all_tag_scores=True,
+                store_top_tag_scores=2,
             )
 
             self.assertEqual(split_path.read_text(encoding="utf-8"), original_text)
@@ -101,8 +114,10 @@ class AudioTagPrepTest(unittest.TestCase):
             self.assertEqual(enriched_rows[0]["audio_tagger_name"], "fake_tagger")
             self.assertEqual(list(enriched_rows[0]["all_audio_tag_scores"]), ["engine", "vehicle", "music"])
             self.assertEqual(enriched_rows[0]["all_audio_tag_scores"]["music"], 0.1)
+            self.assertEqual(list(enriched_rows[0]["top_audio_tag_scores"]), ["engine", "vehicle"])
             self.assertEqual(enriched_rows[1]["retained_audio_tags"], ["rain", "water"])
             self.assertTrue(summary["store_all_tag_scores"])
+            self.assertEqual(summary["store_top_tag_scores"], 2)
             self.assertEqual(summary["total_samples_processed"], 2)
             self.assertEqual(summary["fallback_top_k_used"], 1)
             self.assertEqual(summary["no_valid_tags"], 0)

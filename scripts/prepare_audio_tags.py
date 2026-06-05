@@ -65,11 +65,21 @@ def retain_tags(
     tag_threshold: float,
     min_tags: int,
     fallback_top_k: int,
+    fallback_max_score_gap: float | None = None,
 ) -> RetainedTags:
     sorted_predictions = sorted(predictions, key=lambda item: item[1], reverse=True)
     threshold_retained = [(tag, score) for tag, score in sorted_predictions if score >= tag_threshold]
     used_fallback = len(threshold_retained) < min_tags
-    retained = sorted_predictions[:fallback_top_k] if used_fallback else threshold_retained
+    retained = (
+        _fallback_retained(
+            sorted_predictions,
+            threshold_retained,
+            fallback_top_k=fallback_top_k,
+            fallback_max_score_gap=fallback_max_score_gap,
+        )
+        if used_fallback
+        else threshold_retained
+    )
 
     tags = [tag for tag, _score in retained]
     scores = {tag: float(score) for tag, score in retained}
@@ -92,8 +102,10 @@ def enrich_splits(
     tag_threshold: float,
     min_tags: int,
     fallback_top_k: int,
+    fallback_max_score_gap: float | None,
     max_samples: int | None,
     store_all_tag_scores: bool = False,
+    store_top_tag_scores: int = 0,
     audio_field: str = "audio_file",
 ) -> dict:
     dataset_config = _read_json(dataset_config_path)
@@ -123,8 +135,10 @@ def enrich_splits(
             tag_threshold=tag_threshold,
             min_tags=min_tags,
             fallback_top_k=fallback_top_k,
+            fallback_max_score_gap=fallback_max_score_gap,
             max_samples=max_samples,
             store_all_tag_scores=store_all_tag_scores,
+            store_top_tag_scores=store_top_tag_scores,
             audio_field=audio_field,
             tag_frequencies=tag_frequencies,
             split_counter=split_counter,
@@ -145,7 +159,9 @@ def enrich_splits(
         "tag_threshold": tag_threshold,
         "min_tags": min_tags,
         "fallback_top_k": fallback_top_k,
+        "fallback_max_score_gap": fallback_max_score_gap,
         "store_all_tag_scores": store_all_tag_scores,
+        "store_top_tag_scores": store_top_tag_scores,
         "splits": split_summary,
         "total_samples_processed": total_samples,
         "fallback_top_k_used": fallback_top_k_used,
@@ -170,8 +186,10 @@ def _enrich_manifest(
     tag_threshold: float,
     min_tags: int,
     fallback_top_k: int,
+    fallback_max_score_gap: float | None,
     max_samples: int | None,
     store_all_tag_scores: bool,
+    store_top_tag_scores: int,
     audio_field: str,
     tag_frequencies: Counter[str],
     split_counter: Counter[str],
@@ -193,6 +211,7 @@ def _enrich_manifest(
                 tag_threshold=tag_threshold,
                 min_tags=min_tags,
                 fallback_top_k=fallback_top_k,
+                fallback_max_score_gap=fallback_max_score_gap,
             )
             if retained.used_fallback:
                 counters["fallback_top_k_used"] += 1
@@ -211,6 +230,8 @@ def _enrich_manifest(
             )
             if store_all_tag_scores:
                 row["all_audio_tag_scores"] = _score_map(predictions)
+            if store_top_tag_scores > 0:
+                row["top_audio_tag_scores"] = _score_map(predictions, limit=store_top_tag_scores)
             dst.write(json.dumps(row, ensure_ascii=False) + "\n")
             processed += 1
     print(f"wrote {output_path} split={split} rows={processed}")
@@ -228,6 +249,7 @@ def _predict_retained_tags(
     tag_threshold: float,
     min_tags: int,
     fallback_top_k: int,
+    fallback_max_score_gap: float | None,
 ) -> tuple[RetainedTags, list[tuple[str, float]]]:
     try:
         predictions = tagger.predict(audio_path)
@@ -239,8 +261,37 @@ def _predict_retained_tags(
         tag_threshold=tag_threshold,
         min_tags=min_tags,
         fallback_top_k=fallback_top_k,
+        fallback_max_score_gap=fallback_max_score_gap,
     )
     return retained, predictions
+
+
+def _fallback_retained(
+    sorted_predictions: list[tuple[str, float]],
+    threshold_retained: list[tuple[str, float]],
+    *,
+    fallback_top_k: int,
+    fallback_max_score_gap: float | None,
+) -> list[tuple[str, float]]:
+    if fallback_top_k <= 0 or not sorted_predictions:
+        return []
+    if fallback_max_score_gap is None:
+        return sorted_predictions[:fallback_top_k]
+
+    retained = list(threshold_retained)
+    start_index = len(threshold_retained)
+    if not retained:
+        retained.append(sorted_predictions[0])
+        start_index = 1
+
+    for tag, score in sorted_predictions[start_index:fallback_top_k]:
+        if len(retained) >= fallback_top_k:
+            break
+        previous_score = retained[-1][1]
+        if previous_score - score >= fallback_max_score_gap:
+            break
+        retained.append((tag, score))
+    return retained
 
 
 def _resolve_audio_path(row: dict, *, audio_field: str, dataset_root: Path) -> Path:
@@ -255,8 +306,11 @@ def _sorted_counter(counter: Counter[str]) -> dict[str, int]:
     return dict(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
 
 
-def _score_map(predictions: list[tuple[str, float]]) -> dict[str, float]:
-    return {tag: float(score) for tag, score in sorted(predictions, key=lambda item: item[1], reverse=True)}
+def _score_map(predictions: list[tuple[str, float]], limit: int | None = None) -> dict[str, float]:
+    sorted_predictions = sorted(predictions, key=lambda item: item[1], reverse=True)
+    if limit is not None:
+        sorted_predictions = sorted_predictions[:limit]
+    return {tag: float(score) for tag, score in sorted_predictions}
 
 
 def _read_json(path: Path) -> dict:
@@ -271,13 +325,25 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--split", action="append", choices=["train", "val", "test"], help="Split to process. Repeat to process multiple splits.")
     parser.add_argument("--audio-field", default="audio_file")
     parser.add_argument("--tag-threshold", type=float, default=0.6)
-    parser.add_argument("--min-tags", type=int, default=1)
+    parser.add_argument("--min-tags", type=int, default=2)
     parser.add_argument("--fallback-top-k", type=int, default=3)
+    parser.add_argument(
+        "--fallback-max-score-gap",
+        type=float,
+        default=None,
+        help="When fallback is used, stop adding lower tags after this score drop.",
+    )
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument(
         "--store-all-tag-scores",
         action="store_true",
         help="Add all PANNs AudioSet tag scores to each enriched row.",
+    )
+    parser.add_argument(
+        "--store-top-tag-scores",
+        type=int,
+        default=0,
+        help="Add the top N PANNs AudioSet tag scores to each enriched row.",
     )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--checkpoint-path", default=None)
@@ -290,8 +356,12 @@ def main() -> None:
         raise ValueError("--min-tags must be non-negative")
     if args.fallback_top_k < 0:
         raise ValueError("--fallback-top-k must be non-negative")
+    if args.fallback_max_score_gap is not None and args.fallback_max_score_gap < 0:
+        raise ValueError("--fallback-max-score-gap must be non-negative")
     if args.max_samples is not None and args.max_samples < 0:
         raise ValueError("--max-samples must be non-negative")
+    if args.store_top_tag_scores < 0:
+        raise ValueError("--store-top-tag-scores must be non-negative")
 
     tagger = PannsCnn14AudioSetTagger(device=args.device, checkpoint_path=args.checkpoint_path)
     summary = enrich_splits(
@@ -303,8 +373,10 @@ def main() -> None:
         tag_threshold=args.tag_threshold,
         min_tags=args.min_tags,
         fallback_top_k=args.fallback_top_k,
+        fallback_max_score_gap=args.fallback_max_score_gap,
         max_samples=args.max_samples,
         store_all_tag_scores=args.store_all_tag_scores,
+        store_top_tag_scores=args.store_top_tag_scores,
         audio_field=args.audio_field,
     )
     print(f"wrote {args.summary_output} total_samples_processed={summary['total_samples_processed']}")

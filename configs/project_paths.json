@@ -23,6 +23,15 @@
         "test": "data/manifests/audio_tags/ttas_test_panns_cnn14.jsonl",
         "summary": "data/reports/audio_tags/ttas_panns_cnn14_tag_frequency_summary.json",
         "note": "These are enriched copies of the split manifests; the original split files stay unchanged."
+      },
+      "audio_classes_panns_cnn14": {
+        "train": "data/manifests/audio_classes/ttas_train_panns_cnn14_classes.jsonl",
+        "val": "data/manifests/audio_classes/ttas_val_panns_cnn14_classes.jsonl",
+        "test": "data/manifests/audio_classes/ttas_test_panns_cnn14_classes.jsonl",
+        "summary": "data/reports/audio_classes/ttas_panns_cnn14_primary_audio_class_counts.json",
+        "unknown_samples": "data/reports/audio_classes/ttas_panns_cnn14_unknown_audio_class_samples.jsonl",
+        "class_pooling_config": "configs/audio_tag_class_pooling.json",
+        "note": "Adds primary_audio_class to the PANNs tag manifests for later coarse reference pooling."
       }
     }
   },
