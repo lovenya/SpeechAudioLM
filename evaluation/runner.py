@@ -456,6 +456,12 @@ def _dedicated_script_command(
             "--contradiction-threshold",
             str(config.get("contradiction_threshold", 0.7)),
         ]
+        if (
+            _truthy_config(config.get("local_files_only"))
+            or _truthy_config(config.get("hf_hub_offline"))
+            or _truthy_config(config.get("transformers_offline"))
+        ):
+            command.append("--local-files-only")
         if config.get("allow_stub_fallback"):
             command.append("--allow-stub-fallback")
         return command
@@ -493,6 +499,13 @@ def _dedicated_script_command(
         return command
     raise MetricUnavailableError(f"Unsupported dedicated-script metric: {metric_name}")
 
+
+def _truthy_config(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 def _dedicated_metric_value(metric_name: str, result: dict[str, Any]) -> float | None:
     if metric_name == "nli_contradiction":

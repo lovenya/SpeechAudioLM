@@ -151,7 +151,8 @@
       "contradiction_threshold": 0.7,
       "batch_size": 8,
       "allow_stub_fallback": false,
-      "note": "Helper metric for contradiction detection only; neutral is not failure and entailment is not required."
+      "note": "Helper metric for contradiction detection only; neutral is not failure and entailment is not required.",
+      "local_files_only": true
     },
     "g_eval_reference_free": {
       "backend": "dedicated-script",

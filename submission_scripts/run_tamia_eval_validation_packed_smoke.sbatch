@@ -77,6 +77,7 @@ nli.update({
     'transformers_cache': os.environ['HF_HOME'],
     'hf_hub_offline': '1',
     'transformers_offline': '1',
+    'local_files_only': True,
     'batch_size': 8,
     'contradiction_threshold': 0.7,
     'allow_stub_fallback': False,

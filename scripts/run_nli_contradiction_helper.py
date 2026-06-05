@@ -51,7 +51,14 @@ class StubNliScorer:
 class HuggingFaceNliScorer:
     """Hugging Face sequence-classification NLI adapter."""
 
-    def __init__(self, model_name_or_path: str, *, device: str = "cpu", batch_size: int = 8) -> None:
+    def __init__(
+        self,
+        model_name_or_path: str,
+        *,
+        device: str = "cpu",
+        batch_size: int = 8,
+        local_files_only: bool = False,
+    ) -> None:
         try:
             import torch
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -59,8 +66,11 @@ class HuggingFaceNliScorer:
             raise RuntimeError("Hugging Face NLI requires transformers and torch.") from exc
 
         self.name = model_name_or_path
-        self._tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-        self._model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path)
+        self._tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, local_files_only=local_files_only)
+        self._model = AutoModelForSequenceClassification.from_pretrained(
+            model_name_or_path,
+            local_files_only=local_files_only,
+        )
         self._torch = torch
         self._device = _resolve_device(device, torch)
         self._batch_size = batch_size
@@ -260,6 +270,7 @@ def _build_scorer(args: argparse.Namespace) -> NliScorer:
             args.model,
             device=args.device,
             batch_size=args.batch_size,
+            local_files_only=args.local_files_only,
         )
     except Exception:
         if not args.allow_stub_fallback:
@@ -278,6 +289,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--contradiction-threshold", type=float, default=0.7)
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument(
+        "--local-files-only",
+        action="store_true",
+        help="Do not contact Hugging Face; load only local model files.",
+    )
     parser.add_argument("--allow-stub-fallback", action="store_true")
     return parser
 

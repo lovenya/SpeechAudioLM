@@ -9,7 +9,7 @@ from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
-from evaluation.runner import EvalOptions, dry_run, run_evaluation
+from evaluation.runner import EvalOptions, _dedicated_script_command, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import baseline_output_root, eval_model_root
 
@@ -202,6 +202,41 @@ class EvaluationScaffoldTest(unittest.TestCase):
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
+
+    def test_nli_dedicated_command_uses_local_files_only_for_offline_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            options = EvalOptions(
+                model="cascaded",
+                task="T2T",
+                dataset="ttas",
+                split="val",
+                manifest_path=root / "manifest.jsonl",
+                dataset_config_path=root / "dataset.json",
+                metrics_config_path=root / "metrics.json",
+                task_metric_map_path=root / "task_metric_map.json",
+                output_root=root / "evals",
+                metric_specs=get_metric_specs(["nli_contradiction"]),
+                max_samples=None,
+                start_index=0,
+                cache_dir=root / "cache",
+                device="cuda",
+                command=["evaluate.py"],
+            )
+
+            command = _dedicated_script_command(
+                "nli_contradiction",
+                Path("python"),
+                Path("scripts/run_nli_contradiction_helper.py"),
+                root / "input.jsonl",
+                root / "output.jsonl",
+                root / "summary.json",
+                root / "work",
+                {"hf_hub_offline": "1", "transformers_offline": "1"},
+                options,
+            )
+
+            self.assertIn("--local-files-only", command)
 
     def test_nli_contradiction_runs_as_dedicated_script_metric(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
