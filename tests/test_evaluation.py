@@ -446,3 +446,56 @@ class EvaluationScaffoldTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class WrappedCascadedManifestTest(unittest.TestCase):
+    def test_evaluation_reader_normalizes_wrapped_sample(self) -> None:
+        from evaluation.io import _normalize_generation_record
+
+        wrapped = {
+            "schema_version": "1.0",
+            "current_stage": 3,
+            "lane": "full_a2s_afn_qwen32_f5_tts",
+            "pipeline": "A2S",
+            "dataset": "ttas",
+            "split": "val",
+            "config_file": "configs/example.json",
+            "sample": {
+                "row_index": 4,
+                "sample_id": "sample",
+                "status": "success",
+                "reference": {
+                    "audio_file": "audio/sample.wav",
+                    "audio_caption": "A motorcycle starts",
+                    "speech_file": "speech/sample.wav",
+                    "speech_text": "Start already.",
+                },
+                "stages": [
+                    {
+                        "stage": 3,
+                        "task": "text_to_speech",
+                        "model": "f5_tts",
+                        "input": {"type": "speech_text", "text": "Come on, start."},
+                        "prompt": None,
+                        "inference_seconds": 3.4,
+                        "output": {
+                            "type": "speech_audio",
+                            "file": "audio/generated.wav",
+                            "sample_rate": 24000,
+                            "duration_seconds": 4.2,
+                        },
+                        "error": None,
+                    }
+                ],
+                "final_output": {"type": "speech_audio", "file": "audio/generated.wav"},
+                "error": None,
+            },
+        }
+        row = _normalize_generation_record(wrapped)
+        self.assertEqual(row["task"], "T2S")
+        self.assertEqual(row["model"], "f5_tts")
+        self.assertEqual(row["output_file"], "audio/generated.wav")
+        self.assertEqual(row["source"]["audio_cap"], "A motorcycle starts")
+        self.assertEqual(row["prompt"], "Come on, start.")
+        self.assertEqual(row["generation_seconds"], 3.4)
+        from evaluation.runner import _predictions
+        self.assertEqual(_predictions(row, []), {"generated_speech": "audio/generated.wav"})

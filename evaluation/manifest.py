@@ -49,11 +49,20 @@ def resolve_manifest_path(
 
 
 def source_record(row: dict) -> dict:
+    sample = row.get("sample")
+    if isinstance(sample, dict) and isinstance(sample.get("reference"), dict):
+        source = dict(sample["reference"])
+        if "audio_caption" in source and "audio_cap" not in source:
+            source["audio_cap"] = source["audio_caption"]
+        return source
     source = row.get("source")
     return source if isinstance(source, dict) else row
 
 
 def sample_id(row: dict, ordinal: int) -> str:
+    sample = row.get("sample")
+    if isinstance(sample, dict) and isinstance(sample.get("sample_id"), str):
+        return sample["sample_id"]
     existing = row.get("sample_id")
     if isinstance(existing, str) and existing:
         return existing
@@ -61,5 +70,8 @@ def sample_id(row: dict, ordinal: int) -> str:
 
 
 def is_successful_generation(row: dict) -> bool:
+    sample = row.get("sample")
+    if isinstance(sample, dict):
+        return sample.get("status", "success") == "success"
     return row.get("status", "success") == "success"
 
