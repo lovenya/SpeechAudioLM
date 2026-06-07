@@ -48,7 +48,7 @@ class WhisperASRRunner(BaselineRunner):
         extra = {
             "source_input_file": str(speech_path),
             "understanding_text": text,
-            "generation_prompt": row.prompt,
+            "generation_prompt": None,
             "backend": "whisper",
             "stages": [
                 {
@@ -102,7 +102,7 @@ class Qwen3ASRRunner(BaselineRunner):
             "source_input_file": str(speech_path),
             "understanding_text": text,
             "language": language,
-            "generation_prompt": row.prompt,
+            "generation_prompt": None,
             "backend": "qwen3_asr",
             "stages": [
                 {

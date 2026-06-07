@@ -53,6 +53,50 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(sample["stages"][0]["output"]["text"], "generated caption")
         self.assertFalse(any(key.startswith("_de" + "mo") for key in row))
 
+    def test_legacy_stage_prompts_do_not_use_reference_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cases = [
+                ("audio_flamingo_next", "A2S", "Generate a caption for the input audio."),
+                ("qwen3_omni_captioner", "A2S", None),
+                ("whisper", "S2A", None),
+            ]
+            for model, pipeline, expected_prompt in cases:
+                manifest = root / f"{model}.jsonl"
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "status": "success",
+                            "row_index": 0,
+                            "sample_id": model,
+                            "prompt": "REFERENCE TEXT MUST NOT BECOME A MODEL PROMPT",
+                            "candidate_text": "generated text",
+                            "model_extra": {"stages": []},
+                            "source": {
+                                "audio_file": "audio/a.wav",
+                                "speech_file": "speech/a.wav",
+                                "speech_text": "reference speech",
+                                "audio_cap": "reference caption",
+                            },
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                row = _stage1_to_t2t(
+                    argparse.Namespace(
+                        manifest=str(manifest),
+                        pipeline=pipeline,
+                        upstream_backend=model,
+                        text_model="qwen3_32b",
+                        allow_partial=False,
+                    )
+                )[0]
+                prompt = row["_cascaded_sample"]["stages"][0]["prompt"]
+                rendered = prompt["rendered"] if prompt else None
+                self.assertEqual(rendered, expected_prompt)
+                self.assertNotEqual(rendered, "REFERENCE TEXT MUST NOT BECOME A MODEL PROMPT")
+
     def test_t2t_to_final_preserves_reference_speech_for_a2s(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest = Path(tmpdir) / "t2t_manifest.jsonl"

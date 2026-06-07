@@ -156,8 +156,7 @@ def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number:
         input_value = source.get("speech_text") or source.get("audio_cap") or record.get("prompt")
         input_type = "audio_caption" if pipeline == "A2S" else "speech_text"
     extra = record.get("model_extra") if isinstance(record.get("model_extra"), dict) else {}
-    rendered = extra.get("generation_prompt") or extra.get("understanding_prompt") or record.get("prompt")
-    messages = extra.get("messages") if isinstance(extra.get("messages"), list) else []
+    rendered, messages = _legacy_prompt(task, model, source, extra)
     output_text = record.get("candidate_text") or extra.get("understanding_text")
     output_type = "audio_caption" if task == "audio_to_text" else "speech_text"
     if task == "text_to_text" and pipeline == "S2A":
@@ -181,6 +180,28 @@ def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number:
         stage=stage,
         status="success",
     )
+
+
+def _legacy_prompt(task: str, model: str, source: dict, extra: dict) -> tuple[str | None, list[dict]]:
+    rendered = extra.get("generation_prompt") or extra.get("understanding_prompt")
+    messages = extra.get("messages") if isinstance(extra.get("messages"), list) else []
+    if rendered is not None or messages:
+        return rendered, messages
+    if task in {"speech_to_text", "text_to_text"}:
+        return None, []
+    audio_file = source.get("audio_file")
+    if model == "audio_flamingo_next":
+        prompt = "Generate a caption for the input audio."
+        content = [{"type": "text", "text": prompt}]
+        if isinstance(audio_file, str):
+            content.append({"type": "audio", "path": audio_file})
+        return prompt, [{"role": "user", "content": content}]
+    if model == "qwen3_omni_captioner":
+        content = []
+        if isinstance(audio_file, str):
+            content.append({"type": "audio", "audio": audio_file})
+        return None, [{"role": "user", "content": content}]
+    return None, []
 
 
 def _sample_output_text(sample: dict) -> str:
