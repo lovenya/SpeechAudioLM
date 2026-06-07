@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "dataset": "ttas",
+  "split": "val",
+  "stage": 2,
+  "task": "text_to_text",
+  "input_root": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/ttas_val/stage_inputs/schema_v1",
+  "output_root": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/ttas_val",
+  "models": ["qwen3_32b", "llama3_3_70b_instruct"],
+  "modes": ["audio_description_to_speech", "speech_to_audio_description"],
+  "generation": {
+    "steps": 64,
+    "seed": 1337,
+    "do_sample": false
+  }
+}
