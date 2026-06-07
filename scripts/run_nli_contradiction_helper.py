@@ -11,7 +11,7 @@ from statistics import mean
 from typing import Any, Protocol
 
 
-DEFAULT_MODEL_NAME = "MoritzLaurer/deberta-v3-large-zeroshot-v2.0"
+DEFAULT_MODEL_NAME = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
 LABELS = ("entailment", "neutral", "contradiction")
 THRESHOLDS = (0.5, 0.7, 0.9)
 

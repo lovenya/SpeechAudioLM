@@ -448,7 +448,13 @@ def _dedicated_script_command(
             "--backend",
             str(config.get("script_backend", config.get("runtime_backend", "hf"))),
             "--model",
-            str(config.get("model_name", config.get("model_path") or "MoritzLaurer/deberta-v3-large-zeroshot-v2.0")),
+            str(
+                config.get(
+                    "model_name",
+                    config.get("model_path")
+                    or "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
+                )
+            ),
             "--device",
             options.device,
             "--batch-size",

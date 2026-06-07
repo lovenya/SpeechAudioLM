@@ -40,7 +40,7 @@ CACHE_ROOT="${CACHE_ROOT:-$SALM_SCRATCH/cache/metrics/eval_runtime}"
 RUN_LOG_DIR="$SALM_SCRATCH/logs/eval_packed/validation_smoke/$RUN_ID"
 RUNTIME_METRICS_CONFIG="$RUN_LOG_DIR/eval_metrics.runtime.json"
 NLI_PYTHON="${NLI_PYTHON:-$SALM_SCRATCH/.venvs/metrics/.venv-eval-aac/bin/python}"
-NLI_MODEL="${NLI_MODEL:-MoritzLaurer/deberta-v3-large-zeroshot-v2.0}"
+NLI_MODEL="${NLI_MODEL:-MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli}"
 NLI_SNAPSHOT="${NLI_SNAPSHOT:-}"
 export MAX_SAMPLES INCLUDE_NLI SPLIT DATASET RUN_ID BASELINE_ROOT EVAL_SUITE_ROOT CACHE_ROOT RUN_LOG_DIR RUNTIME_METRICS_CONFIG NLI_PYTHON NLI_MODEL NLI_SNAPSHOT STRICT_FAILURES
 
