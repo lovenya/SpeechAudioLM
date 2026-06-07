@@ -8,7 +8,7 @@ import types
 import unittest
 from pathlib import Path
 
-from baseline_cascaded import _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
+from baseline_cascaded import ModularCascade, _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
 from baselines.models.audio_captioning import _patch_audio_flamingo_next_transformers_compat
 from baselines.models.speech_asr import _patch_qwen_asr_transformers_compat
 from baselines.dataset import PromptRow, iter_split_rows
@@ -16,6 +16,19 @@ from baselines.models.text_llm import TextLLMRunner, _strip_thinking_output
 
 
 class CascadedBaselineTest(unittest.TestCase):
+    def test_s2a_text_stage_output_is_audio_description(self) -> None:
+        cascade = ModularCascade(
+            argparse.Namespace(text_mode="speech_to_audio_description"),
+            dataset_root=None,
+        )
+        output = cascade._stage_output(
+            "text_to_text",
+            {"candidate_text": "A motorcycle engine starts."},
+            {},
+        )
+
+        self.assertEqual(output["type"], "audio_description")
+
     def test_stage_input_preserves_carried_sample_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             split = Path(tmpdir) / "stage_input.jsonl"

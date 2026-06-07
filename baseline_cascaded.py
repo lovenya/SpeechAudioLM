@@ -680,7 +680,7 @@ class ModularCascade:
             output_type = {
                 "audio_to_text": "audio_caption",
                 "speech_to_text": "speech_text",
-                "text_to_text": "speech_text" if self.args.text_mode == "audio_description_to_speech" else "audio_caption",
+                "text_to_text": "speech_text" if self.args.text_mode == "audio_description_to_speech" else "audio_description",
             }[task]
             return {"type": output_type, "text": record.get("candidate_text") or extra.get("understanding_text")}
         output_type = "speech_audio" if task == "text_to_speech" else "environmental_audio"
