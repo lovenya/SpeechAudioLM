@@ -82,6 +82,7 @@ class Qwen3OmniCaptionerRunner(BaselineRunner):
         extra = {
             "source_input_file": str(audio_path),
             "understanding_prompt": None,
+            "messages": conversation,
             "understanding_text": caption,
             "backend": "qwen3_omni_captioner",
             "stages": [
@@ -167,6 +168,7 @@ class AudioFlamingoCaptionerRunner(BaselineRunner):
         extra = {
             "source_input_file": str(audio_path),
             "understanding_prompt": prompt,
+            "messages": conversation[0],
             "understanding_text": caption,
             "backend": "audio_flamingo_next",
             "stages": [

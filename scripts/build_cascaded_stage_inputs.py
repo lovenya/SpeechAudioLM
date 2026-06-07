@@ -11,6 +11,8 @@ import argparse
 import json
 from pathlib import Path
 
+from baselines.cascaded_manifest import build_sample, read_inspection_definitions, reference_from_record, unwrap_sample
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -60,81 +62,149 @@ def main() -> None:
 
 
 def _stage1_to_t2t(args: argparse.Namespace) -> list[dict]:
+    manifest = Path(args.manifest)
+    definitions = read_inspection_definitions(manifest)
     rows = []
-    for index, record in enumerate(_successful_records(Path(args.manifest), allow_partial=args.allow_partial)):
-        text = _required_text(record, "candidate_text")
-        sample_id = str(record.get("sample_id") or f"row_{index}")
-        stage_id = _safe_id(f"{args.pipeline}_{args.upstream_backend}_{args.text_model}_{sample_id}")
+    for index, record in enumerate(_successful_records(manifest, allow_partial=args.allow_partial)):
+        sample = _cumulative_sample(record, pipeline=args.pipeline, model=args.upstream_backend, stage_number=1)
+        text = _sample_output_text(sample)
+        sample_id = str(sample.get("sample_id") or f"row_{index}")
+        reference = sample["reference"]
         rows.append(
             {
-                "audio_file": _source_field(record, "audio_file", f"stage_inputs/{stage_id}.wav"),
-                "speech_file": _source_field(record, "speech_file", f"stage_inputs/{stage_id}.wav"),
+                "audio_file": reference.get("audio_file") or f"stage_inputs/{sample_id}.wav",
+                "speech_file": reference.get("speech_file") or f"stage_inputs/{sample_id}.wav",
                 "speech_text": text,
                 "audio_cap": text,
-                "stage_provenance": {
-                    "stage": "t2t_input",
-                    "pipeline": args.pipeline,
-                    "upstream_backend": args.upstream_backend,
-                    "text_model": args.text_model,
-                    "upstream_manifest": args.manifest,
-                    "upstream_sample_id": sample_id,
-                    "upstream_output_file": record.get("output_file"),
-                    "upstream_text": text,
-                },
-                "original_row": record.get("source", {}),
+                "_cascaded_pipeline": args.pipeline,
+                "_cascaded_sample": sample,
+                "_cascaded_stage_definitions": definitions or [_legacy_stage_definition(sample["stages"][-1])],
             }
         )
     return rows
 
 
 def _t2t_to_final(args: argparse.Namespace) -> list[dict]:
+    manifest = Path(args.manifest)
+    definitions = read_inspection_definitions(manifest)
     rows = []
-    for index, record in enumerate(_successful_records(Path(args.manifest), allow_partial=args.allow_partial)):
-        text = _required_text(record, "candidate_text")
-        sample_id = str(record.get("sample_id") or f"row_{index}")
-        stage_id = _safe_id(f"{args.pipeline}_{args.upstream_backend}_{args.text_model}_{args.final_backend}_{sample_id}")
-        source = record.get("source") or {}
-        original = _original_row_from_stage_source(source)
+    for index, record in enumerate(_successful_records(manifest, allow_partial=args.allow_partial)):
+        sample = _cumulative_sample(record, pipeline=args.pipeline, model=args.text_model, stage_number=2)
+        text = _sample_output_text(sample)
+        sample_id = str(sample.get("sample_id") or f"row_{index}")
+        reference = sample["reference"]
         row = {
-            "audio_file": original.get("audio_file") if isinstance(original.get("audio_file"), str) else f"stage_inputs/{stage_id}.wav",
-            "speech_file": original.get("speech_file") if isinstance(original.get("speech_file"), str) else f"stage_inputs/{stage_id}.wav",
+            "audio_file": reference.get("audio_file") or f"stage_inputs/{sample_id}.wav",
+            "speech_file": reference.get("speech_file") or f"stage_inputs/{sample_id}.wav",
             "speech_text": text,
             "audio_cap": text,
-            "stage_provenance": {
-                "stage": "final_input",
-                "pipeline": args.pipeline,
-                "upstream_backend": args.upstream_backend,
-                "text_model": args.text_model,
-                "final_backend": args.final_backend,
-                "t2t_manifest": args.manifest,
-                "t2t_sample_id": sample_id,
-                "t2t_output_file": record.get("output_file"),
-                "t2t_output_text": text,
-                "t2t_input_text": source.get("speech_text") if isinstance(source, dict) else None,
-                "upstream_stage_provenance": source.get("stage_provenance") if isinstance(source, dict) else None,
-            },
-            "original_row": original,
+            "_cascaded_pipeline": args.pipeline,
+            "_cascaded_sample": sample,
+            "_cascaded_stage_definitions": definitions or [_legacy_stage_definition(stage) for stage in sample["stages"]],
         }
-        if args.pipeline == "A2S" and isinstance(original.get("speech_file"), str):
-            row["speech_file"] = original["speech_file"]
-            row["reference_speech_file"] = original["speech_file"]
-        if args.pipeline == "A2S" and isinstance(original.get("speech_text"), str):
-            row["reference_speech_text"] = original["speech_text"]
+        if args.pipeline == "A2S":
+            if reference.get("speech_file"):
+                row["reference_speech_file"] = reference["speech_file"]
+            if reference.get("speech_text"):
+                row["reference_speech_text"] = reference["speech_text"]
         rows.append(row)
     return rows
 
 
+def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number: int) -> dict:
+    sample = unwrap_sample(record)
+    if isinstance(record.get("sample"), dict):
+        return sample
+    carried = record.get("_cascaded_sample")
+    if isinstance(carried, dict):
+        return carried
 
-def _original_row_from_stage_source(source: dict) -> dict:
-    original = source.get("original_row")
-    return original if isinstance(original, dict) else source
+    task = "audio_to_text" if pipeline == "A2S" and stage_number == 1 else "speech_to_text"
+    if stage_number == 2:
+        task = "text_to_text"
+    source = record.get("source") if isinstance(record.get("source"), dict) else record
+    carried_record = source
+    if stage_number == 2 and isinstance(source.get("original_row"), dict):
+        original = source["original_row"]
+        upstream_text = source.get("speech_text") or source.get("audio_cap")
+        upstream_task = "audio_to_text" if pipeline == "A2S" else "speech_to_text"
+        upstream_input = {
+            "type": "audio" if pipeline == "A2S" else "speech_audio",
+            "file": original.get("audio_file") if pipeline == "A2S" else original.get("speech_file"),
+        }
+        upstream_stage = {
+            "stage": 1,
+            "task": upstream_task,
+            "model": (source.get("stage_provenance") or {}).get("upstream_backend", "unknown"),
+            "input": upstream_input,
+            "prompt": None,
+            "inference_seconds": None,
+            "output": {"type": "audio_caption" if pipeline == "A2S" else "speech_text", "text": upstream_text},
+            "error": None,
+        }
+        prior_sample = build_sample(
+            row_index=int(record.get("row_index", 0)),
+            sample_id=str(record.get("sample_id") or "unknown"),
+            record=original,
+            stage=upstream_stage,
+            status="success",
+        )
+        carried_record = {"_cascaded_sample": prior_sample}
+    input_value = source.get("audio_file") if task == "audio_to_text" else source.get("speech_file")
+    input_type = "audio" if task == "audio_to_text" else "speech_audio"
+    if task == "text_to_text":
+        input_value = source.get("speech_text") or source.get("audio_cap") or record.get("prompt")
+        input_type = "audio_caption" if pipeline == "A2S" else "speech_text"
+    extra = record.get("model_extra") if isinstance(record.get("model_extra"), dict) else {}
+    rendered = extra.get("generation_prompt") or extra.get("understanding_prompt") or record.get("prompt")
+    messages = extra.get("messages") if isinstance(extra.get("messages"), list) else []
+    output_text = record.get("candidate_text") or extra.get("understanding_text")
+    output_type = "audio_caption" if task == "audio_to_text" else "speech_text"
+    if task == "text_to_text" and pipeline == "S2A":
+        output_type = "audio_description"
+    stage = {
+        "stage": stage_number,
+        "task": task,
+        "model": model,
+        "input": {"type": input_type, "file" if task != "text_to_text" else "text": input_value},
+        "prompt": {"rendered": rendered, "messages": messages} if rendered is not None or messages else None,
+        "inference_seconds": record.get("generation_seconds"),
+        "output": {"type": output_type, "text": output_text},
+        "error": None,
+    }
+    if task == "text_to_text":
+        stage["mode"] = "audio_description_to_speech" if pipeline == "A2S" else "speech_to_audio_description"
+    return build_sample(
+        row_index=int(record.get("row_index", 0)),
+        sample_id=str(record.get("sample_id") or "unknown"),
+        record=carried_record,
+        stage=stage,
+        status="success",
+    )
 
 
-def _source_field(record: dict, field: str, fallback: str) -> str:
-    source = record.get("source")
-    if isinstance(source, dict) and isinstance(source.get(field), str) and source[field].strip():
-        return source[field]
-    return fallback
+def _sample_output_text(sample: dict) -> str:
+    stages = sample.get("stages")
+    if not isinstance(stages, list) or not stages:
+        raise ValueError(f"Sample {sample.get('sample_id')} has no stages")
+    output = stages[-1].get("output")
+    text = output.get("text") if isinstance(output, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"Sample {sample.get('sample_id')} has no usable final stage text")
+    return text.strip()
+
+
+def _legacy_stage_definition(stage: dict) -> dict:
+    return {
+        "stage": stage.get("stage"),
+        "task": stage.get("task"),
+        "model": stage.get("model"),
+        "checkpoint": None,
+        "dtype": None,
+        "prompt_template": None,
+        "generation": {},
+        "runtime": {"device": None, "model_load_seconds": None},
+    }
 
 
 def _successful_records(path: Path, *, allow_partial: bool = False) -> list[dict]:
@@ -147,7 +217,8 @@ def _successful_records(path: Path, *, allow_partial: bool = False) -> list[dict
             if not line.strip():
                 continue
             record = json.loads(line)
-            if record.get("status") == "success":
+            sample = unwrap_sample(record)
+            if sample.get("status") == "success":
                 rows.append(record)
             else:
                 errors.append(record)
@@ -156,13 +227,6 @@ def _successful_records(path: Path, *, allow_partial: bool = False) -> list[dict
     if errors:
         print(f"warning: {path} contains {len(errors)} non-success records; wrote successful rows only")
     return rows
-
-
-def _required_text(record: dict, key: str) -> str:
-    value = record.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"Record row={record.get('row_index')} has no usable {key}")
-    return value.strip()
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -193,9 +257,11 @@ def _write_report(root: Path, output: Path, expected_count: int | None, require_
                 if not line.strip():
                     continue
                 record = json.loads(line)
-                status = str(record.get("status", "unknown"))
+                sample = unwrap_sample(record)
+                status = str(sample.get("status", "unknown"))
                 counts[status] = counts.get(status, 0) + 1
-                value = record.get("generation_seconds")
+                stages = sample.get("stages")
+                value = stages[-1].get("inference_seconds") if isinstance(stages, list) and stages else record.get("generation_seconds")
                 if isinstance(value, (int, float)):
                     seconds.append(float(value))
         report.append(

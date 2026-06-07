@@ -47,8 +47,10 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(row["speech_file"], "speech/a.wav")
         self.assertEqual(row["speech_text"], "generated caption")
         self.assertEqual(row["audio_cap"], "generated caption")
-        self.assertEqual(row["original_row"]["speech_text"], "ground truth speech")
-        self.assertEqual(row["stage_provenance"]["upstream_backend"], "audio_flamingo_next")
+        sample = row["_cascaded_sample"]
+        self.assertEqual(sample["reference"]["speech_text"], "ground truth speech")
+        self.assertEqual(sample["stages"][0]["model"], "audio_flamingo_next")
+        self.assertEqual(sample["stages"][0]["output"]["text"], "generated caption")
         self.assertFalse(any(key.startswith("_de" + "mo") for key in row))
 
     def test_t2t_to_final_preserves_reference_speech_for_a2s(self) -> None:
@@ -96,8 +98,11 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(row["speech_text"], "generated speech text")
         self.assertEqual(row["reference_speech_file"], "speech/a.wav")
         self.assertEqual(row["reference_speech_text"], "ground truth speech")
-        self.assertEqual(row["original_row"]["audio_cap"], "ground truth caption")
-        self.assertEqual(row["stage_provenance"]["upstream_stage_provenance"], {"stage": "t2t_input"})
+        sample = row["_cascaded_sample"]
+        self.assertEqual(sample["reference"]["audio_caption"], "ground truth caption")
+        self.assertEqual(len(sample["stages"]), 2)
+        self.assertEqual(sample["stages"][0]["output"]["text"], "caption input")
+        self.assertEqual(sample["stages"][1]["output"]["text"], "generated speech text")
         self.assertFalse(any(key.startswith("_de" + "mo") for key in row))
 
 

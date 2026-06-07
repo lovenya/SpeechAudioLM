@@ -80,7 +80,10 @@ class TextLLMRunner(BaselineRunner):
         import torch
 
         formatted_prompt = self._format_prompt(row.prompt)
-        messages = [{"role": "user", "content": formatted_prompt}]
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": formatted_prompt})
         if hasattr(self.tokenizer, "apply_chat_template"):
             try:
                 text = self.tokenizer.apply_chat_template(
@@ -105,6 +108,7 @@ class TextLLMRunner(BaselineRunner):
         answer = _strip_thinking_output(self.tokenizer.decode(generated, skip_special_tokens=True).strip())
         extra = {
             "generation_prompt": formatted_prompt,
+            "messages": messages,
             "input_text": row.prompt,
             "understanding_text": answer,
             "backend": "text_llm",

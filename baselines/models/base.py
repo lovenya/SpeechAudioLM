@@ -26,6 +26,7 @@ class BaselineRunner:
         seed: int,
         task: str,
         prompt_template: str | None = None,
+        system_prompt: str | None = None,
         dataset_root: str | None = None,
         **_: object,
     ) -> None:
@@ -36,6 +37,7 @@ class BaselineRunner:
         self.seed = seed
         self.task = task
         self.prompt_template = prompt_template
+        self.system_prompt = system_prompt
         self.dataset_root = Path(dataset_root) if dataset_root else None
 
     def load(self) -> None:
