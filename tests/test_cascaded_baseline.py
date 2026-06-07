@@ -11,11 +11,24 @@ from pathlib import Path
 from baseline_cascaded import _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
 from baselines.models.audio_captioning import _patch_audio_flamingo_next_transformers_compat
 from baselines.models.speech_asr import _patch_qwen_asr_transformers_compat
-from baselines.dataset import PromptRow
+from baselines.dataset import PromptRow, iter_split_rows
 from baselines.models.text_llm import TextLLMRunner, _strip_thinking_output
 
 
 class CascadedBaselineTest(unittest.TestCase):
+    def test_stage_input_preserves_carried_sample_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            split = Path(tmpdir) / "stage_input.jsonl"
+            split.write_text(
+                '{"speech_text":"generated caption","audio_file":"audio/a.wav",'
+                '"_cascaded_sample":{"row_index":17,"sample_id":"original-id"}}\n',
+                encoding="utf-8",
+            )
+            rows = list(iter_split_rows(split, prompt_field="speech_text"))
+
+        self.assertEqual(rows[0].row_index, 17)
+        self.assertEqual(rows[0].sample_id, "original-id")
+
     def test_prompt_fields_match_pipeline_inputs(self) -> None:
         self.assertEqual(_pipeline_prompt_field("T2A"), "audio_cap")
         self.assertEqual(_pipeline_prompt_field("A2T"), "audio_cap")

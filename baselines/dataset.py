@@ -62,10 +62,9 @@ def iter_split_rows(
         prompt = record.get(prompt_field)
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError(f"Row {row_index} has no usable prompt field {prompt_field!r}")
-        sample_id = sample_id_from_record(record, row_index)
         yield PromptRow(
-            row_index=row_index,
-            sample_id=sample_id,
+            row_index=row_index_from_record(record, row_index),
+            sample_id=sample_id_from_record(record, row_index),
             prompt=prompt.strip(),
             record=record,
         )
@@ -74,7 +73,17 @@ def iter_split_rows(
             break
 
 
+def row_index_from_record(record: dict, fallback: int) -> int:
+    sample = record.get("_cascaded_sample")
+    if isinstance(sample, dict) and sample.get("row_index") is not None:
+        return int(sample["row_index"])
+    return fallback
+
+
 def sample_id_from_record(record: dict, row_index: int) -> str:
+    sample = record.get("_cascaded_sample")
+    if isinstance(sample, dict) and isinstance(sample.get("sample_id"), str) and sample["sample_id"]:
+        return sample["sample_id"]
     for key in ("audio_file", "speech_file"):
         value = record.get(key)
         if isinstance(value, str) and value:

@@ -98,9 +98,9 @@ def main() -> None:
                 rows[row_index] = row
                 samples[row_index] = sample
 
-    missing = [index for index in range(args.expected_count) if index not in rows]
-    if missing:
-        raise SystemExit(f"missing rows {missing[:20]} count={len(missing)}")
+    if len(rows) != args.expected_count:
+        raise SystemExit(f"merged rows={len(rows)}; expected={args.expected_count}")
+    ordered_indices = sorted(rows)
     output_dir.mkdir(parents=True, exist_ok=True)
     if args.artifact_subdir == "text":
         expected_artifacts = sum(sample.get("status") == "success" for sample in samples.values())
@@ -123,7 +123,7 @@ def main() -> None:
         canonical_artifacts.rename(backup_artifacts)
     staging_artifacts.rename(canonical_artifacts)
     staging_root.rmdir()
-    merged_rows = [rows[index] for index in range(args.expected_count)]
+    merged_rows = [rows[index] for index in ordered_indices]
     output_manifest.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in merged_rows), encoding="utf-8")
     if metadata is None or definitions is None:
         raise SystemExit("no shard metadata found")
@@ -131,13 +131,13 @@ def main() -> None:
         output_inspection,
         metadata={"lane": args.lane, **metadata},
         stage_definitions=definitions,
-        samples=[samples[index] for index in range(args.expected_count)],
+        samples=[samples[index] for index in ordered_indices],
         created_at=created_at or "",
         started_at=started_at or "",
         completed_at=completed_at or "",
-        status="completed" if all(samples[index].get("status") == "success" for index in range(args.expected_count)) else "completed_with_errors",
+        status="completed" if all(samples[index].get("status") == "success" for index in ordered_indices) else "completed_with_errors",
     )
-    ok = sum(samples[index].get("status") == "success" for index in range(args.expected_count))
+    ok = sum(samples[index].get("status") == "success" for index in ordered_indices)
     print(f"canonicalized {args.lane}: rows={len(merged_rows)} ok={ok} err={len(merged_rows)-ok} copied_artifacts={copied}")
 
 
