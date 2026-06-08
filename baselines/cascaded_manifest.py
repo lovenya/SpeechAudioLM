@@ -52,12 +52,12 @@ def reference_from_record(record: dict[str, Any]) -> dict[str, Any]:
 def carried_stages(record: dict[str, Any]) -> list[dict[str, Any]]:
     sample = record.get("_cascaded_sample")
     stages = sample.get("stages") if isinstance(sample, dict) else None
-    return [dict(stage) for stage in stages] if isinstance(stages, list) else []
+    return [normalize_stage(stage) for stage in stages] if isinstance(stages, list) else []
 
 
 def carried_stage_definitions(record: dict[str, Any]) -> list[dict[str, Any]]:
     definitions = record.get("_cascaded_stage_definitions")
-    return [dict(item) for item in definitions] if isinstance(definitions, list) else []
+    return [normalize_stage_definition(item) for item in definitions] if isinstance(definitions, list) else []
 
 
 def build_sample(
@@ -73,6 +73,7 @@ def build_sample(
     expected_stage = len(stages) + 1
     if stage.get("stage") != expected_stage:
         raise ValueError(f"Stage {stage.get('stage')} does not follow {len(stages)} carried stages")
+    stage = normalize_stage(stage)
     stages.append(stage)
     final_output = stage.get("output") if status == "success" and stage["task"] in {"text_to_audio", "text_to_speech"} else None
     return {
@@ -124,7 +125,7 @@ def read_inspection_definitions(manifest_path: Path) -> list[dict[str, Any]]:
         return []
     document = json.loads(inspection_path.read_text(encoding="utf-8"))
     definitions = document.get("stage_definitions")
-    return [dict(item) for item in definitions] if isinstance(definitions, list) else []
+    return [normalize_stage_definition(item) for item in definitions] if isinstance(definitions, list) else []
 
 
 def output_duration_seconds(extra: dict[str, Any], sample_rate: int | None) -> float | None:
@@ -161,3 +162,51 @@ def _audio_metadata(record: dict[str, Any]) -> dict[str, Any]:
     if pools:
         metadata["reference_pool"] = pools
     return metadata
+
+
+def normalize_prompt(prompt: Any) -> dict[str, Any] | None:
+    if not isinstance(prompt, dict):
+        return None
+    messages = prompt.get("messages")
+    if isinstance(messages, list) and messages:
+        return {"messages": messages}
+    rendered = prompt.get("rendered")
+    if isinstance(rendered, str) and rendered.strip():
+        return {"messages": [{"role": "user", "content": rendered}]}
+    return None
+
+
+def normalize_stage(stage: dict[str, Any]) -> dict[str, Any]:
+    normalized = {
+        "stage": stage.get("stage"),
+        "task": stage.get("task"),
+        "model": stage.get("model"),
+    }
+    if stage.get("mode") is not None:
+        normalized["mode"] = stage.get("mode")
+    normalized.update({
+        "input": stage.get("input"),
+        "prompt": normalize_prompt(stage.get("prompt")),
+        "inference_seconds": stage.get("inference_seconds"),
+        "output": stage.get("output"),
+        "error": stage.get("error"),
+    })
+    return normalized
+
+
+def normalize_stage_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    normalized = {
+        "stage": definition.get("stage"),
+        "task": definition.get("task"),
+        "model": definition.get("model"),
+        "checkpoint": definition.get("checkpoint"),
+        "dtype": definition.get("dtype"),
+        "prompt_template": definition.get("prompt_template"),
+        "generation": dict(definition.get("generation") or {}),
+        "runtime": dict(definition.get("runtime") or {}),
+    }
+    if definition.get("mode") is not None:
+        normalized["mode"] = definition.get("mode")
+    if definition.get("system_prompt") is not None:
+        normalized["system_prompt"] = definition.get("system_prompt")
+    return normalized

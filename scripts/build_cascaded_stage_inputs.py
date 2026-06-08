@@ -11,7 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
-from baselines.cascaded_manifest import build_sample, read_inspection_definitions, reference_from_record, unwrap_sample
+from baselines.cascaded_manifest import build_sample, normalize_prompt, read_inspection_definitions, unwrap_sample
 
 
 def main() -> None:
@@ -156,7 +156,7 @@ def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number:
         input_value = source.get("speech_text") or source.get("audio_cap") or record.get("prompt")
         input_type = "audio_caption" if pipeline == "A2S" else "speech_text"
     extra = record.get("model_extra") if isinstance(record.get("model_extra"), dict) else {}
-    rendered, messages = _legacy_prompt(task, model, source, extra)
+    prompt = _legacy_prompt(task, model, source, extra)
     output_text = record.get("candidate_text") or extra.get("understanding_text")
     output_type = "audio_caption" if task == "audio_to_text" else "speech_text"
     if task == "text_to_text" and pipeline == "S2A":
@@ -166,7 +166,7 @@ def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number:
         "task": task,
         "model": model,
         "input": {"type": input_type, "file" if task != "text_to_text" else "text": input_value},
-        "prompt": {"rendered": rendered, "messages": messages} if rendered is not None or messages else None,
+        "prompt": prompt,
         "inference_seconds": record.get("generation_seconds"),
         "output": {"type": output_type, "text": output_text},
         "error": None,
@@ -182,26 +182,26 @@ def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number:
     )
 
 
-def _legacy_prompt(task: str, model: str, source: dict, extra: dict) -> tuple[str | None, list[dict]]:
+def _legacy_prompt(task: str, model: str, source: dict, extra: dict) -> dict | None:
     rendered = extra.get("generation_prompt") or extra.get("understanding_prompt")
     messages = extra.get("messages") if isinstance(extra.get("messages"), list) else []
     if rendered is not None or messages:
-        return rendered, messages
+        return normalize_prompt({"rendered": rendered, "messages": messages})
     if task in {"speech_to_text", "text_to_text"}:
-        return None, []
+        return None
     audio_file = source.get("audio_file")
     if model == "audio_flamingo_next":
         prompt = "Generate a caption for the input audio."
         content = [{"type": "text", "text": prompt}]
         if isinstance(audio_file, str):
             content.append({"type": "audio", "path": audio_file})
-        return prompt, [{"role": "user", "content": content}]
+        return {"messages": [{"role": "user", "content": content}]}
     if model == "qwen3_omni_captioner":
         content = []
         if isinstance(audio_file, str):
             content.append({"type": "audio", "audio": audio_file})
-        return None, [{"role": "user", "content": content}]
-    return None, []
+        return {"messages": [{"role": "user", "content": content}]}
+    return None
 
 
 def _sample_output_text(sample: dict) -> str:
@@ -254,7 +254,7 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def _require_count(path: str, rows: list[dict], expected: int, *, allow_partial: bool = False) -> None:

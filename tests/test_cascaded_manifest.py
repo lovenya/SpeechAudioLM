@@ -29,7 +29,7 @@ class CascadedManifestTest(unittest.TestCase):
             "task": "audio_to_text",
             "model": "audio_flamingo_next",
             "input": {"type": "audio", "file": "audio/sample.wav"},
-            "prompt": {"rendered": "Generate a caption for the input audio.", "messages": []},
+            "prompt": {"messages": [{"role": "user", "content": "Generate a caption for the input audio."}]},
             "inference_seconds": 1.2,
             "output": {"type": "audio_caption", "text": "A motorcycle engine starts."},
             "error": None,
@@ -47,7 +47,7 @@ class CascadedManifestTest(unittest.TestCase):
             "model": "qwen3_32b",
             "mode": "audio_description_to_speech",
             "input": {"type": "audio_caption", "text": stage1["output"]["text"]},
-            "prompt": {"rendered": "full prompt", "messages": [{"role": "user", "content": "full prompt"}]},
+            "prompt": {"messages": [{"role": "user", "content": "full prompt"}]},
             "inference_seconds": 2.1,
             "output": {"type": "speech_text", "text": "Come on, start."},
             "error": None,
@@ -152,4 +152,4 @@ class FullPipelineFailureTest(unittest.TestCase):
         self.assertEqual(len(failed["stages"]), 2)
         self.assertEqual(failed["stages"][0]["output"], failed["stages"][1]["input"])
         self.assertEqual(failed["stages"][1]["mode"], "audio_description_to_speech")
-        self.assertIn("Audio description", failed["stages"][1]["prompt"]["rendered"])
+        self.assertIn("Audio description", failed["stages"][1]["prompt"]["messages"][1]["content"])

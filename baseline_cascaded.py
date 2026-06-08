@@ -17,6 +17,7 @@ from baselines.cascaded_manifest import (
     carried_stage_definitions,
     carried_stages,
     eastern_now,
+    normalize_prompt,
     output_duration_seconds,
     read_inspection_definitions,
     unwrap_sample,
@@ -580,11 +581,9 @@ class ModularCascade:
         extra: dict,
         mode: str | None = None,
     ) -> dict:
-        rendered = extra.get("generation_prompt") or extra.get("understanding_prompt")
-        messages = extra.get("messages")
         prompt = None
-        if task in {"audio_to_text", "text_to_text"} and (rendered is not None or isinstance(messages, list)):
-            prompt = {"rendered": rendered, "messages": messages if isinstance(messages, list) else []}
+        if task in {"audio_to_text", "text_to_text"}:
+            prompt = _prompt_from_extra(extra)
         result = {
             "stage": stage,
             "task": task,
@@ -614,14 +613,9 @@ class ModularCascade:
         extra.update(self._last_stage_extra)
         stage_number = len(carried_stages(row.record)) + 1
         output = self._stage_output(task, record, extra)
-        rendered_prompt = extra.get("generation_prompt") or extra.get("understanding_prompt")
-        messages = extra.get("messages")
         prompt = None
-        if task in {"audio_to_text", "text_to_text"} and (rendered_prompt is not None or isinstance(messages, list)):
-            prompt = {
-                "rendered": rendered_prompt,
-                "messages": messages if isinstance(messages, list) else [],
-            }
+        if task in {"audio_to_text", "text_to_text"}:
+            prompt = _prompt_from_extra(extra)
         stage = {
             "stage": stage_number,
             "task": task,
@@ -711,7 +705,6 @@ class ModularCascade:
         if task == "text_to_text":
             rendered = _text_conversion_prompt(row.prompt, active_mode)
             return {
-                "rendered": rendered,
                 "messages": [
                     {"role": "system", "content": _text_system_prompt(active_mode)},
                     {"role": "user", "content": rendered},
@@ -720,7 +713,7 @@ class ModularCascade:
         template = _stage_prompt_template(task, model, active_mode, self.args.prompt_template)
         if template:
             rendered = template.format(prompt=row.prompt, input=row.prompt)
-            return {"rendered": rendered, "messages": [{"role": "user", "content": rendered}]}
+            return {"messages": [{"role": "user", "content": rendered}]}
         return None
 
     def _current_stage_definition(self, stage_number: int) -> dict:
@@ -1219,6 +1212,10 @@ def _stage_record(stage: str, backend: str, prompt: str, output_path: Path) -> d
 def _text_stage_record(stage: str, backend: str, text: str) -> dict:
     return {"stage": stage, "backend": backend, "output_text": text}
 
+
+def _prompt_from_extra(extra: dict) -> dict | None:
+    rendered = extra.get("generation_prompt") or extra.get("understanding_prompt")
+    return normalize_prompt({"rendered": rendered, "messages": extra.get("messages")})
 
 if __name__ == "__main__":
     main()

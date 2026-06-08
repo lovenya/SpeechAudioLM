@@ -93,7 +93,14 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
                     )
                 )[0]
                 prompt = row["_cascaded_sample"]["stages"][0]["prompt"]
-                rendered = prompt["rendered"] if prompt else None
+                messages = prompt["messages"] if prompt else []
+                text_parts = [
+                    part.get("text")
+                    for message in messages
+                    for part in (message.get("content") if isinstance(message.get("content"), list) else [])
+                    if isinstance(part, dict)
+                ]
+                rendered = text_parts[0] if text_parts else None
                 self.assertEqual(rendered, expected_prompt)
                 self.assertNotEqual(rendered, "REFERENCE TEXT MUST NOT BECOME A MODEL PROMPT")
 
