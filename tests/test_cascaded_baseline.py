@@ -16,6 +16,34 @@ from baselines.models.text_llm import TextLLMRunner, _strip_thinking_output
 
 
 class CascadedBaselineTest(unittest.TestCase):
+    def test_stage_uses_generation_only_inference_seconds(self) -> None:
+        cascade = ModularCascade(
+            argparse.Namespace(
+                pipeline="T2T",
+                text_model="qwen3_32b",
+                text_mode="speech_to_audio_description",
+                captioner="audio_flamingo_next",
+                asr="whisper",
+                tts="f5_tts",
+                t2a="audiogen",
+            ),
+            dataset_root=None,
+        )
+        cascade._last_stage_extra = {"inference_seconds": 1.25}
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample",
+            prompt="spoken words",
+            record={"speech_text": "spoken words"},
+        )
+        sample = cascade._sample_from_record(
+            row,
+            {"candidate_text": "engine sound", "model_extra": {}},
+            inference_seconds=99.0,
+        )
+
+        self.assertEqual(sample["stages"][-1]["inference_seconds"], 1.25)
+
     def test_s2a_text_stage_output_is_audio_description(self) -> None:
         cascade = ModularCascade(
             argparse.Namespace(text_mode="speech_to_audio_description"),

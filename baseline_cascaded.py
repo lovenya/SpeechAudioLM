@@ -343,8 +343,12 @@ class ModularCascade:
         text_output = self._component_output_path(output_root, "text_to_text", row, ".json")
         runner = self._runner(self.args.text_model, "text_to_text")
         runner.system_prompt = _text_system_prompt(mode)
+        inference_started = time.time()
         result = runner.generate(_with_prompt(row, prompt), text_output)
-        self._last_stage_extra = dict(result.extra)
+        self._last_stage_extra = {
+            **result.extra,
+            "inference_seconds": round(time.time() - inference_started, 3),
+        }
         text = str(result.extra.get("understanding_text") or "").strip()
         self._append_component_manifest(output_root, "text_to_text", row, text_output, None, {**result.extra, "input_text": input_text, "mode": mode}, text)
         return text
@@ -624,7 +628,7 @@ class ModularCascade:
             "model": model,
             "input": self._stage_input(task, row),
             "prompt": prompt,
-            "inference_seconds": inference_seconds,
+            "inference_seconds": extra.get("inference_seconds", inference_seconds),
             "output": output,
             "error": None,
         }
