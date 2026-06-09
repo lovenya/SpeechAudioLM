@@ -58,11 +58,13 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     from aac_metrics import evaluate as aac_evaluate
     from aac_metrics.functional.clap_sim import clap_sim
     from aac_metrics.functional.mace import mace as mace_fn
+    from aac_metrics.functional.spider import spider as spider_fn
 
     metrics = set(payload["metrics"])
     rows = payload["rows"]
-    candidates = [row["candidate_text"] for row in rows]
-    references = [[row["source"]["audio_cap"]] for row in rows]
+    # PTBTokenizer rejects embedded newlines, which can occur in model captions.
+    candidates = [_single_line_text(row["candidate_text"]) for row in rows]
+    references = [[_single_line_text(row["source"]["audio_cap"])] for row in rows]
     audio_paths = [row["source"]["audio_file"] for row in rows]
     cache_path = _first_config_value(payload, "cache_dir") or payload["cache_dir"]
     device = payload["device"]
@@ -73,13 +75,15 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     java_tool_options = os.environ.pop("JAVA_TOOL_OPTIONS", None)
     try:
         if "spider" in metrics:
-            corpus_scores, sent_scores = aac_evaluate(
-                candidates,
+            cfg = payload["metric_configs"].get("spider", {})
+            spider_candidates = [_limit_words(text, int(cfg.get("max_candidate_words", 100))) for text in candidates]
+            corpus_scores, sent_scores = spider_fn(
+                spider_candidates,
                 references,
-                metrics=["spider"],
                 cache_path=cache_path,
                 java_path=java_path,
-                device=device,
+                java_max_memory=str(cfg.get("java_max_memory", "32G")),
+                return_all_scores=True,
             )
             _assign_sample_scores(rows, sample_metrics, "spider", sent_scores.get("spider"))
             corpus_metrics["spider"] = _scalar(corpus_scores.get("spider"))
@@ -263,11 +267,15 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
 
     metrics = set(payload["metrics"])
     cfg = payload["metric_configs"].get("fad") or payload["metric_configs"].get("inception_score") or {}
+    runtime_home = Path(cfg.get("runtime_home") or Path(cfg.get("cache_dir") or payload["cache_dir"]).parent / "runtime_home")
+    runtime_home.mkdir(parents=True, exist_ok=True)
     generated_dir, reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
     _ensure_minimum_audio_files(generated_dir)
     _ensure_minimum_audio_files(reference_dir)
+    previous_home = os.environ.get("HOME")
     try:
         torch.load = load_legacy_checkpoint
+        os.environ["HOME"] = str(runtime_home)
         evaluator = EvaluationHelper(
             int(cfg.get("sample_rate", 16000)),
             torch.device(payload["device"]),
@@ -276,6 +284,10 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
         raw = evaluator.main(str(generated_dir), str(reference_dir), limit_num=len(payload["rows"]))
     finally:
         torch.load = original_torch_load
+        if previous_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = previous_home
     corpus_metrics: dict[str, Any] = {}
     if "fad" in metrics:
         corpus_metrics["fad"] = _scalar(raw.get("frechet_audio_distance"))
@@ -304,6 +316,9 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
 def run_kadtk(payload: dict[str, Any]) -> dict[str, Any]:
     cfg = payload["metric_configs"].get("kad", {})
     generated_dir, reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
+    minimum_duration_seconds = float(cfg.get("minimum_duration_seconds", 1.0))
+    _pad_short_audio_files(generated_dir, minimum_duration_seconds)
+    _pad_short_audio_files(reference_dir, minimum_duration_seconds)
     import kadtk.model_loader as model_loader
     import torch
     from kadtk.emb_loader import EmbeddingLoader
@@ -565,6 +580,24 @@ def _ensure_minimum_audio_files(directory: Path, minimum: int = 2) -> None:
         audio_files.append(target)
 
 
+def _pad_short_audio_files(directory: Path, minimum_duration_seconds: float) -> None:
+    if minimum_duration_seconds <= 0:
+        return
+    import numpy as np
+    import soundfile as sf
+
+    for path in sorted(item for item in directory.iterdir() if item.is_file() or item.is_symlink()):
+        info = sf.info(str(path))
+        minimum_frames = max(1, int(round(info.samplerate * minimum_duration_seconds)))
+        if info.frames >= minimum_frames:
+            continue
+        audio, sample_rate = sf.read(str(path), always_2d=True, dtype="float32")
+        padded = np.pad(audio, ((0, minimum_frames - audio.shape[0]), (0, 0)))
+        if path.is_symlink():
+            path.unlink()
+        sf.write(str(path), padded, sample_rate, subtype=info.subtype)
+
+
 def _link_or_copy(source: Path, target: Path) -> None:
     source = source.resolve(strict=True)
     if target.exists() or target.is_symlink():
@@ -641,6 +674,16 @@ def _transcribe_whisper(model: Any, audio_path: str, device: str) -> str:
 
 def _normalize_text(text: str) -> str:
     return " ".join(str(text).strip().split())
+
+
+def _single_line_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _limit_words(text: str, max_words: int) -> str:
+    if max_words <= 0:
+        return text
+    return " ".join(text.split()[:max_words])
 
 
 def _word_error_rate(reference: str, hypothesis: str) -> float:

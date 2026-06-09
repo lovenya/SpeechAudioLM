@@ -10,7 +10,7 @@
     },
     "asr_wer": {
       "backend": "openai-whisper",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-whisper/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "model_name": "large-v3",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/models/metrics/whisper",
@@ -19,7 +19,7 @@
     },
     "dwer": {
       "backend": "openai-whisper",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-whisper/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "model_name": "large-v3",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/models/metrics/whisper",
@@ -29,7 +29,7 @@
     },
     "mace": {
       "backend": "aac-metrics",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-aac/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics",
       "hf_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
       "transformers_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
@@ -37,14 +37,16 @@
     },
     "spider": {
       "backend": "aac-metrics",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-aac/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics",
       "hf_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
-      "transformers_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface"
+      "transformers_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
+      "max_candidate_words": 100,
+      "java_max_memory": "32G"
     },
     "aac_clapsim": {
       "backend": "aac-metrics",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-aac/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "model_name": "MS-CLAP-2023",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics",
@@ -65,7 +67,7 @@
     },
     "fense": {
       "backend": "aac-metrics",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-aac/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics",
       "hf_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
       "transformers_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface"
@@ -81,6 +83,7 @@
       "model_name": "PANNs",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/audioldm_eval",
+      "runtime_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/runtime_home",
       "sample_rate": 16000,
       "backbone": "cnn14"
     },
@@ -90,7 +93,8 @@
       "model_name": "panns-wavegram-logmel",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/kadtk",
-      "workers": 2
+      "workers": 2,
+      "minimum_duration_seconds": 1.0
     },
     "kl_passt": {
       "backend": "stable-audio-metrics",
@@ -113,7 +117,7 @@
     },
     "utmos": {
       "backend": "utmosv2",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-utmosv2/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "model_name": "UTMOSv2",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/utmosv2",
@@ -124,7 +128,7 @@
     },
     "dnsmos": {
       "backend": "torchmetrics-dnsmos",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-dnsmos/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python",
       "model_name": "DNSMOS",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/models/metrics/dnsmos",
@@ -155,19 +159,21 @@
       "local_files_only": true,
       "hf_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/huggingface",
       "hf_hub_offline": "1",
-      "transformers_offline": "1"
+      "transformers_offline": "1",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-metrics-shared-py312/bin/python"
     },
     "g_eval_reference_free": {
       "backend": "dedicated-script",
       "script": "scripts/run_g_eval_reference_free.py",
       "script_backend": "vllm",
-      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-prometheus-vllm/bin/python",
+      "python": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-prometheus-vllm-py312/bin/python",
       "model_name": "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0",
       "tensor_parallel_size": 4,
       "temperature": 0.0,
       "max_tokens": 512,
       "batch_size": 8,
-      "gpu_memory_utilization": 0.9,
+      "gpu_memory_utilization": 0.85,
+      "enforce_eager": true,
       "trust_remote_code": true,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/g_eval_reference_free",
       "note": "Reference-free T2T G-Eval judge using Prometheus 2 8x7B via vLLM on 4 H100s."

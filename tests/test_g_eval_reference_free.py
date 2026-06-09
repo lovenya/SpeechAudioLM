@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_g_eval_reference_free import StubJudge, build_prompt, run_g_eval
+from scripts.run_g_eval_reference_free import StubJudge, _parse_judge_json, _should_flag, build_prompt, run_g_eval
 
 
 class GEvalReferenceFreeTest(unittest.TestCase):
@@ -14,12 +14,35 @@ class GEvalReferenceFreeTest(unittest.TestCase):
             direction="audio_to_speech",
             input_text="A dog is barking outside.",
             generated_text="Can someone close the window?",
-            nli_summary="Not available.",
         )
 
         self.assertIn("not exact reference matching", prompt)
         self.assertIn("Causal / situational plausibility", prompt)
+        self.assertEqual(prompt.count("Input text:"), 1)
+        self.assertNotIn("NLI", prompt)
         self.assertIn('"overall_score": <1-5>', prompt)
+
+    def test_parser_preserves_decimal_scores(self) -> None:
+        response = json.dumps({
+            "non_contradiction": 5,
+            "causal_situational_plausibility": 4,
+            "physical_grounding": 5,
+            "contextual_emotional_fit": 4,
+            "specificity_without_over_invention": 4,
+            "creativity_valid_diversity": 5,
+            "naturalness": 5,
+            "overall_score": 4.5,
+            "should_flag": False,
+            "failure_modes": [],
+            "short_rationale": "Good with minor issues.",
+        })
+        parsed = _parse_judge_json(response)
+        self.assertEqual(parsed["overall_score"], 4.5)
+
+    def test_should_flag_is_deterministic(self) -> None:
+        self.assertTrue(_should_flag(4, ["situationally_implausible"]))
+        self.assertTrue(_should_flag(2, []))
+        self.assertFalse(_should_flag(3, ["too_vague"]))
 
     def test_run_g_eval_writes_rows_summary_and_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

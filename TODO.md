@@ -40,6 +40,10 @@
 
 - Keep the shared metric environment as the main path for wired metrics.
 - Build and validate the separate Prometheus/vLLM environment for `g_eval_reference_free`.
+- Extend judge-based evaluation beyond the current text-only LLM-as-judge baseline.
+  - Add an audio-language-model-as-judge (`LALM`-as-judge) approach that can inspect generated or reference audio directly.
+  - Investigate an additional structured/SQLLM-style judge approach after defining its intended inputs, outputs, and role.
+  - Compare judge disagreements as diagnostics; keep NLI, text-only G-Eval, and future audio-aware judges independent rather than feeding one metric's score into another.
 - Decide the final metric set for:
   - `T2T` intermediate evaluation
   - `A2S` final speech evaluation

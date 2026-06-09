@@ -14,7 +14,9 @@ from statistics import mean
 from typing import Any, Protocol
 
 
-PROMPT_VERSION = "g_eval_reference_free_v1"
+PROMPT_VERSION = "g_eval_reference_free_v3_failure_modes"
+ALLOWED_FAILURE_MODES = frozenset({"clear_contradiction", "no_meaningful_connection", "situationally_implausible", "physically_incoherent", "too_vague", "unnatural_language"})
+AUTO_FLAG_FAILURE_MODES = frozenset({"clear_contradiction", "no_meaningful_connection", "situationally_implausible", "physically_incoherent"})
 DEFAULT_MODEL_PATH = "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0"
 CRITERIA = (
     "non_contradiction",
@@ -48,8 +50,8 @@ class StubJudge:
     def generate(self, prompts: list[str]) -> list[str]:
         outputs = []
         for prompt in prompts:
-            lower = prompt.lower()
-            contradiction = "silent" in lower and any(token in lower for token in ("noise", "loud", "traffic"))
+            sample_text = prompt.split("Input text:", 1)[-1].split("Evaluate the generated output", 1)[0].lower()
+            contradiction = "silent" in sample_text and any(token in sample_text for token in ("noise", "loud", "traffic"))
             score = 2 if contradiction else 4
             outputs.append(
                 json.dumps(
@@ -62,8 +64,7 @@ class StubJudge:
                         "creativity_valid_diversity": 4,
                         "naturalness": 4,
                         "overall_score": score,
-                        "should_flag": contradiction,
-                        "failure_modes": ["possible_contradiction"] if contradiction else [],
+                        "failure_modes": ["clear_contradiction"] if contradiction else [],
                         "short_rationale": "Stub deterministic judgment for pipeline tests.",
                     }
                 )
@@ -80,6 +81,8 @@ class VllmPrometheusJudge:
         temperature: float,
         max_tokens: int,
         gpu_memory_utilization: float,
+        max_model_len: int | None,
+        enforce_eager: bool,
         trust_remote_code: bool,
     ) -> None:
         try:
@@ -89,12 +92,16 @@ class VllmPrometheusJudge:
 
         self.name = model_path
         self._sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
-        self._llm = LLM(
-            model=model_path,
-            tensor_parallel_size=tensor_parallel_size,
-            trust_remote_code=trust_remote_code,
-            gpu_memory_utilization=gpu_memory_utilization,
-        )
+        llm_options: dict[str, Any] = {
+            "model": model_path,
+            "tensor_parallel_size": tensor_parallel_size,
+            "trust_remote_code": trust_remote_code,
+            "gpu_memory_utilization": gpu_memory_utilization,
+            "enforce_eager": enforce_eager,
+        }
+        if max_model_len is not None:
+            llm_options["max_model_len"] = max_model_len
+        self._llm = LLM(**llm_options)
         self._tokenizer = self._llm.get_tokenizer()
 
     def generate(self, prompts: list[str]) -> list[str]:
@@ -110,9 +117,9 @@ class VllmPrometheusJudge:
                     tokenize=False,
                     add_generation_prompt=True,
                 )
-            except Exception:
-                pass
-        return prompt
+            except Exception as exc:
+                raise RuntimeError("Prometheus tokenizer chat-template formatting failed.") from exc
+        raise RuntimeError("Prometheus tokenizer does not provide a chat template.")
 
 
 def run_g_eval(
@@ -139,27 +146,77 @@ def run_g_eval(
         else:
             output_rows.append(_row_from_judgment(item.row, item.prompt_hash, cached, cached.get("raw_judge_response", ""), judge.name))
 
+    _write_progress(
+        output_rows, requested_rows=len(items), complete=not pending,
+        input_path=input_path, output_path=output_path, summary_output=summary_output,
+        summary_csv_output=summary_csv_output, judge_name=judge.name,
+    )
+
     for start in range(0, len(pending), batch_size):
         chunk = pending[start : start + batch_size]
-        raw_responses = judge.generate([item.prompt for item in chunk])
-        for item, raw in zip(chunk, raw_responses):
+        generated: list[tuple[EvalItem, str | None, str | None]] = []
+        try:
+            raw_responses = judge.generate([item.prompt for item in chunk])
+            if len(raw_responses) != len(chunk):
+                raise RuntimeError(f"Judge returned {len(raw_responses)} responses for {len(chunk)} prompts")
+            generated = [(item, raw, None) for item, raw in zip(chunk, raw_responses)]
+        except Exception:
+            for item in chunk:
+                try:
+                    raw_responses = judge.generate([item.prompt])
+                    if len(raw_responses) != 1:
+                        raise RuntimeError(f"Judge returned {len(raw_responses)} responses for one prompt")
+                    generated.append((item, raw_responses[0], None))
+                except Exception as exc:
+                    generated.append((item, None, f"{type(exc).__name__}: {exc}"))
+
+        for item, raw, generation_error in generated:
+            if generation_error is not None:
+                parsed = _runtime_error_judgment(generation_error)
+                output_rows.append(_row_from_judgment(item.row, item.prompt_hash, parsed, "", judge.name))
+                continue
+            assert raw is not None
             try:
                 parsed = _parse_judge_json(raw)
                 parsed["parse_error"] = None
             except Exception as exc:
                 parsed = _error_judgment(raw, f"{type(exc).__name__}: {exc}")
             parsed["raw_judge_response"] = raw
-            _write_cache(cache_dir, item.prompt_hash, parsed)
+            if not parsed.get("parse_error"):
+                _write_cache(cache_dir, item.prompt_hash, parsed)
             output_rows.append(_row_from_judgment(item.row, item.prompt_hash, parsed, raw, judge.name))
+        _write_progress(
+            output_rows, requested_rows=len(items), complete=len(output_rows) == len(items),
+            input_path=input_path, output_path=output_path, summary_output=summary_output,
+            summary_csv_output=summary_csv_output, judge_name=judge.name,
+        )
 
     output_rows.sort(key=lambda row: int(row.get("row_index", 0)))
-    summary = _summary(output_rows, input_path=input_path, output_path=output_path, judge_name=judge.name)
-    _write_jsonl(output_path, output_rows)
+    summary = _write_progress(
+        output_rows, requested_rows=len(items), complete=True,
+        input_path=input_path, output_path=output_path, summary_output=summary_output,
+        summary_csv_output=summary_csv_output, judge_name=judge.name,
+    )
+    print(f"wrote {output_path} rows={summary['total_pairs_processed']}")
+    print(f"wrote {summary_output}")
+    return summary
+
+
+def _write_progress(
+    rows: list[dict[str, Any]], *, requested_rows: int, complete: bool,
+    input_path: Path, output_path: Path, summary_output: Path,
+    summary_csv_output: Path | None, judge_name: str,
+) -> dict[str, Any]:
+    rows.sort(key=lambda row: int(row.get("row_index", 0)))
+    summary = _summary(rows, input_path=input_path, output_path=output_path, judge_name=judge_name)
+    summary["requested_pairs"] = requested_rows
+    unresolved = sum(1 for row in rows if row.get("parse_error") or row.get("judge_error"))
+    summary["remaining_pairs"] = max(0, requested_rows - len(rows)) + unresolved
+    summary["complete"] = complete and unresolved == 0
+    _write_jsonl(output_path, rows)
     _write_json(summary_output, summary)
     if summary_csv_output:
         _write_summary_csv(summary_csv_output, summary)
-    print(f"wrote {output_path} rows={summary['total_pairs_processed']}")
-    print(f"wrote {summary_output}")
     return summary
 
 
@@ -170,13 +227,12 @@ def _make_item(row: dict[str, Any]) -> EvalItem:
         direction=str(row.get("direction") or "text_to_text"),
         input_text=input_text,
         generated_text=generated_text,
-        nli_summary=_nli_summary(row),
     )
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     return EvalItem(row=row, prompt=prompt, prompt_hash=prompt_hash)
 
 
-def build_prompt(*, direction: str, input_text: str, generated_text: str, nli_summary: str) -> str:
+def build_prompt(*, direction: str, input_text: str, generated_text: str) -> str:
     return f'''You are evaluating a creative cross-modal generation system.
 
 The task is not paraphrase matching and not exact reference matching. The generated output may be creative. Multiple different outputs can be valid.
@@ -188,9 +244,6 @@ Input text:
 
 Generated output text:
 {generated_text}
-
-Optional NLI contradiction signal:
-{nli_summary}
 
 Evaluate the generated output using the criteria below.
 
@@ -224,6 +277,17 @@ Criteria:
    For generated speech text: does it sound like a natural human utterance?
    For generated audio descriptions: does it sound like a coherent natural audio scene description?
 
+Failure modes:
+
+Use only the following labels. Return an empty list when no substantive failure applies. Multiple labels may be returned when independently applicable.
+
+- clear_contradiction: The generated output explicitly conflicts with the input. Example: the input says the environment is silent, but the output describes loud construction.
+- no_meaningful_connection: The output is coherent by itself, but has no meaningful situational, causal, or contextual relationship with the input. Example: the input asks someone to close a window, but the output describes unrelated keyboard typing.
+- situationally_implausible: A connection is identifiable, but the implied relationship is unreasonable or highly unlikely. Example: the input asks someone to close a window, and the output describes a quiet butterfly outside.
+- physically_incoherent: The generated scene or event is internally physically or acoustically impossible. Example: a completely silent explosion is described as simultaneously deafening.
+- too_vague: The output lacks enough meaningful information to describe, explain, or react to the situation. Example: "Some sounds are happening."
+- unnatural_language: The output is grammatically broken, excessively repetitive, template-like, or unnatural for the requested output type.
+
 Return strict JSON only:
 
 {{
@@ -235,9 +299,8 @@ Return strict JSON only:
 "creativity_valid_diversity": <1-5>,
 "naturalness": <1-5>,
 "overall_score": <1-5>,
-"should_flag": true/false,
-"failure_modes": ["..."],
-"short_rationale": "..."
+"failure_modes": ["one or more allowed labels, or an empty list"],
+"short_rationale": "A concise one-to-two-sentence explanation of the strongest reasons for the scores and selected failure modes."
 }}
 
 Scoring guidance:
@@ -252,22 +315,6 @@ If the output is strongly contradictory, the overall score should be low even if
 Do not reward long outputs just because they are detailed.'''
 
 
-def _nli_summary(row: dict[str, Any]) -> str:
-    nli = row.get("nli_contradiction")
-    if not isinstance(nli, dict):
-        return "Not available."
-    parts = []
-    for key in (
-        "forward_contradiction_probability",
-        "reverse_contradiction_probability",
-        "max_contradiction_probability",
-        "predicted_label_using_max_contradiction",
-    ):
-        if key in nli:
-            parts.append(f"{key}={nli[key]}")
-    return "; ".join(parts) if parts else "Not available."
-
-
 def _parse_judge_json(raw: str) -> dict[str, Any]:
     text = raw.strip()
     if not text.startswith("{"):
@@ -280,15 +327,28 @@ def _parse_judge_json(raw: str) -> dict[str, Any]:
         raise ValueError("Judge response JSON is not an object")
     result: dict[str, Any] = {}
     for key in CRITERIA:
-        value = int(data[key])
+        value = data[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{key} score is not numeric: {value!r}")
         if value < 1 or value > 5:
             raise ValueError(f"{key} score out of range: {value}")
         result[key] = value
-    result["should_flag"] = bool(data.get("should_flag", result["overall_score"] <= 2))
     failure_modes = data.get("failure_modes", [])
-    result["failure_modes"] = [str(item) for item in failure_modes] if isinstance(failure_modes, list) else [str(failure_modes)]
+    if not isinstance(failure_modes, list):
+        raise ValueError("failure_modes must be a list")
+    normalized_failure_modes = [str(item) for item in failure_modes]
+    unknown_failure_modes = sorted(set(normalized_failure_modes) - ALLOWED_FAILURE_MODES)
+    if unknown_failure_modes:
+        raise ValueError(f"Unknown failure modes: {unknown_failure_modes}")
+    result["failure_modes"] = normalized_failure_modes
+    result["should_flag"] = _should_flag(result["overall_score"], normalized_failure_modes)
+    result["should_flag_policy"] = "overall_score_le_2_or_absolute_failure_mode_v1"
     result["short_rationale"] = str(data.get("short_rationale", "")).strip()
     return result
+
+
+def _should_flag(overall_score: float, failure_modes: list[str]) -> bool:
+    return overall_score <= 2 or bool(AUTO_FLAG_FAILURE_MODES.intersection(failure_modes))
 
 
 def _error_judgment(raw: str, message: str) -> dict[str, Any]:
@@ -302,6 +362,17 @@ def _error_judgment(raw: str, message: str) -> dict[str, Any]:
     }
 
 
+def _runtime_error_judgment(message: str) -> dict[str, Any]:
+    return {
+        **{key: None for key in CRITERIA},
+        "should_flag": True,
+        "failure_modes": ["judge_runtime_error"],
+        "short_rationale": "The judge call failed before producing a response.",
+        "judge_error": message,
+        "raw_judge_response": "",
+    }
+
+
 def _row_from_judgment(row: dict[str, Any], prompt_hash: str, judgment: dict[str, Any], raw: str, judge_name: str) -> dict[str, Any]:
     output = {
         "row_index": row.get("row_index"),
@@ -312,7 +383,6 @@ def _row_from_judgment(row: dict[str, Any], prompt_hash: str, judgment: dict[str
         "primary_audio_class": row.get("primary_audio_class"),
         "input_text": row.get("input_text"),
         "generated_text": row.get("generated_text"),
-        "nli_contradiction": row.get("nli_contradiction"),
         "prompt_hash": prompt_hash,
         "judge_model": judge_name,
         "prompt_version": PROMPT_VERSION,
@@ -323,7 +393,7 @@ def _row_from_judgment(row: dict[str, Any], prompt_hash: str, judgment: dict[str
 
 
 def _summary(rows: list[dict[str, Any]], *, input_path: Path, output_path: Path, judge_name: str) -> dict[str, Any]:
-    valid_rows = [row for row in rows if isinstance(row.get("overall_score"), int)]
+    valid_rows = [row for row in rows if _is_score(row.get("overall_score"))]
     by_direction: dict[str, list[dict[str, Any]]] = {}
     for row in valid_rows:
         by_direction.setdefault(str(row.get("direction") or "unknown"), []).append(row)
@@ -337,6 +407,7 @@ def _summary(rows: list[dict[str, Any]], *, input_path: Path, output_path: Path,
         "total_pairs_processed": len(rows),
         "valid_judgments": len(valid_rows),
         "parse_error_count": sum(1 for row in rows if row.get("parse_error")),
+        "judge_error_count": sum(1 for row in rows if row.get("judge_error")),
         "should_flag_count": sum(1 for row in rows if row.get("should_flag") is True),
         "mean_scores": _mean_scores(valid_rows),
         "mean_scores_by_direction": {direction: _mean_scores(items) for direction, items in sorted(by_direction.items())},
@@ -344,8 +415,12 @@ def _summary(rows: list[dict[str, Any]], *, input_path: Path, output_path: Path,
     }
 
 
+def _is_score(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
 def _mean_scores(rows: list[dict[str, Any]]) -> dict[str, float]:
-    return {key: mean([float(row[key]) for row in rows if isinstance(row.get(key), int)]) for key in CRITERIA if any(isinstance(row.get(key), int) for row in rows)}
+    return {key: mean([float(row[key]) for row in rows if _is_score(row.get(key))]) for key in CRITERIA if any(_is_score(row.get(key)) for row in rows)}
 
 
 def _read_input_rows(input_path: Path, *, max_samples: int | None) -> list[dict[str, Any]]:
@@ -416,6 +491,8 @@ def _build_judge(args: argparse.Namespace) -> Judge:
         temperature=args.temperature,
         max_tokens=args.max_tokens,
         gpu_memory_utilization=args.gpu_memory_utilization,
+        max_model_len=args.max_model_len,
+        enforce_eager=args.enforce_eager,
         trust_remote_code=args.trust_remote_code,
     )
 
@@ -432,10 +509,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tensor-parallel-size", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--max-model-len", type=int, default=None)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.9)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--trust-remote-code", action="store_true")
+    parser.add_argument("--enforce-eager", action="store_true")
     return parser
 
 
@@ -445,6 +524,8 @@ def main() -> None:
         raise ValueError("--batch-size must be positive")
     if args.tensor_parallel_size <= 0:
         raise ValueError("--tensor-parallel-size must be positive")
+    if args.max_model_len is not None and args.max_model_len <= 0:
+        raise ValueError("--max-model-len must be positive")
     judge = _build_judge(args)
     run_g_eval(
         input_path=args.input,

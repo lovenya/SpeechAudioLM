@@ -336,16 +336,23 @@ def _run_single_dedicated_script_metric(
             config,
             options,
         )
-        completed = subprocess.run(
-            command,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            cwd=Path(__file__).resolve().parents[1],
-            env=_backend_env(options, {metric_name: config}),
-        )
-        stdout_path.write_text(completed.stdout, encoding="utf-8")
-        if completed.returncode != 0:
+        with stdout_path.open("w", encoding="utf-8") as stdout_file:
+            process = subprocess.Popen(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=Path(__file__).resolve().parents[1],
+                env=_backend_env(options, {metric_name: config}),
+            )
+            assert process.stdout is not None
+            with process.stdout:
+                for line in process.stdout:
+                    stdout_file.write(line)
+                    stdout_file.flush()
+                    print(line, end="", flush=True)
+            returncode = process.wait()
+        if returncode != 0:
             raise MetricUnavailableError(f"Dedicated metric {metric_name!r} failed. See {stdout_path} for details.")
     else:
         output_path.write_text("", encoding="utf-8")
@@ -415,9 +422,6 @@ def _dedicated_text_pair_rows(
                 "input_text": input_text,
                 "generated_text": generated_text,
             }
-            nli_context = prediction_context.get(str(row_index), {}).get("nli_contradiction")
-            if metric_name == "g_eval_reference_free" and isinstance(nli_context, dict):
-                helper_row["nli_contradiction"] = nli_context
             helper_rows.append(helper_row)
         except Exception as exc:
             errors[str(row_index)] = {metric_name: f"{type(exc).__name__}: {exc}"}
@@ -500,6 +504,10 @@ def _dedicated_script_command(
             "--gpu-memory-utilization",
             str(config.get("gpu_memory_utilization", 0.9)),
         ]
+        if config.get("max_model_len") is not None:
+            command.extend(["--max-model-len", str(config["max_model_len"])])
+        if config.get("enforce_eager"):
+            command.append("--enforce-eager")
         if config.get("trust_remote_code", True):
             command.append("--trust-remote-code")
         return command
@@ -865,7 +873,12 @@ def _summarize(
     for row in rows:
         for metric, message in row.get("errors", {}).items():
             grouped_errors.setdefault(metric, {})
-            grouped_errors[metric][message] = grouped_errors[metric].get(message, 0) + 1
+            normalized_message = (
+                json.dumps(message, ensure_ascii=False, sort_keys=True)
+                if isinstance(message, (dict, list))
+                else str(message)
+            )
+            grouped_errors[metric][normalized_message] = grouped_errors[metric].get(normalized_message, 0) + 1
 
     return {
         "model": options.model,

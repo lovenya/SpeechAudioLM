@@ -441,7 +441,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
             self.assertIn("g_eval_reference_free", per_sample[0]["metrics"])
             g_eval = per_sample[0]["predictions"]["g_eval_reference_free"]
             self.assertEqual(g_eval["direction"], "audio_to_speech")
-            self.assertIn("nli_contradiction", g_eval)
+            self.assertNotIn("nli_contradiction", g_eval)
 
 
 if __name__ == "__main__":
