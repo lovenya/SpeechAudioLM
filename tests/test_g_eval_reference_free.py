@@ -19,6 +19,7 @@ class GEvalReferenceFreeTest(unittest.TestCase):
         self.assertIn("not exact reference matching", prompt)
         self.assertIn("Causal / situational plausibility", prompt)
         self.assertEqual(prompt.count("Input text:"), 1)
+        self.assertEqual(prompt.count("Direction:"), 1)
         self.assertNotIn("NLI", prompt)
         self.assertIn('"overall_score": <1-5>', prompt)
 
@@ -81,6 +82,45 @@ class GEvalReferenceFreeTest(unittest.TestCase):
             self.assertEqual(summary["valid_judgments"], 1)
             self.assertTrue(summary_csv_path.is_file())
             self.assertEqual(len(list(cache_dir.glob("*.json"))), 1)
+
+
+    def test_run_g_eval_repairs_malformed_judgment(self) -> None:
+        class RepairJudge:
+            name = "repair-test"
+
+            def generate(self, prompts: list[str]) -> list[str]:
+                if prompts[0].startswith("Repair the judge response"):
+                    return [StubJudge().generate(["Input text: ordinary"])[0]]
+                return ["not json"]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_path = root / "pairs.jsonl"
+            output_path = root / "g_eval.jsonl"
+            summary_path = root / "summary.json"
+            input_path.write_text(json.dumps({
+                "row_index": 0,
+                "pair_id": "a",
+                "split": "val",
+                "direction": "audio_to_speech",
+                "input_text": "A dog is barking outside.",
+                "generated_text": "Can someone close the window?",
+            }) + "\n", encoding="utf-8")
+
+            summary = run_g_eval(
+                input_path=input_path,
+                output_path=output_path,
+                summary_output=summary_path,
+                summary_csv_output=None,
+                judge=RepairJudge(),
+                cache_dir=None,
+                batch_size=1,
+            )
+
+            row = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertTrue(row["repair_applied"])
+            self.assertEqual(row["initial_raw_judge_response"], "not json")
+            self.assertTrue(summary["complete"])
 
 
 if __name__ == "__main__":

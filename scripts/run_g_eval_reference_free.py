@@ -180,7 +180,20 @@ def run_g_eval(
                 parsed = _parse_judge_json(raw)
                 parsed["parse_error"] = None
             except Exception as exc:
-                parsed = _error_judgment(raw, f"{type(exc).__name__}: {exc}")
+                initial_error = f"{type(exc).__name__}: {exc}"
+                try:
+                    repair_responses = judge.generate([build_repair_prompt(raw)])
+                    if len(repair_responses) != 1:
+                        raise RuntimeError(f"Judge returned {len(repair_responses)} responses for one repair prompt")
+                    repaired_raw = repair_responses[0]
+                    parsed = _parse_judge_json(repaired_raw)
+                    parsed["parse_error"] = None
+                    parsed["repair_applied"] = True
+                    parsed["initial_raw_judge_response"] = raw
+                    raw = repaired_raw
+                except Exception as repair_exc:
+                    repair_error = f"{type(repair_exc).__name__}: {repair_exc}"
+                    parsed = _error_judgment(raw, f"initial={initial_error}; repair={repair_error}")
             parsed["raw_judge_response"] = raw
             if not parsed.get("parse_error"):
                 _write_cache(cache_dir, item.prompt_hash, parsed)
@@ -313,6 +326,22 @@ Scoring guidance:
 
 If the output is strongly contradictory, the overall score should be low even if it is fluent.
 Do not reward long outputs just because they are detailed.'''
+
+
+def build_repair_prompt(raw_response: str) -> str:
+    return f'''Repair the judge response below into strict JSON only.
+
+Preserve the intended scores, rationale, and failure modes when possible.
+All eight scores must be numeric values from 1 to 5.
+failure_modes must contain only these labels: {", ".join(sorted(ALLOWED_FAILURE_MODES))}.
+Return an empty failure_modes list when no substantive failure applies.
+Do not include should_flag; it is computed deterministically after parsing.
+
+Required JSON keys:
+{", ".join(CRITERIA)}, failure_modes, short_rationale
+
+Judge response to repair:
+{raw_response}'''
 
 
 def _parse_judge_json(raw: str) -> dict[str, Any]:
