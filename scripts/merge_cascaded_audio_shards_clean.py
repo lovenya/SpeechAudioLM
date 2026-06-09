@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lane", required=True)
     parser.add_argument("--expected-count", type=int, required=True)
     parser.add_argument("--replace-existing", action="store_true")
+    parser.add_argument(
+        "--link-audio",
+        action="store_true",
+        help="Hard-link audio into the canonical directory instead of copying it.",
+    )
     return parser.parse_args()
 
 
@@ -48,7 +53,10 @@ def main() -> None:
                 target = staging_audio / artifact.name
                 if target.exists():
                     raise RuntimeError(f"Duplicate audio artifact: {artifact.name}")
-                shutil.copy2(artifact, target)
+                if args.link_audio:
+                    os.link(artifact, target)
+                else:
+                    shutil.copy2(artifact, target)
                 copied += 1
 
             with manifest_path.open(encoding="utf-8") as handle:
