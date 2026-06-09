@@ -112,6 +112,7 @@
       "model_name": "PANNs",
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/audioldm_eval",
+      "runtime_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/runtime_home",
       "sample_rate": 16000,
       "backbone": "cnn14"
     },

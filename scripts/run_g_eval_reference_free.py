@@ -32,6 +32,7 @@ CRITERIA = (
 
 class Judge(Protocol):
     name: str
+    cache_identity: str
 
     def generate(self, prompts: list[str]) -> list[str]:
         """Return one raw judge response per prompt."""
@@ -46,6 +47,7 @@ class EvalItem:
 
 class StubJudge:
     name = "stub_g_eval_reference_free"
+    cache_identity = "stub_g_eval_reference_free_v1"
 
     def generate(self, prompts: list[str]) -> list[str]:
         outputs = []
@@ -103,6 +105,20 @@ class VllmPrometheusJudge:
             llm_options["max_model_len"] = max_model_len
         self._llm = LLM(**llm_options)
         self._tokenizer = self._llm.get_tokenizer()
+        self.cache_identity = json.dumps(
+            {
+                "model": model_path,
+                "tensor_parallel_size": tensor_parallel_size,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "gpu_memory_utilization": gpu_memory_utilization,
+                "max_model_len": max_model_len,
+                "enforce_eager": enforce_eager,
+                "trust_remote_code": trust_remote_code,
+                "chat_template": getattr(self._tokenizer, "chat_template", None),
+            },
+            sort_keys=True,
+        )
 
     def generate(self, prompts: list[str]) -> list[str]:
         formatted = [self._format_prompt(prompt) for prompt in prompts]
@@ -134,7 +150,8 @@ def run_g_eval(
     max_samples: int | None = None,
 ) -> dict[str, Any]:
     rows = _read_input_rows(input_path, max_samples=max_samples)
-    items = [_make_item(row) for row in rows]
+    cache_identity = getattr(judge, "cache_identity", judge.name)
+    items = [_make_item(row, cache_identity=cache_identity) for row in rows]
     cache_dir.mkdir(parents=True, exist_ok=True) if cache_dir else None
 
     output_rows: list[dict[str, Any]] = []
@@ -233,7 +250,7 @@ def _write_progress(
     return summary
 
 
-def _make_item(row: dict[str, Any]) -> EvalItem:
+def _make_item(row: dict[str, Any], *, cache_identity: str) -> EvalItem:
     input_text = _required_str(row, "input_text")
     generated_text = _required_str(row, "generated_text")
     prompt = build_prompt(
@@ -241,7 +258,12 @@ def _make_item(row: dict[str, Any]) -> EvalItem:
         input_text=input_text,
         generated_text=generated_text,
     )
-    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    cache_key = json.dumps(
+        {"prompt_version": PROMPT_VERSION, "judge": cache_identity, "prompt": prompt},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    prompt_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
     return EvalItem(row=row, prompt=prompt, prompt_hash=prompt_hash)
 
 
@@ -362,7 +384,7 @@ def _parse_judge_json(raw: str) -> dict[str, Any]:
         if value < 1 or value > 5:
             raise ValueError(f"{key} score out of range: {value}")
         result[key] = value
-    failure_modes = data.get("failure_modes", [])
+    failure_modes = data["failure_modes"]
     if not isinstance(failure_modes, list):
         raise ValueError("failure_modes must be a list")
     normalized_failure_modes = [str(item) for item in failure_modes]
@@ -372,7 +394,9 @@ def _parse_judge_json(raw: str) -> dict[str, Any]:
     result["failure_modes"] = normalized_failure_modes
     result["should_flag"] = _should_flag(result["overall_score"], normalized_failure_modes)
     result["should_flag_policy"] = "overall_score_le_2_or_absolute_failure_mode_v1"
-    result["short_rationale"] = str(data.get("short_rationale", "")).strip()
+    result["short_rationale"] = str(data["short_rationale"]).strip()
+    if not result["short_rationale"]:
+        raise ValueError("short_rationale must be non-empty")
     return result
 
 

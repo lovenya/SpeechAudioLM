@@ -142,6 +142,7 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+
 def run_whisper(payload: dict[str, Any]) -> dict[str, Any]:
     import whisper
 
@@ -154,24 +155,35 @@ def run_whisper(payload: dict[str, Any]) -> dict[str, Any]:
 
     sample_metrics: dict[str, dict[str, float]] = {}
     predictions: dict[str, dict[str, str]] = {}
+    errors: dict[str, dict[str, str]] = {}
     for row in payload["rows"]:
         row_key = str(row["row_index"])
-        generated_text = _transcribe_whisper(model, row["output_file"], device)
+        try:
+            generated_text = _transcribe_whisper(model, row["output_file"], device)
+        except Exception as exc:
+            errors[row_key] = {metric: _metric_error(exc) for metric in metrics}
+            continue
         sample_metrics[row_key] = {}
         predictions[row_key] = {"generated_speech_asr": generated_text}
         if "asr_wer" in metrics:
-            reference = _normalize_text(row["source"]["speech_text"])
-            sample_metrics[row_key]["asr_wer"] = _word_error_rate(reference, _normalize_text(generated_text))
+            try:
+                reference = _normalize_text(row["source"]["speech_text"])
+                sample_metrics[row_key]["asr_wer"] = _word_error_rate(reference, _normalize_text(generated_text))
+            except Exception as exc:
+                errors.setdefault(row_key, {})["asr_wer"] = _metric_error(exc)
         if "dwer" in metrics:
-            reference_text = _transcribe_whisper(model, row["source"]["speech_file"], device)
-            predictions[row_key]["reference_speech_asr"] = reference_text
-            sample_metrics[row_key]["dwer"] = _word_error_rate(_normalize_text(reference_text), _normalize_text(generated_text))
+            try:
+                reference_text = _transcribe_whisper(model, row["source"]["speech_file"], device)
+                predictions[row_key]["reference_speech_asr"] = reference_text
+                sample_metrics[row_key]["dwer"] = _word_error_rate(_normalize_text(reference_text), _normalize_text(generated_text))
+            except Exception as exc:
+                errors.setdefault(row_key, {})["dwer"] = _metric_error(exc)
     return _result(
         payload,
         sample_metrics=sample_metrics,
         corpus_metrics={},
         predictions=predictions,
-        errors={},
+        errors=errors,
         packages=["openai-whisper", "torch", "numpy"],
     )
 
@@ -188,21 +200,26 @@ def run_utmosv2(payload: dict[str, Any]) -> dict[str, Any]:
         device=device,
     )
     sample_metrics: dict[str, dict[str, float]] = {}
+    errors: dict[str, dict[str, str]] = {}
     for row in payload["rows"]:
-        score = model.predict(
-            input_path=row["output_file"],
-            device=device,
-            num_workers=int(cfg.get("num_workers", 0)),
-            batch_size=int(cfg.get("batch_size", 1)),
-            verbose=False,
-        )
-        sample_metrics[str(row["row_index"])] = {"utmos": float(score)}
+        row_key = str(row["row_index"])
+        try:
+            score = model.predict(
+                input_path=row["output_file"],
+                device=device,
+                num_workers=int(cfg.get("num_workers", 0)),
+                batch_size=int(cfg.get("batch_size", 1)),
+                verbose=False,
+            )
+            sample_metrics[row_key] = {"utmos": float(score)}
+        except Exception as exc:
+            errors[row_key] = {"utmos": _metric_error(exc)}
     return _result(
         payload,
         sample_metrics=sample_metrics,
         corpus_metrics={},
         predictions={},
-        errors={},
+        errors=errors,
         packages=["utmosv2", "torch", "numpy"],
     )
 
@@ -217,7 +234,6 @@ def run_dnsmos(payload: dict[str, Any]) -> dict[str, Any]:
     cfg = payload["metric_configs"].get("dnsmos", {})
     cache_dir = Path(cfg.get("cache_dir") or payload["cache_dir"])
     dnsmos_module.DNSMOS_DIR = str(cache_dir)
-    sample_rate = int(cfg.get("sample_rate", 16000))
     personalized = bool(cfg.get("personalized", False))
     num_threads = cfg.get("num_threads")
     num_threads = int(num_threads) if num_threads is not None else None
@@ -226,33 +242,37 @@ def run_dnsmos(payload: dict[str, Any]) -> dict[str, Any]:
         device = payload["device"]
 
     sample_metrics: dict[str, dict[str, float]] = {}
+    errors: dict[str, dict[str, str]] = {}
     for row in payload["rows"]:
-        waveform, fs = torchaudio.load(row["output_file"])
-        waveform = waveform.mean(dim=0)
-        scores = deep_noise_suppression_mean_opinion_score(
-            waveform,
-            int(fs),
-            personalized,
-            device=device,
-            num_threads=num_threads,
-        ).detach().cpu().tolist()
-        p808_mos, mos_sig, mos_bak, mos_ovr = [float(value) for value in scores]
-        sample_metrics[str(row["row_index"])] = {
-            "dnsmos": mos_ovr,
-            "dnsmos_p808_mos": p808_mos,
-            "dnsmos_mos_sig": mos_sig,
-            "dnsmos_mos_bak": mos_bak,
-            "dnsmos_mos_ovr": mos_ovr,
-        }
+        row_key = str(row["row_index"])
+        try:
+            waveform, fs = torchaudio.load(row["output_file"])
+            waveform = waveform.mean(dim=0)
+            scores = deep_noise_suppression_mean_opinion_score(
+                waveform,
+                int(fs),
+                personalized,
+                device=device,
+                num_threads=num_threads,
+            ).detach().cpu().tolist()
+            p808_mos, mos_sig, mos_bak, mos_ovr = [float(value) for value in scores]
+            sample_metrics[row_key] = {
+                "dnsmos": mos_ovr,
+                "dnsmos_p808_mos": p808_mos,
+                "dnsmos_mos_sig": mos_sig,
+                "dnsmos_mos_bak": mos_bak,
+                "dnsmos_mos_ovr": mos_ovr,
+            }
+        except Exception as exc:
+            errors[row_key] = {"dnsmos": _metric_error(exc)}
     return _result(
         payload,
         sample_metrics=sample_metrics,
         corpus_metrics={},
         predictions={},
-        errors={},
+        errors=errors,
         packages=["torchmetrics", "torch", "torchaudio", "onnxruntime", "librosa", "requests"],
     )
-
 
 def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
     _disable_numba_function_cache()
@@ -375,13 +395,17 @@ def run_kadtk(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+
 def run_stable_audio_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     metrics = set(payload["metrics"])
     sample_metrics: dict[str, dict[str, float]] = {}
     corpus_metrics: dict[str, Any] = {}
+    errors: dict[str, dict[str, str]] = {}
 
     if "clap_score_t2a" in metrics:
-        sample_metrics.update(_stable_clap_scores(payload))
+        clap_scores, clap_errors = _stable_clap_scores(payload)
+        sample_metrics.update(clap_scores)
+        errors.update(clap_errors)
     if "kl_passt" in metrics:
         corpus_metrics["kl_passt"] = _stable_kl_passt(payload)
 
@@ -390,12 +414,12 @@ def run_stable_audio_metrics(payload: dict[str, Any]) -> dict[str, Any]:
         sample_metrics=sample_metrics,
         corpus_metrics=corpus_metrics,
         predictions={},
-        errors={},
+        errors=errors,
         packages=["laion-clap", "hear21passt", "torch", "numpy", "librosa", "pyloudnorm"],
     )
 
 
-def _stable_clap_scores(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
+def _stable_clap_scores(payload: dict[str, Any]) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, str]]]:
     import numpy as np
     import requests
     import torch
@@ -449,23 +473,27 @@ def _stable_clap_scores(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
         text_embeddings = model.get_text_embedding(texts, tokenizer=batched_tokenizer, use_tensor=True)
 
     sample_metrics: dict[str, dict[str, float]] = {}
+    errors: dict[str, dict[str, str]] = {}
     for row, stem, text_embedding in zip(payload["rows"], ids, text_embeddings):
-        audio_path = generated_dir / f"{stem}.wav"
-        audio, _ = librosa.load(str(audio_path), sr=int(cfg.get("sample_rate", 48000)), mono=True)
-        audio = pyln.normalize.peak(audio, -1.0)
-        audio = audio.reshape(1, -1)
-        audio = torch.from_numpy(_int16_to_float32(_float32_to_int16(audio, np), np)).float()
-        with torch.no_grad():
-            audio_embedding = model.get_audio_embedding_from_data(x=audio, use_tensor=True)
-            score = torch.nn.functional.cosine_similarity(
-                audio_embedding,
-                text_embedding.unsqueeze(0),
-                dim=1,
-                eps=1e-8,
-            )[0]
-        sample_metrics[str(row["row_index"])] = {"clap_score_t2a": float(score.detach().cpu().item())}
-    return sample_metrics
-
+        row_key = str(row["row_index"])
+        try:
+            audio_path = generated_dir / f"{stem}.wav"
+            audio, _ = librosa.load(str(audio_path), sr=int(cfg.get("sample_rate", 48000)), mono=True)
+            audio = pyln.normalize.peak(audio, -1.0)
+            audio = audio.reshape(1, -1)
+            audio = torch.from_numpy(_int16_to_float32(_float32_to_int16(audio, np), np)).float()
+            with torch.no_grad():
+                audio_embedding = model.get_audio_embedding_from_data(x=audio, use_tensor=True)
+                score = torch.nn.functional.cosine_similarity(
+                    audio_embedding,
+                    text_embedding.unsqueeze(0),
+                    dim=1,
+                    eps=1e-8,
+                )[0]
+            sample_metrics[row_key] = {"clap_score_t2a": float(score.detach().cpu().item())}
+        except Exception as exc:
+            errors[row_key] = {"clap_score_t2a": _metric_error(exc)}
+    return sample_metrics, errors
 
 def _stable_kl_passt(payload: dict[str, Any]) -> float:
     from passt_kld import passt_kld
@@ -674,6 +702,10 @@ def _transcribe_whisper(model: Any, audio_path: str, device: str) -> str:
 
 def _normalize_text(text: str) -> str:
     return " ".join(str(text).strip().split())
+
+
+def _metric_error(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _single_line_text(value: Any) -> str:

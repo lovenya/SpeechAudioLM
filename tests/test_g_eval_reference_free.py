@@ -5,7 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_g_eval_reference_free import StubJudge, _parse_judge_json, _should_flag, build_prompt, run_g_eval
+from scripts.run_g_eval_reference_free import (
+    StubJudge,
+    _make_item,
+    _parse_judge_json,
+    _should_flag,
+    build_prompt,
+    run_g_eval,
+)
 
 
 class GEvalReferenceFreeTest(unittest.TestCase):
@@ -44,6 +51,39 @@ class GEvalReferenceFreeTest(unittest.TestCase):
         self.assertTrue(_should_flag(4, ["situationally_implausible"]))
         self.assertTrue(_should_flag(2, []))
         self.assertFalse(_should_flag(3, ["too_vague"]))
+
+    def test_cache_hash_changes_with_judge_identity(self) -> None:
+        row = {
+            "direction": "audio_to_speech",
+            "input_text": "A dog is barking outside.",
+            "generated_text": "Can someone close the window?",
+        }
+        first = _make_item(row, cache_identity="judge-a")
+        second = _make_item(row, cache_identity="judge-b")
+        self.assertNotEqual(first.prompt_hash, second.prompt_hash)
+
+    def test_parser_requires_failure_modes_and_nonempty_rationale(self) -> None:
+        base = {
+            "non_contradiction": 5,
+            "causal_situational_plausibility": 4,
+            "physical_grounding": 5,
+            "contextual_emotional_fit": 4,
+            "specificity_without_over_invention": 4,
+            "creativity_valid_diversity": 5,
+            "naturalness": 5,
+            "overall_score": 4,
+            "failure_modes": [],
+            "short_rationale": "Plausible.",
+        }
+        missing_modes = dict(base)
+        missing_modes.pop("failure_modes")
+        with self.assertRaises(KeyError):
+            _parse_judge_json(json.dumps(missing_modes))
+
+        empty_rationale = dict(base)
+        empty_rationale["short_rationale"] = ""
+        with self.assertRaisesRegex(ValueError, "short_rationale must be non-empty"):
+            _parse_judge_json(json.dumps(empty_rationale))
 
     def test_run_g_eval_writes_rows_summary_and_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

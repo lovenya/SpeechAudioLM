@@ -254,14 +254,9 @@ def _compute_external_metrics(
         for metric_name, metadata in result.get("metric_backends", {}).items():
             if metric_name in metric_backend_metadata:
                 metric_backend_metadata[metric_name].update(metadata)
-        corpus_level_names = {spec.name for spec in options.metric_specs if spec.level == "corpus"}
-        corpus_metrics.update(
-            {
-                name: value
-                for name, value in result.get("corpus_metrics", {}).items()
-                if name in corpus_level_names
-            }
-        )
+        # Prefer backend-provided official corpus scores in summaries while
+        # retaining sentence-level scores in the per-sample JSONL.
+        corpus_metrics.update(result.get("corpus_metrics", {}))
     return corpus_metrics
 
 
