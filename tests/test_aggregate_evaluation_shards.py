@@ -54,6 +54,8 @@ class AggregateEvaluationShardsTest(unittest.TestCase):
         self.assertEqual(summary["successful_rows"], 2)
         self.assertEqual(summary["skipped_or_error_rows"], 1)
         self.assertEqual(report["status"], "complete")
+        self.assertEqual(summary["scientific_validity"]["status"], "diagnostic_only")
+        self.assertEqual(report["scientific_validity"]["status"], "diagnostic_only")
 
     def test_rejects_duplicates_and_writes_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -162,6 +164,61 @@ class AggregateEvaluationShardsTest(unittest.TestCase):
         self.assertEqual(len(fad["shards"]), 2)
         self.assertNotIn("mean", fad)
         self.assertEqual(summary["metric_summaries"]["fad"], fad)
+
+    def test_spider_shard_scores_require_full_corpus_recomputation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for index, value in enumerate((0.2, 0.4)):
+                shard = root / f"shard-{index}"
+                write_jsonl(
+                    shard / "latest_per_sample_val.jsonl",
+                    [{"row_index": index, "status": "success", "metrics": {"spider": value}, "errors": {}}],
+                )
+                (shard / "latest_summary_val.json").write_text(
+                    json.dumps({"metric_summaries": {"spider": {"count": 1, "mean": value}}}),
+                    encoding="utf-8",
+                )
+
+            paths = aggregate([root], root / "merged", expected_count=2)
+            summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+            rows = read_jsonl(paths["per_sample"])
+            report = json.loads(paths["merge_report"].read_text(encoding="utf-8"))
+
+        spider = summary["metric_summaries"]["spider"]
+        self.assertEqual(spider["status"], "requires_full_corpus_recomputation")
+        self.assertNotIn("mean", spider)
+        self.assertNotIn("shards", spider)
+        self.assertIn("complete caption corpus", spider["reason"])
+        self.assertEqual(summary["invalidated_spider_per_sample_values"], 2)
+        self.assertEqual(report["invalidated_spider_per_sample_values"], 2)
+        self.assertTrue(report["spider_requires_full_corpus_recomputation"])
+        for row in rows:
+            self.assertNotIn("spider", row["metrics"])
+            self.assertEqual(
+                row["errors"]["spider"]["type"],
+                "invalid_historical_shard_metric",
+            )
+
+    def test_single_historical_spider_summary_is_invalidated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            shard = root / "shard"
+            write_jsonl(
+                shard / "latest_per_sample_val.jsonl",
+                [{"row_index": 0, "status": "success", "metrics": {}, "errors": {}}],
+            )
+            (shard / "latest_summary_val.json").write_text(
+                json.dumps({"metric_summaries": {"spider": {"count": 1, "mean": 0.3}}}),
+                encoding="utf-8",
+            )
+
+            paths = aggregate([root], root / "merged", expected_count=1)
+            summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+
+        spider = summary["corpus_metric_summaries"]["spider"]
+        self.assertEqual(spider["status"], "requires_full_corpus_recomputation")
+        self.assertNotIn("mean", spider)
+        self.assertNotIn("source", spider)
 
     def test_discovers_latest_files_and_cli_returns_nonzero_for_incomplete_merge(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

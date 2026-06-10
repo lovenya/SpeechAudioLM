@@ -18,6 +18,25 @@ NON_COMPOSABLE_CORPUS_METRICS = {
     "inception_score",
     "kad",
     "kl_passt",
+    "spider",
+}
+
+SPIDER_INVALIDITY = {
+    "status": "requires_full_corpus_recomputation",
+    "reason": (
+        "Historical shard-derived SPIDEr values are scientifically invalid because "
+        "CIDEr document-frequency statistics differ across shards. Run SPIDEr once "
+        "on the complete caption corpus."
+    ),
+}
+
+SHARD_AGGREGATION_VALIDITY = {
+    "status": "diagnostic_only",
+    "reason": (
+        "Evaluation sharding is unsupported for final scientific evaluation. "
+        "Merged outputs may be used only for diagnostics; run evaluation on the "
+        "complete corpus for final scientific results."
+    ),
 }
 
 
@@ -147,6 +166,25 @@ def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def invalidate_spider_values(rows: list[dict[str, Any]]) -> int:
+    invalidated = 0
+    for row in rows:
+        metrics = row.get("metrics")
+        if not isinstance(metrics, dict) or "spider" not in metrics:
+            continue
+        metrics.pop("spider")
+        errors = row.setdefault("errors", {})
+        if not isinstance(errors, dict):
+            errors = {}
+            row["errors"] = errors
+        errors["spider"] = {
+            "type": "invalid_historical_shard_metric",
+            **SPIDER_INVALIDITY,
+        }
+        invalidated += 1
+    return invalidated
+
+
 def corpus_metric_summary(shard_summaries: list[tuple[Path, dict[str, Any]]], sample_metrics: set[str]) -> dict[str, Any]:
     values: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for path, summary in shard_summaries:
@@ -159,6 +197,9 @@ def corpus_metric_summary(shard_summaries: list[tuple[Path, dict[str, Any]]], sa
             values[str(metric)].append({"source": str(path), "summary": metric_summary})
     result: dict[str, Any] = {}
     for metric, shards in sorted(values.items()):
+        if metric == "spider":
+            result[metric] = dict(SPIDER_INVALIDITY)
+            continue
         if len(shards) == 1:
             result[metric] = {**shards[0]["summary"], "source": shards[0]["source"]}
         else:
@@ -243,6 +284,11 @@ def aggregate(
                 shard_summaries.append((summary_path, summary))
 
     rows = [rows_by_index[index] for index in sorted(rows_by_index)]
+    spider_in_shard_summaries = any(
+        "spider" in (summary.get("metric_summaries") or {})
+        for _, summary in shard_summaries
+    )
+    invalidated_spider_per_sample_values = invalidate_spider_values(rows)
     observed = set(rows_by_index)
     expected = expected_indices(expected_start, expected_count, expected_end)
     missing = sorted(expected - observed) if expected is not None else []
@@ -298,6 +344,11 @@ def aggregate(
         "internal_gap_indices": internal_gaps,
         "internal_gap_ranges": compact_ranges(internal_gaps),
         "issues": issues,
+        "scientific_validity": SHARD_AGGREGATION_VALIDITY,
+        "invalidated_spider_per_sample_values": invalidated_spider_per_sample_values,
+        "spider_requires_full_corpus_recomputation": bool(
+            invalidated_spider_per_sample_values or spider_in_shard_summaries
+        ),
     }
     paths["merge_report"].write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -309,6 +360,8 @@ def aggregate(
         shard_summaries,
         {metric for row in rows for metric in (row.get("metrics") or {})},
     )
+    if invalidated_spider_per_sample_values and "spider" not in corpus_summaries:
+        corpus_summaries["spider"] = dict(SPIDER_INVALIDITY)
     summary = {
         **common_metadata(shard_summaries),
         **row_summary,
@@ -317,6 +370,8 @@ def aggregate(
             **corpus_summaries,
         },
         "corpus_metric_summaries": corpus_summaries,
+        "scientific_validity": SHARD_AGGREGATION_VALIDITY,
+        "invalidated_spider_per_sample_values": invalidated_spider_per_sample_values,
         "merge": {
             "status": report["status"],
             "input_file_count": len(per_sample_files),
