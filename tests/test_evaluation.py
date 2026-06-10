@@ -10,7 +10,7 @@ from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
-from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_work_dir, dry_run, run_evaluation
+from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import baseline_output_root, eval_model_root
 
@@ -36,6 +36,13 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 work_dir = _evaluation_work_dir(output_dir, "val", "timestamp")
 
         self.assertEqual(work_dir, output_dir / "work_val_timestamp")
+
+    def test_evaluation_artifact_dir_stays_on_persistent_output_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "persistent-output"
+            artifact_dir = _evaluation_artifact_dir(output_dir, "val", "timestamp")
+
+        self.assertEqual(artifact_dir, output_dir / "work_val_timestamp")
 
     def test_path_conventions(self) -> None:
         self.assertEqual(

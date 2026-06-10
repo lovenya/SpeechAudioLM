@@ -61,6 +61,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
 
     output_dir = eval_model_root(options.task, options.dataset, options.model, options.output_root)
     timestamp = utc_timestamp()
+    artifact_dir = _evaluation_artifact_dir(output_dir, options.split, timestamp)
     work_dir = _evaluation_work_dir(output_dir, options.split, timestamp)
     corpus_metrics = _compute_external_metrics(
         options,
@@ -69,6 +70,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         dataset_root,
         metrics_config,
         work_dir,
+        artifact_dir,
         metric_backend_metadata,
     )
 
@@ -99,6 +101,10 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     for key, path in paths.items():
         update_latest(path, latest[key])
     return paths
+
+
+def _evaluation_artifact_dir(output_dir: Path, split: str, timestamp: str) -> Path:
+    return output_dir / f"work_{split}_{timestamp}"
 
 
 def _evaluation_work_dir(output_dir: Path, split: str, timestamp: str) -> Path:
@@ -231,6 +237,7 @@ def _compute_external_metrics(
     dataset_root: Path,
     metrics_config: dict[str, dict],
     work_dir: Path,
+    artifact_dir: Path,
     metric_backend_metadata: dict[str, dict],
 ) -> dict[str, Any]:
     selected = {spec.name for spec in options.metric_specs if spec.external}
@@ -257,9 +264,9 @@ def _compute_external_metrics(
         if not metric_names:
             continue
         if backend == "dedicated-script":
-            result = _run_dedicated_script_metrics(options, rows, metrics_config, work_dir, metric_names)
+            result = _run_dedicated_script_metrics(options, rows, metrics_config, artifact_dir, metric_names)
         else:
-            result = _run_backend_worker(options, rows, dataset_root, metrics_config, work_dir, backend, metric_names)
+            result = _run_backend_worker(options, rows, dataset_root, metrics_config, work_dir, artifact_dir, backend, metric_names)
         _merge_backend_result(per_sample_rows, result)
         for metric_name, metadata in result.get("metric_backends", {}).items():
             if metric_name in metric_backend_metadata:
@@ -547,6 +554,7 @@ def _run_backend_worker(
     dataset_root: Path,
     metrics_config: dict[str, dict],
     work_dir: Path,
+    artifact_dir: Path,
     backend: str,
     metric_names: list[str],
 ) -> dict[str, Any]:
@@ -584,9 +592,11 @@ def _run_backend_worker(
     }
     backend_work_dir = work_dir / backend
     backend_work_dir.mkdir(parents=True, exist_ok=True)
-    input_path = backend_work_dir / "input.json"
-    output_path = backend_work_dir / "output.json"
-    stdout_path = backend_work_dir / "stdout.log"
+    backend_artifact_dir = artifact_dir / backend
+    backend_artifact_dir.mkdir(parents=True, exist_ok=True)
+    input_path = backend_artifact_dir / "input.json"
+    output_path = backend_artifact_dir / "output.json"
+    stdout_path = backend_artifact_dir / "stdout.log"
     input_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
     env = _backend_env(options, metric_configs)

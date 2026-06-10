@@ -23,6 +23,7 @@ Backend non-negotiables:
 
 - Declare supported tasks through `configs/model_capabilities.json`.
 - Keep generated audio, logs, and result manifests out of git.
+- On HPC, write only final manifests, summaries, reports, and inspectable backend logs to scratch; put regenerable metric intermediates such as staged references, resampled audio, and embeddings under `$SLURM_TMPDIR`.
 - Follow task metric validity from `configs/task_metric_map.json`.
 - Preserve progress logging with row index, sample id, elapsed time, ETA, and output path.
 - Preserve resource logging for long or GPU-backed runs.
