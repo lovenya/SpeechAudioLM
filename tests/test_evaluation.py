@@ -3,18 +3,40 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
-from evaluation.runner import EvalOptions, _dedicated_script_command, dry_run, run_evaluation
+from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_work_dir, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import baseline_output_root, eval_model_root
 
 
 class EvaluationScaffoldTest(unittest.TestCase):
+    def test_evaluation_work_dir_uses_unique_slurm_tmpdir_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slurm_tmpdir = Path(tmpdir) / "node-local"
+            slurm_tmpdir.mkdir()
+            output_dir = Path(tmpdir) / "persistent-output"
+            with patch.dict("os.environ", {"SLURM_TMPDIR": str(slurm_tmpdir)}):
+                first = _evaluation_work_dir(output_dir, "val", "timestamp")
+                second = _evaluation_work_dir(output_dir, "val", "timestamp")
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(first.parent, slurm_tmpdir / "speechaudiolm_evaluation")
+        self.assertFalse(str(first).startswith(str(output_dir)))
+
+    def test_evaluation_work_dir_falls_back_outside_slurm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "persistent-output"
+            with patch.dict("os.environ", {}, clear=True):
+                work_dir = _evaluation_work_dir(output_dir, "val", "timestamp")
+
+        self.assertEqual(work_dir, output_dir / "work_val_timestamp")
+
     def test_path_conventions(self) -> None:
         self.assertEqual(
             baseline_output_root("audio_omni", "T2A", "ttas", "test"),

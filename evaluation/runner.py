@@ -6,6 +6,7 @@ import os
 import statistics
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
 
     output_dir = eval_model_root(options.task, options.dataset, options.model, options.output_root)
     timestamp = utc_timestamp()
-    work_dir = output_dir / f"work_{options.split}_{timestamp}"
+    work_dir = _evaluation_work_dir(output_dir, options.split, timestamp)
     corpus_metrics = _compute_external_metrics(
         options,
         rows,
@@ -98,6 +99,15 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     for key, path in paths.items():
         update_latest(path, latest[key])
     return paths
+
+
+def _evaluation_work_dir(output_dir: Path, split: str, timestamp: str) -> Path:
+    slurm_tmpdir = os.environ.get("SLURM_TMPDIR")
+    if slurm_tmpdir:
+        root = Path(slurm_tmpdir) / "speechaudiolm_evaluation"
+        root.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(prefix=f"work_{split}_{timestamp}_", dir=root))
+    return output_dir / f"work_{split}_{timestamp}"
 
 
 def dry_run(options: EvalOptions) -> dict[str, Any]:
