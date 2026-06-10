@@ -84,7 +84,8 @@
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/audioldm_eval",
       "runtime_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/runtime_home",
       "sample_rate": 16000,
-      "backbone": "cnn14"
+      "backbone": "cnn14",
+      "minimum_valid_corpus_size": 2
     },
     "kad": {
       "backend": "kadtk",
@@ -93,6 +94,7 @@
       "model_path": null,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/kadtk",
       "workers": 2,
+      "minimum_valid_corpus_size": 2,
       "minimum_duration_seconds": 1.0
     },
     "kl_passt": {
@@ -113,7 +115,8 @@
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/audioldm_eval",
       "runtime_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/runtime_home",
       "sample_rate": 16000,
-      "backbone": "cnn14"
+      "backbone": "cnn14",
+      "minimum_valid_corpus_size": 2
     },
     "utmos": {
       "backend": "utmosv2",

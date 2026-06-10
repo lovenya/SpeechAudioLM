@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import json
+import math
 import os
 import shutil
 import sys
@@ -295,8 +296,9 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
     runtime_home = Path(cfg.get("runtime_home") or Path(cfg.get("cache_dir") or payload["cache_dir"]).parent / "runtime_home")
     runtime_home.mkdir(parents=True, exist_ok=True)
     generated_dir, reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
-    _ensure_minimum_audio_files(generated_dir)
-    _ensure_minimum_audio_files(reference_dir)
+    minimum_size = int(cfg.get("minimum_valid_corpus_size", 2))
+    _require_minimum_audio_files(generated_dir, minimum_size, "generated")
+    _require_minimum_audio_files(reference_dir, minimum_size, "reference")
     previous_home = os.environ.get("HOME")
     try:
         torch.load = load_legacy_checkpoint
@@ -315,18 +317,16 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
             os.environ["HOME"] = previous_home
     corpus_metrics: dict[str, Any] = {}
     if "fad" in metrics:
-        corpus_metrics["fad"] = _scalar(raw.get("frechet_audio_distance"))
+        corpus_metrics["fad"] = _scalar(raw.get("frechet_audio_distance"), metric="fad", rejected_values=(-1.0,))
     if "inception_score" in metrics:
         mean = _scalar(raw.get("inception_score_mean"))
         std = _scalar(raw.get("inception_score_std"))
         corpus_metrics["inception_score"] = {
             "level": "corpus",
-            "count": len(payload["rows"]),
+            "status": "backend_corpus_summary",
+            "input_count": len(payload["rows"]),
             "mean": mean,
             "std": std,
-            "min": mean,
-            "max": mean,
-            "median": mean,
         }
     return _result(
         payload,
@@ -341,9 +341,12 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
 def run_kadtk(payload: dict[str, Any]) -> dict[str, Any]:
     cfg = payload["metric_configs"].get("kad", {})
     generated_dir, reference_dir = _stage_audio_dirs(payload, reference_field="audio_file")
+    minimum_size = int(cfg.get("minimum_valid_corpus_size", 2))
+    _require_minimum_audio_files(generated_dir, minimum_size, "generated")
+    _require_minimum_audio_files(reference_dir, minimum_size, "reference")
     minimum_duration_seconds = float(cfg.get("minimum_duration_seconds", 1.0))
-    _pad_short_audio_files(generated_dir, minimum_duration_seconds)
-    _pad_short_audio_files(reference_dir, minimum_duration_seconds)
+    _reject_short_audio_files(generated_dir, minimum_duration_seconds, "generated")
+    _reject_short_audio_files(reference_dir, minimum_duration_seconds, "reference")
     import kadtk.model_loader as model_loader
     import torch
     from kadtk.emb_loader import EmbeddingLoader
@@ -389,7 +392,7 @@ def run_kadtk(payload: dict[str, Any]) -> dict[str, Any]:
         force_stats_calc=bool(cfg.get("force_stats_calc", False)),
     )
     score = metric.score(reference_dir, generated_dir)
-    value = float(score.item() if hasattr(score, "item") else score)
+    value = _scalar(score, metric="kad")
     return _result(
         payload,
         sample_metrics={},
@@ -602,33 +605,40 @@ def _stage_id(index: int, row: dict[str, Any]) -> str:
     return f"{index:06d}_{row['sample_id']}"
 
 
-def _ensure_minimum_audio_files(directory: Path, minimum: int = 2) -> None:
-    audio_files = sorted(path for path in directory.iterdir() if path.is_file() or path.is_symlink())
-    if not audio_files:
-        return
-    while len(audio_files) < minimum:
-        source = audio_files[0]
-        target = directory / f"{source.stem}_duplicate_{len(audio_files)}{source.suffix}"
-        _link_or_copy(source, target)
-        audio_files.append(target)
+def _audio_files(directory: Path) -> list[Path]:
+    return sorted(path for path in directory.iterdir() if path.is_file() or path.is_symlink())
 
 
-def _pad_short_audio_files(directory: Path, minimum_duration_seconds: float) -> None:
+def _require_minimum_audio_files(directory: Path, minimum: int, corpus_name: str) -> None:
+    if minimum < 1:
+        raise ValueError("minimum_valid_corpus_size must be a positive integer")
+    count = len(_audio_files(directory))
+    if count < minimum:
+        raise ValueError(
+            f"{corpus_name} corpus has {count} audio files; metric requires at least {minimum}. "
+            "Refusing to duplicate samples to force a score."
+        )
+
+
+def _reject_short_audio_files(directory: Path, minimum_duration_seconds: float, corpus_name: str) -> None:
     if minimum_duration_seconds <= 0:
         return
-    import numpy as np
     import soundfile as sf
 
-    for path in sorted(item for item in directory.iterdir() if item.is_file() or item.is_symlink()):
+    too_short: list[str] = []
+    for path in _audio_files(directory):
         info = sf.info(str(path))
-        minimum_frames = max(1, int(round(info.samplerate * minimum_duration_seconds)))
-        if info.frames >= minimum_frames:
-            continue
-        audio, sample_rate = sf.read(str(path), always_2d=True, dtype="float32")
-        padded = np.pad(audio, ((0, minimum_frames - audio.shape[0]), (0, 0)))
-        if path.is_symlink():
-            path.unlink()
-        sf.write(str(path), padded, sample_rate, subtype=info.subtype)
+        duration = info.frames / info.samplerate if info.samplerate else 0.0
+        if duration < minimum_duration_seconds:
+            too_short.append(f"{path.name} ({duration:.6g}s)")
+    if too_short:
+        preview = ", ".join(too_short[:10])
+        suffix = "" if len(too_short) <= 10 else f", ... {len(too_short) - 10} more"
+        raise ValueError(
+            f"{corpus_name} corpus contains {len(too_short)} audio files shorter than the "
+            f"declared {minimum_duration_seconds:g}s backend constraint: {preview}{suffix}. "
+            "Refusing to pad or modify audio to force a score."
+        )
 
 
 def _link_or_copy(source: Path, target: Path) -> None:
@@ -653,7 +663,7 @@ def _assign_sample_scores(rows: list[dict[str, Any]], sample_metrics: dict[str, 
             "refusing to attach misaligned scores"
         )
     for row, value in zip(rows, values):
-        sample_metrics[str(row["row_index"])][metric] = float(value)
+        sample_metrics[str(row["row_index"])][metric] = _scalar(value, metric=metric)
 
 
 def _resolve_java_path(payload: dict[str, Any]) -> str:
@@ -675,12 +685,19 @@ def _resolve_java_path(payload: dict[str, Any]) -> str:
     return str(path.resolve())
 
 
-def _scalar(value: Any) -> float:
+def _scalar(value: Any, *, metric: str = "metric", rejected_values: tuple[float, ...] = ()) -> float:
+    if value is None:
+        raise ValueError(f"{metric} returned no value")
     if hasattr(value, "detach"):
         value = value.detach().cpu().item()
     if hasattr(value, "item"):
         value = value.item()
-    return float(value)
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ValueError(f"{metric} returned non-finite value {numeric!r}")
+    if numeric in rejected_values:
+        raise ValueError(f"{metric} returned rejected sentinel value {numeric!r}")
+    return numeric
 
 
 def _first_config_value(payload: dict[str, Any], key: str) -> Any:
