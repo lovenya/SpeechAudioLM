@@ -41,7 +41,6 @@
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics",
       "hf_home": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
       "transformers_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
-      "max_candidate_words": 100,
       "java_max_memory": "32G"
     },
     "aac_clapsim": {

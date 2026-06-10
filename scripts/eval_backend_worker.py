@@ -76,9 +76,8 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         if "spider" in metrics:
             cfg = payload["metric_configs"].get("spider", {})
-            spider_candidates = [_limit_words(text, int(cfg.get("max_candidate_words", 100))) for text in candidates]
             corpus_scores, sent_scores = spider_fn(
-                spider_candidates,
+                candidates,
                 references,
                 cache_path=cache_path,
                 java_path=java_path,
@@ -742,12 +741,6 @@ def _metric_error(exc: Exception) -> str:
 
 def _single_line_text(value: Any) -> str:
     return " ".join(str(value or "").split())
-
-
-def _limit_words(text: str, max_words: int) -> str:
-    if max_words <= 0:
-        return text
-    return " ".join(text.split()[:max_words])
 
 
 def _word_error_rate(reference: str, hypothesis: str) -> float:
