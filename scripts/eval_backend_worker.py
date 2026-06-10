@@ -71,7 +71,7 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     sample_metrics: dict[str, dict[str, float]] = {str(row["row_index"]): {} for row in rows}
     corpus_metrics: dict[str, Any] = {}
 
-    java_path = shutil.which("java")
+    java_path = _resolve_java_path(payload) if metrics.intersection({"spider", "fense"}) else None
     java_tool_options = os.environ.pop("JAVA_TOOL_OPTIONS", None)
     try:
         if "spider" in metrics:
@@ -101,7 +101,12 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
                 batch_size=int(cfg.get("batch_size", 1)),
                 return_all_scores=True,
             )
-            _assign_sample_scores(rows, sample_metrics, "mace", sent_scores.get("mace"))
+            # aac-metrics 0.5.5 incorrectly stores the corpus MACE scalar in
+            # sent_scores["mace"]. Reconstruct the exact sample-level values
+            # from the returned CLAP-sim and FER vectors using its own formula.
+            penalty = float(cfg.get("penalty", 0.3))
+            sample_mace_scores = sent_scores["clap_sim"] * (1.0 - penalty * sent_scores["fer"])
+            _assign_sample_scores(rows, sample_metrics, "mace", sample_mace_scores)
             corpus_metrics["mace"] = _scalar(corpus_scores.get("mace"))
 
         if "aac_clapsim" in metrics:
@@ -124,6 +129,7 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
                 references,
                 metrics=["fense"],
                 cache_path=cache_path,
+                java_path=java_path,
                 device=device,
             )
             _assign_sample_scores(rows, sample_metrics, "fense", sent_scores.get("fense"))
@@ -640,8 +646,34 @@ def _assign_sample_scores(rows: list[dict[str, Any]], sample_metrics: dict[str, 
     values = scores.detach().cpu().tolist() if hasattr(scores, "detach") else scores
     if isinstance(values, (int, float)):
         values = [values]
+    if values is None:
+        return
+    if len(values) != len(rows):
+        raise ValueError(
+            f"{metric} returned {len(values)} sample scores for {len(rows)} rows; "
+            "refusing to attach misaligned scores"
+        )
     for row, value in zip(rows, values):
         sample_metrics[str(row["row_index"])][metric] = float(value)
+
+
+def _resolve_java_path(payload: dict[str, Any]) -> str:
+    configured = _first_config_value(payload, "java_path")
+    candidate = configured or os.environ.get("AAC_METRICS_JAVA_PATH") or shutil.which("java")
+    if not candidate:
+        raise RuntimeError(
+            "SPIDEr/FENSE require Java, but no executable was found. "
+            "Load Java and export AAC_METRICS_JAVA_PATH=$(command -v java)."
+        )
+    path = Path(candidate).expanduser()
+    if not path.is_absolute():
+        resolved = shutil.which(str(path))
+        if not resolved:
+            raise RuntimeError(f"Configured Java executable is not resolvable: {candidate}")
+        path = Path(resolved)
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise RuntimeError(f"Configured Java executable is not executable: {path}")
+    return str(path.resolve())
 
 
 def _scalar(value: Any) -> float:

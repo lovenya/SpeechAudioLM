@@ -13,6 +13,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
+NON_COMPOSABLE_CORPUS_METRICS = {
+    "fad",
+    "inception_score",
+    "kad",
+    "kl_passt",
+}
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -143,7 +151,10 @@ def corpus_metric_summary(shard_summaries: list[tuple[Path, dict[str, Any]]], sa
     values: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for path, summary in shard_summaries:
         for metric, metric_summary in (summary.get("metric_summaries") or {}).items():
-            if metric in sample_metrics or not isinstance(metric_summary, dict):
+            if (
+                metric in sample_metrics
+                and metric not in NON_COMPOSABLE_CORPUS_METRICS
+            ) or not isinstance(metric_summary, dict):
                 continue
             values[str(metric)].append({"source": str(path), "summary": metric_summary})
     result: dict[str, Any] = {}
