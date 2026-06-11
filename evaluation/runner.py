@@ -51,6 +51,7 @@ class EvalOptions:
     command: list[str]
     evaluation_mode: EvaluationMode
     common_sample_ids: tuple[str, ...] | None = None
+    common_sample_ids_path: Path | None = None
 
 
 def run_evaluation(options: EvalOptions) -> dict[str, Path]:
@@ -165,9 +166,19 @@ def _evaluation_scope_and_provenance(options: EvalOptions) -> tuple[list[dict], 
             sample_id(row, ordinal)
             for ordinal, row in enumerate(selected_rows, start=options.start_index)
         )
-        if options.evaluation_mode is EvaluationMode.FINAL and options.common_sample_ids is None:
-            raise EvaluationError("Final evaluation requires explicit --common-sample-ids identical to all manifest IDs.")
+        if options.evaluation_mode is EvaluationMode.FINAL and (
+            options.common_sample_ids is None or options.common_sample_ids_path is None
+        ):
+            raise EvaluationError(
+                "Final evaluation requires explicit --common-sample-ids identical to all manifest IDs."
+            )
         common_ids = options.common_sample_ids or expected_ids
+        common_ids_hash = (
+            sha256_manifest(options.common_sample_ids_path)
+            if options.common_sample_ids_path is not None
+            else sha256_sample_id_set(common_ids)
+        )
+        git_worktree_hash, git_untracked_files = _git_worktree_provenance()
         scope = EvaluationScope(
             mode=options.evaluation_mode,
             expected_sample_ids=expected_ids,
@@ -182,8 +193,10 @@ def _evaluation_scope_and_provenance(options: EvalOptions) -> tuple[list[dict], 
             policy_sha256=sha256_policy(_evaluation_policy(scope)),
             selected_rows_sha256=sha256_selected_rows(selected_rows),
             sample_id_set_sha256=sha256_sample_id_set(selected_ids),
+            common_sample_ids_sha256=common_ids_hash,
             git_commit=_git_output(["rev-parse", "HEAD"]).decode("ascii").strip(),
-            git_worktree_sha256=hashlib.sha256(_git_output(["diff", "--binary", "HEAD", "--"])).hexdigest(),
+            git_worktree_sha256=git_worktree_hash,
+            git_untracked_files=git_untracked_files,
         )
     except ContractError as exc:
         raise EvaluationError(f"Invalid evaluation scope or provenance: {exc}") from None
@@ -223,6 +236,34 @@ def _git_output(arguments: list[str]) -> bytes:
         message = completed.stderr.decode("utf-8", errors="replace").strip()
         raise EvaluationError(f"Unable to record git provenance: {message}")
     return completed.stdout
+
+
+def _git_worktree_provenance() -> tuple[str, tuple[str, ...]]:
+    repo_root = Path(__file__).resolve().parents[1]
+    hasher = hashlib.sha256()
+    hasher.update(b"tracked-diff\0")
+    hasher.update(_git_output(["diff", "--binary", "HEAD", "--"]))
+
+    untracked_text = _git_output(["ls-files", "--others", "--exclude-standard"]).decode(
+        "utf-8", errors="strict"
+    )
+    relevant_roots = ("configs/", "evaluation/", "scripts/", "submission_scripts/", "tests/")
+    relevant_suffixes = {".py", ".json", ".yaml", ".yml", ".toml", ".sh", ".sbatch"}
+    relevant_paths: list[str] = []
+    for relative in sorted(line for line in untracked_text.splitlines() if line):
+        path = Path(relative)
+        is_root_source = len(path.parts) == 1 and path.suffix in relevant_suffixes
+        if not (relative.startswith(relevant_roots) or is_root_source):
+            continue
+        absolute = repo_root / path
+        if not absolute.is_file():
+            continue
+        relevant_paths.append(relative)
+        hasher.update(b"untracked-file\0")
+        hasher.update(relative.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(hashlib.sha256(absolute.read_bytes()).digest())
+    return hasher.hexdigest(), tuple(relevant_paths)
 
 
 def _evaluation_status(scope: EvaluationScope) -> str:

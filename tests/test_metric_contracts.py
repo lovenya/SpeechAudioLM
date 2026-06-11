@@ -145,7 +145,9 @@ class ProvenanceHashTest(unittest.TestCase):
             config.write_text(json.dumps({"b": 2, "a": 1}, indent=2), encoding="utf-8")
 
             self.assertEqual(sha256_config(config), sha256_config({"a": 1, "b": 2}))
+            self.assertNotEqual(sha256_config(config), sha256_config({"a": 1, "b": 3}))
             self.assertEqual(sha256_policy({"b": 2, "a": 1}), sha256_policy({"a": 1, "b": 2}))
+            self.assertNotEqual(sha256_policy({"a": 1}), sha256_policy({"a": 2}))
 
     def test_selected_row_hash_preserves_order_but_canonicalizes_keys(self) -> None:
         rows = [{"sample_id": "a", "value": 1}, {"sample_id": "b", "value": 2}]
@@ -174,8 +176,10 @@ class ProvenanceHashTest(unittest.TestCase):
             policy_sha256=digest,
             selected_rows_sha256=digest,
             sample_id_set_sha256=digest,
+            common_sample_ids_sha256=digest,
             git_commit="b" * 40,
             git_worktree_sha256=digest,
+            git_untracked_files=("tests/new_metric_test.py",),
         )
 
         with self.assertRaises(FrozenInstanceError):
@@ -187,6 +191,7 @@ class ProvenanceHashTest(unittest.TestCase):
                 policy_sha256=digest,
                 selected_rows_sha256=digest,
                 sample_id_set_sha256=digest,
+                common_sample_ids_sha256=digest,
                 git_commit="b" * 40,
                 git_worktree_sha256=digest,
             )
@@ -197,6 +202,7 @@ class ProvenanceHashTest(unittest.TestCase):
                 policy_sha256=digest,
                 selected_rows_sha256=digest,
                 sample_id_set_sha256=digest,
+                common_sample_ids_sha256=digest,
                 git_commit="not-a-git-object-id",
                 git_worktree_sha256=digest,
             )

@@ -72,6 +72,8 @@ def _load_common_sample_ids(path_text: str | None) -> tuple[str, ...] | None:
         values = value
     if not values or any(not isinstance(value, str) or not value.strip() for value in values):
         raise EvaluationError("Common sample IDs must be a non-empty list of non-empty strings.")
+    if len(values) != len(set(values)):
+        raise EvaluationError("Common sample IDs must not contain duplicates.")
     return tuple(values)
 
 
@@ -109,6 +111,7 @@ def main() -> None:
             command=sys.argv,
             evaluation_mode=EvaluationMode(args.evaluation_mode),
             common_sample_ids=_load_common_sample_ids(args.common_sample_ids),
+            common_sample_ids_path=(Path(args.common_sample_ids) if args.common_sample_ids else None),
         )
         if args.dry_run:
             print(json.dumps(dry_run(options), indent=2, ensure_ascii=False, sort_keys=True))

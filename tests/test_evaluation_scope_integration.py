@@ -9,7 +9,7 @@ from evaluate import _load_common_sample_ids
 from evaluation.errors import EvaluationError
 from evaluation.metric_contracts import EvaluationMode
 from evaluation.metrics.registry import get_metric_specs
-from evaluation.runner import EvalOptions, dry_run, run_evaluation
+from evaluation.runner import EvalOptions, _git_worktree_provenance, dry_run, run_evaluation
 
 
 class EvaluationScopeIntegrationTest(unittest.TestCase):
@@ -46,6 +46,12 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
         failed_second: bool = False,
     ) -> EvalOptions:
         manifest, dataset_config, metrics_config = self._fixture(root, failed_second=failed_second)
+        common_ids_path = None
+        if common_ids is not None:
+            common_ids_path = root / "common_sample_ids.json"
+            common_ids_path.write_text(
+                json.dumps({"common_sample_ids": list(common_ids)}), encoding="utf-8"
+            )
         return EvalOptions(
             model="cascaded",
             task="S2T",
@@ -64,6 +70,7 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
             command=["evaluate.py"],
             evaluation_mode=mode,
             common_sample_ids=common_ids,
+            common_sample_ids_path=common_ids_path,
         )
 
     def test_final_requires_explicit_complete_common_ids_and_disallows_slicing(self) -> None:
@@ -117,12 +124,21 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
                 start_index=1,
                 max_samples=1,
             )
+            authoritative_latest = (
+                root / "evals" / "S2T" / "ttas" / "cascaded" / "latest_summary_val.json"
+            )
+            authoritative_latest.parent.mkdir(parents=True, exist_ok=True)
+            authoritative_latest.write_bytes(b"authoritative-before-smoke\n")
+
             paths = run_evaluation(options)
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
 
             self.assertEqual(summary["status"], "diagnostic_non_authoritative")
             self.assertIn("backend_smoke", paths["summary"].parts)
-            self.assertFalse(list((root / "evals").rglob("latest_*")))
+            self.assertEqual(authoritative_latest.read_bytes(), b"authoritative-before-smoke\n")
+            self.assertEqual(
+                list((root / "evals").rglob("latest_*")), [authoritative_latest]
+            )
             self.assertEqual(summary["scope"]["selected_sample_count"], 1)
 
     def test_final_publishes_latest_and_records_immutable_scope_hashes(self) -> None:
@@ -147,10 +163,58 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
                 "policy_sha256",
                 "selected_rows_sha256",
                 "sample_id_set_sha256",
+                "common_sample_ids_sha256",
                 "git_worktree_sha256",
             ):
                 self.assertEqual(len(summary["provenance"][key]), 64)
             self.assertEqual(summary["provenance"], run_config["provenance"])
+
+    def test_common_id_artifact_hash_covers_exact_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            options = self._options(
+                root,
+                mode=EvaluationMode.FINAL,
+                common_ids=("sample-a", "sample-b"),
+            )
+            first = dry_run(options)["provenance"]["common_sample_ids_sha256"]
+            assert options.common_sample_ids_path is not None
+            options.common_sample_ids_path.write_text(
+                '{  "common_sample_ids" : ["sample-a", "sample-b"]  }\n',
+                encoding="utf-8",
+            )
+            second = dry_run(options)["provenance"]["common_sample_ids_sha256"]
+            self.assertNotEqual(first, second)
+
+    def test_duplicate_manifest_ids_fail_final_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            options = self._options(
+                root,
+                mode=EvaluationMode.FINAL,
+                common_ids=("sample-a", "sample-b"),
+            )
+            rows = [json.loads(line) for line in options.manifest_path.read_text().splitlines()]
+            rows[1]["sample_id"] = "sample-a"
+            options.manifest_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(EvaluationError, "duplicate sample IDs"):
+                dry_run(options)
+
+    def test_relevant_untracked_source_changes_worktree_hash(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        probe = repo_root / "tests" / "_temporary_provenance_probe.py"
+        try:
+            probe.write_text("VALUE = 1\n", encoding="utf-8")
+            first_hash, first_paths = _git_worktree_provenance()
+            probe.write_text("VALUE = 2\n", encoding="utf-8")
+            second_hash, second_paths = _git_worktree_provenance()
+        finally:
+            probe.unlink(missing_ok=True)
+        self.assertNotEqual(first_hash, second_hash)
+        self.assertIn("tests/_temporary_provenance_probe.py", first_paths)
+        self.assertEqual(first_paths, second_paths)
 
     def test_common_id_loader_accepts_json_and_rejects_invalid_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -160,6 +224,9 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
             self.assertEqual(_load_common_sample_ids(str(ids_path)), ("a", "b"))
             ids_path.write_text(json.dumps({"wrong": ["a"]}), encoding="utf-8")
             with self.assertRaises(EvaluationError):
+                _load_common_sample_ids(str(ids_path))
+            ids_path.write_text(json.dumps(["a", "a"]), encoding="utf-8")
+            with self.assertRaisesRegex(EvaluationError, "duplicates"):
                 _load_common_sample_ids(str(ids_path))
 
 

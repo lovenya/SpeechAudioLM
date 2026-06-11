@@ -258,8 +258,10 @@ class EvaluationProvenance:
     policy_sha256: str
     selected_rows_sha256: str
     sample_id_set_sha256: str
+    common_sample_ids_sha256: str
     git_commit: str
     git_worktree_sha256: str
+    git_untracked_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -268,9 +270,16 @@ class EvaluationProvenance:
             "policy_sha256",
             "selected_rows_sha256",
             "sample_id_set_sha256",
+            "common_sample_ids_sha256",
             "git_worktree_sha256",
         ):
             _validate_sha256(getattr(self, field_name), field_name)
+        if not isinstance(self.git_untracked_files, tuple) or any(
+            not isinstance(path, str) or not path for path in self.git_untracked_files
+        ):
+            raise ContractError("git_untracked_files must be a tuple of non-empty paths")
+        if len(self.git_untracked_files) != len(set(self.git_untracked_files)):
+            raise ContractError("git_untracked_files must not contain duplicates")
         if (
             not isinstance(self.git_commit, str)
             or len(self.git_commit) not in (40, 64)
@@ -278,13 +287,15 @@ class EvaluationProvenance:
         ):
             raise ContractError("git_commit must be a lowercase Git object ID")
 
-    def report_fields(self) -> dict[str, str]:
+    def report_fields(self) -> dict[str, Any]:
         return {
             "manifest_sha256": self.manifest_sha256,
             "config_sha256": self.config_sha256,
             "policy_sha256": self.policy_sha256,
             "selected_rows_sha256": self.selected_rows_sha256,
             "sample_id_set_sha256": self.sample_id_set_sha256,
+            "common_sample_ids_sha256": self.common_sample_ids_sha256,
             "git_commit": self.git_commit,
             "git_worktree_sha256": self.git_worktree_sha256,
+            "git_untracked_files": list(self.git_untracked_files),
         }
