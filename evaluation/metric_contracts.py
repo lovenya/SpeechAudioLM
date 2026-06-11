@@ -139,11 +139,6 @@ class EvaluationScope:
         common = _validated_ids(self.common_sample_ids, "common_sample_ids")
         selected = _validated_ids(self.selected_sample_ids, "selected_sample_ids")
 
-        if not selected.issubset(expected):
-            raise ContractError("selected_sample_ids must be a subset of expected_sample_ids")
-        if not selected.issubset(common):
-            raise ContractError("selected_sample_ids must be a subset of common_sample_ids")
-
         if self.mode is EvaluationMode.FINAL:
             if self.start_index != 0 or self.max_samples is not None:
                 raise ContractError("final evaluation disallows slicing")
@@ -155,6 +150,11 @@ class EvaluationScope:
                 raise ContractError(
                     "final evaluation requires the complete common sample-ID set"
                 )
+
+        if not selected.issubset(expected):
+            raise ContractError("selected_sample_ids must be a subset of expected_sample_ids")
+        if not selected.issubset(common):
+            raise ContractError("selected_sample_ids must be a subset of common_sample_ids")
 
     @property
     def scientific(self) -> bool:

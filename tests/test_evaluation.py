@@ -8,6 +8,7 @@ from pathlib import Path
 
 from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
+from evaluation.metric_contracts import EvaluationMode
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
 from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, dry_run, run_evaluation
@@ -178,6 +179,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
+                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
@@ -238,6 +240,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
+                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
@@ -288,6 +291,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
+                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
@@ -311,6 +315,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cuda",
                 command=["evaluate.py"],
+                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
             )
 
             command = _dedicated_script_command(
@@ -386,6 +391,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
+                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
             )
 
             paths = run_evaluation(options)
@@ -462,6 +468,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
+                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
             )
 
             paths = run_evaluation(options)

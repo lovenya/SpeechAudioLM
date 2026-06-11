@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import statistics
@@ -14,6 +15,17 @@ from typing import Any
 from evaluation.errors import EvaluationError, MetricUnavailableError
 from evaluation.io import iter_jsonl, read_json, update_latest, utc_timestamp, write_json, write_jsonl
 from evaluation.manifest import is_successful_generation, sample_id, source_record
+from evaluation.metric_contracts import (
+    ContractError,
+    EvaluationMode,
+    EvaluationProvenance,
+    EvaluationScope,
+    sha256_config,
+    sha256_manifest,
+    sha256_policy,
+    sha256_sample_id_set,
+    sha256_selected_rows,
+)
 from evaluation.metrics.external import backend_metadata, require_configured_backend
 from evaluation.metrics.registry import MetricSpec
 from evaluation.metrics.text import normalize_text, word_error_rate
@@ -37,29 +49,24 @@ class EvalOptions:
     cache_dir: Path
     device: str
     command: list[str]
+    evaluation_mode: EvaluationMode
+    common_sample_ids: tuple[str, ...] | None = None
 
 
 def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     dataset_config = read_json(options.dataset_config_path)
     metrics_config = read_json(options.metrics_config_path).get("metrics", {})
     dataset_root = Path(dataset_config["dataset_root"])
-    rows = [
-        item.record
-        for item in iter_jsonl(
-            options.manifest_path,
-            max_samples=options.max_samples,
-            start_index=options.start_index,
-        )
-    ]
+    rows, scope, provenance = _evaluation_scope_and_provenance(options)
 
-    _validate_rows(rows, options.metric_specs, dataset_root)
+    _validate_rows(rows, options.metric_specs, dataset_root, require_success=scope.scientific)
     metric_backend_metadata = _prepare_metric_backends(options.metric_specs, metrics_config, options.device, options.cache_dir)
 
     per_sample_rows = []
     for ordinal, row in enumerate(rows):
         per_sample_rows.append(_evaluate_row(row, ordinal, options.metric_specs, dataset_root))
 
-    output_dir = eval_model_root(options.task, options.dataset, options.model, options.output_root)
+    output_dir = _evaluation_output_dir(options)
     timestamp = utc_timestamp()
     artifact_dir = _evaluation_artifact_dir(output_dir, options.split, timestamp)
     work_dir = _evaluation_work_dir(output_dir, options.split, timestamp)
@@ -74,7 +81,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         metric_backend_metadata,
     )
 
-    summary = _summarize(options, per_sample_rows, metric_backend_metadata, corpus_metrics)
+    summary = _summarize(options, per_sample_rows, metric_backend_metadata, corpus_metrics, scope, provenance)
 
     paths = {
         "per_sample": output_dir / f"per_sample_{options.split}_{timestamp}.jsonl",
@@ -84,22 +91,23 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         "run_config": output_dir / f"run_config_{options.split}_{timestamp}.json",
     }
 
-    run_config = _run_config(options, metric_backend_metadata)
+    run_config = _run_config(options, metric_backend_metadata, scope, provenance)
     write_jsonl(paths["per_sample"], per_sample_rows)
     write_json(paths["summary"], summary)
     _write_summary_csv(paths["summary_csv"], summary)
     _write_report(paths["report"], summary, run_config)
     write_json(paths["run_config"], run_config)
 
-    latest = {
-        "per_sample": output_dir / f"latest_per_sample_{options.split}.jsonl",
-        "summary": output_dir / f"latest_summary_{options.split}.json",
-        "summary_csv": output_dir / f"latest_summary_{options.split}.csv",
-        "report": output_dir / f"latest_report_{options.split}.md",
-        "run_config": output_dir / f"latest_run_config_{options.split}.json",
-    }
-    for key, path in paths.items():
-        update_latest(path, latest[key])
+    if scope.publishable:
+        latest = {
+            "per_sample": output_dir / f"latest_per_sample_{options.split}.jsonl",
+            "summary": output_dir / f"latest_summary_{options.split}.json",
+            "summary_csv": output_dir / f"latest_summary_{options.split}.csv",
+            "report": output_dir / f"latest_report_{options.split}.md",
+            "run_config": output_dir / f"latest_run_config_{options.split}.json",
+        }
+        for key, path in paths.items():
+            update_latest(path, latest[key])
     return paths
 
 
@@ -118,19 +126,13 @@ def _evaluation_work_dir(output_dir: Path, split: str, timestamp: str) -> Path:
 
 def dry_run(options: EvalOptions) -> dict[str, Any]:
     dataset_config = read_json(options.dataset_config_path)
-    rows = [
-        item.record
-        for item in iter_jsonl(
-            options.manifest_path,
-            max_samples=options.max_samples,
-            start_index=options.start_index,
-        )
-    ]
+    rows, scope, provenance = _evaluation_scope_and_provenance(options)
     dataset_root = Path(dataset_config["dataset_root"])
-    _validate_rows(rows, options.metric_specs, dataset_root)
-    output_dir = eval_model_root(options.task, options.dataset, options.model, options.output_root)
+    _validate_rows(rows, options.metric_specs, dataset_root, require_success=scope.scientific)
+    output_dir = _evaluation_output_dir(options)
     return {
         "dry_run": True,
+        "status": _evaluation_status(scope),
         "model": options.model,
         "task": options.task,
         "dataset": options.dataset,
@@ -141,10 +143,93 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
         "start_index": options.start_index,
         "rows": len(rows),
         "cache_dir": str(options.cache_dir),
+        "scope": scope.report_fields(),
+        "provenance": provenance.report_fields(),
     }
 
 
-def _validate_rows(rows: list[dict], specs: list[MetricSpec], dataset_root: Path) -> None:
+def _evaluation_output_dir(options: EvalOptions) -> Path:
+    root = eval_model_root(options.task, options.dataset, options.model, options.output_root)
+    if options.evaluation_mode is EvaluationMode.BACKEND_SMOKE:
+        return root / EvaluationMode.BACKEND_SMOKE.value
+    return root
+
+
+def _evaluation_scope_and_provenance(options: EvalOptions) -> tuple[list[dict], EvaluationScope, EvaluationProvenance]:
+    try:
+        all_rows = [item.record for item in iter_jsonl(options.manifest_path)]
+        stop_index = None if options.max_samples is None else options.start_index + options.max_samples
+        selected_rows = all_rows[options.start_index:stop_index]
+        expected_ids = tuple(sample_id(row, ordinal) for ordinal, row in enumerate(all_rows))
+        selected_ids = tuple(
+            sample_id(row, ordinal)
+            for ordinal, row in enumerate(selected_rows, start=options.start_index)
+        )
+        if options.evaluation_mode is EvaluationMode.FINAL and options.common_sample_ids is None:
+            raise EvaluationError("Final evaluation requires explicit --common-sample-ids identical to all manifest IDs.")
+        common_ids = options.common_sample_ids or expected_ids
+        scope = EvaluationScope(
+            mode=options.evaluation_mode,
+            expected_sample_ids=expected_ids,
+            common_sample_ids=common_ids,
+            selected_sample_ids=selected_ids,
+            start_index=options.start_index,
+            max_samples=options.max_samples,
+        )
+        provenance = EvaluationProvenance(
+            manifest_sha256=sha256_manifest(options.manifest_path),
+            config_sha256=sha256_config(_combined_configs(options)),
+            policy_sha256=sha256_policy(_evaluation_policy(scope)),
+            selected_rows_sha256=sha256_selected_rows(selected_rows),
+            sample_id_set_sha256=sha256_sample_id_set(selected_ids),
+            git_commit=_git_output(["rev-parse", "HEAD"]).decode("ascii").strip(),
+            git_worktree_sha256=hashlib.sha256(_git_output(["diff", "--binary", "HEAD", "--"])).hexdigest(),
+        )
+    except ContractError as exc:
+        raise EvaluationError(f"Invalid evaluation scope or provenance: {exc}") from None
+    return selected_rows, scope, provenance
+
+
+def _combined_configs(options: EvalOptions) -> dict[str, Any]:
+    return {
+        "dataset_config": _config_value(options.dataset_config_path),
+        "metrics_config": _config_value(options.metrics_config_path),
+        "task_metric_map": _config_value(options.task_metric_map_path),
+    }
+
+
+def _config_value(path: Path) -> dict[str, Any]:
+    return {"path": str(path), "content": read_json(path) if path.is_file() else None}
+
+
+def _evaluation_policy(scope: EvaluationScope) -> dict[str, Any]:
+    return {
+        "scope": scope.report_fields(),
+        "common_sample_ids": list(scope.common_sample_ids),
+        "reject_unsuccessful_generation_rows": scope.scientific,
+        "latest_alias_policy": "final_only",
+        "evaluation_sharding": "disallowed_for_final",
+    }
+
+
+def _git_output(arguments: list[str]) -> bytes:
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=Path(__file__).resolve().parents[1],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        message = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise EvaluationError(f"Unable to record git provenance: {message}")
+    return completed.stdout
+
+
+def _evaluation_status(scope: EvaluationScope) -> str:
+    return "final_scientific" if scope.scientific else "diagnostic_non_authoritative"
+
+
+def _validate_rows(rows: list[dict], specs: list[MetricSpec], dataset_root: Path, *, require_success: bool = False) -> None:
     if not rows:
         raise EvaluationError("Manifest contains no rows after --max-samples filtering.")
     errors = []
@@ -152,6 +237,8 @@ def _validate_rows(rows: list[dict], specs: list[MetricSpec], dataset_root: Path
         source = source_record(row)
         sid = sample_id(row, ordinal)
         if not is_successful_generation(row):
+            if require_success:
+                errors.append(f"{sid}: generation was not successful")
             continue
         if any(spec.requires_output_file for spec in specs):
             output = row.get("output_file")
@@ -865,7 +952,9 @@ def _summarize(
     options: EvalOptions,
     rows: list[dict],
     backend_metadata: dict[str, dict],
-    corpus_metrics: dict[str, Any] | None = None,
+    corpus_metrics: dict[str, Any] | None,
+    scope: EvaluationScope,
+    provenance: EvaluationProvenance,
 ) -> dict:
     corpus_metrics = corpus_metrics or {}
     metric_names = [spec.name for spec in options.metric_specs]
@@ -896,6 +985,9 @@ def _summarize(
             grouped_errors[metric][normalized_message] = grouped_errors[metric].get(normalized_message, 0) + 1
 
     return {
+        "status": _evaluation_status(scope),
+        "scope": scope.report_fields(),
+        "provenance": provenance.report_fields(),
         "model": options.model,
         "task": options.task,
         "dataset": options.dataset,
@@ -937,8 +1029,16 @@ def _corpus_summary(value: Any) -> dict:
     }
 
 
-def _run_config(options: EvalOptions, backend_metadata: dict[str, dict]) -> dict:
+def _run_config(
+    options: EvalOptions,
+    backend_metadata: dict[str, dict],
+    scope: EvaluationScope,
+    provenance: EvaluationProvenance,
+) -> dict:
     return {
+        "status": _evaluation_status(scope),
+        "scope": scope.report_fields(),
+        "provenance": provenance.report_fields(),
         "model": options.model,
         "task": options.task,
         "dataset": options.dataset,
@@ -983,6 +1083,8 @@ def _write_report(path: Path, summary: dict, run_config: dict) -> None:
     lines = [
         f"# Evaluation Report: {summary['model']} {summary['task']}",
         "",
+        f"- Scientific status: `{summary['status']}`",
+        f"- Evaluation mode: `{summary['scope']['evaluation_mode']}`",
         f"- Dataset: `{summary['dataset']}`",
         f"- Split: `{summary['split']}`",
         f"- Manifest: `{summary['manifest']}`",
