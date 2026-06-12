@@ -73,6 +73,62 @@ def derive_common_successful_ids(manifest_paths: Sequence[Path]) -> dict[str, An
     }
 
 
+
+
+def derive_common_attempted_ids(manifest_paths: Sequence[Path]) -> dict[str, Any]:
+    """Build one immutable final-evaluation scope from all attempted rows.
+
+    Unlike ``derive_common_successful_ids``, this policy retains failed generation
+    rows so final metric manifests can report their errors. Every supplied
+    manifest must contain exactly the same attempted ID set.
+    """
+
+    if not manifest_paths:
+        raise CommonIdError("at least one manifest is required")
+    manifests = tuple(inspect_manifest_ids(Path(path)) for path in manifest_paths)
+    canonical_ids = manifests[0].ordered_ids
+    canonical_set = set(canonical_ids)
+    mismatches: list[str] = []
+    for manifest in manifests[1:]:
+        manifest_set = set(manifest.ordered_ids)
+        missing = tuple(value for value in canonical_ids if value not in manifest_set)
+        extra = tuple(value for value in manifest.ordered_ids if value not in canonical_set)
+        if missing or extra:
+            mismatches.append(
+                f"{manifest.path}: missing={missing[:10]}, extra={extra[:10]}"
+            )
+    if mismatches:
+        raise CommonIdError(
+            "final-scope manifests do not contain identical attempted sample-ID sets: "
+            + "; ".join(mismatches)
+        )
+    return {
+        "schema_version": 1,
+        "policy": "identical_attempted_generation_rows",
+        "canonical_order_manifest": str(manifests[0].path),
+        "common_sample_ids": list(canonical_ids),
+        "common_sample_count": len(canonical_ids),
+        "common_sample_id_set_sha256": sha256_sample_id_set(canonical_ids),
+        "source_manifests": [
+            {
+                "path": str(manifest.path),
+                "manifest_sha256": manifest.manifest_sha256,
+                "row_count": len(manifest.ordered_ids),
+                "successful_row_count": len(manifest.successful_ids),
+                "error_row_count": len(manifest.ordered_ids) - len(manifest.successful_ids),
+            }
+            for manifest in manifests
+        ],
+    }
+
+
+def write_common_attempted_ids(
+    manifest_paths: Sequence[Path], output_path: Path
+) -> dict[str, Any]:
+    artifact = derive_common_attempted_ids(manifest_paths)
+    write_json_create_only(output_path, artifact)
+    return artifact
+
 def write_common_successful_ids(manifest_paths: Sequence[Path], output_path: Path) -> dict[str, Any]:
     artifact = derive_common_successful_ids(manifest_paths)
     write_json_create_only(output_path, artifact)

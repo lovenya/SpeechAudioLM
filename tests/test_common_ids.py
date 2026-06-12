@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from evaluation.artifacts import ArtifactAlreadyExistsError
-from evaluation.common_ids import CommonIdError, derive_common_successful_ids, write_common_successful_ids
+from evaluation.common_ids import (
+    CommonIdError,
+    derive_common_attempted_ids,
+    derive_common_successful_ids,
+    write_common_attempted_ids,
+    write_common_successful_ids,
+)
 
 
 def _write_manifest(path: Path, rows: list[tuple[str, str]]) -> None:
@@ -47,6 +55,38 @@ class CommonIdTest(unittest.TestCase):
             _write_manifest(second, [("b", "success")])
             with self.assertRaisesRegex(CommonIdError, "no common successful"):
                 derive_common_successful_ids([first, second])
+
+    def test_final_scope_retains_errors_and_requires_identical_attempted_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            first, second = root / "first.jsonl", root / "second.jsonl"
+            _write_manifest(first, [("c", "success"), ("a", "error"), ("b", "success")])
+            _write_manifest(second, [("a", "success"), ("b", "error"), ("c", "success")])
+
+            result = derive_common_attempted_ids([first, second])
+
+            self.assertEqual(result["common_sample_ids"], ["c", "a", "b"])
+            self.assertEqual(result["policy"], "identical_attempted_generation_rows")
+            self.assertEqual(result["source_manifests"][0]["error_row_count"], 1)
+            output = root / "final_scope.json"
+            write_common_attempted_ids([first, second], output)
+            self.assertTrue(output.is_file())
+
+            mismatch = root / "mismatch.jsonl"
+            _write_manifest(mismatch, [("a", "success"), ("other", "success")])
+            with self.assertRaisesRegex(CommonIdError, "identical attempted"):
+                derive_common_attempted_ids([first, mismatch])
+
+    def test_final_scope_cli_runs_from_repository_root(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "scripts/build_final_scope_ids.py", "--help"],
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("--manifest", completed.stdout)
 
     def test_output_is_create_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

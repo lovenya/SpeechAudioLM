@@ -38,6 +38,8 @@
 
 ## Metric Follow-Up
 
+- Complete a larger representative Inception Score smoke after the official backend returned non-finite mean/std for two samples. MACE, AAC-CLAPSim, FENSE, FAD, and KAD smoke tests passed; then prepare full-corpus final submissions.
+- **Deferred comparison sanity step:** after all model results exist, form the union of per-metric failure sample IDs across compared models and recompute comparisons on the same retained sample set. Do not apply this during individual metric execution.
 - **High priority, deferred:** replace Prometheus `non_contradiction` criterion calls in G-Eval v2 with the existing NLI contradiction result once NLI outputs are available before score aggregation.
   - Normalize deterministically onto the G-Eval scale with `non_contradiction_score = 1 + 4 * (1 - contradiction_probability)`.
   - Preserve the raw contradiction probability, NLI model/version, and normalization-policy version in criterion metadata.
