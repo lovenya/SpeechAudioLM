@@ -42,6 +42,18 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
+    "g_eval_prometheus_criterion_v2_plausibility": MetricSpec(
+        name="g_eval_prometheus_criterion_v2_plausibility",
+        level="sample",
+        requires_hypothesis_text=True,
+        external=True,
+    ),
+    "g_eval_prometheus_criterion_v2_reference_grounded": MetricSpec(
+        name="g_eval_prometheus_criterion_v2_reference_grounded",
+        level="sample",
+        requires_hypothesis_text=True,
+        external=True,
+    ),
     "asr_wer": MetricSpec(
         name="asr_wer",
         level="sample",

@@ -378,7 +378,12 @@ def _compute_external_metrics(
         "audioldm_eval": ["fad", "inception_score"],
         "kadtk": ["kad"],
         "stable-audio-metrics": ["clap_score_t2a", "kl_passt"],
-        "dedicated-script": ["nli_contradiction", "g_eval_reference_free"],
+        "dedicated-script": [
+            "nli_contradiction",
+            "g_eval_reference_free",
+            "g_eval_prometheus_criterion_v2_plausibility",
+            "g_eval_prometheus_criterion_v2_reference_grounded",
+        ],
     }
     supported = {name for names in backend_metrics.values() for name in names}
     unsupported = sorted(selected - supported)
@@ -412,7 +417,12 @@ def _run_dedicated_script_metrics(
     work_dir: Path,
     metric_names: list[str],
 ) -> dict[str, Any]:
-    supported_order = ["nli_contradiction", "g_eval_reference_free"]
+    supported_order = [
+        "nli_contradiction",
+        "g_eval_reference_free",
+        "g_eval_prometheus_criterion_v2_plausibility",
+        "g_eval_prometheus_criterion_v2_reference_grounded",
+    ]
     ordered_names = [name for name in supported_order if name in metric_names]
     if sorted(ordered_names) != sorted(metric_names):
         raise MetricUnavailableError(f"Unsupported dedicated-script metrics: {metric_names}")
@@ -507,6 +517,13 @@ def _run_single_dedicated_script_metric(
             metric_value = _dedicated_metric_value(metric_name, result)
             if metric_value is not None:
                 sample_metrics[row_index] = {metric_name: metric_value}
+            elif metric_name in {
+                "g_eval_prometheus_criterion_v2_plausibility",
+                "g_eval_prometheus_criterion_v2_reference_grounded",
+            } and result.get("status") != "complete":
+                errors.setdefault(row_index, {})[metric_name] = str(
+                    result.get("incomplete_reason") or "incomplete_criterion_judgment"
+                )
             predictions[row_index] = {metric_name: result}
     return {
         "sample_metrics": sample_metrics,
@@ -528,6 +545,8 @@ def _default_dedicated_script(metric_name: str) -> str:
     defaults = {
         "nli_contradiction": "scripts/run_nli_contradiction_helper.py",
         "g_eval_reference_free": "scripts/run_g_eval_reference_free.py",
+        "g_eval_prometheus_criterion_v2_plausibility": "scripts/run_geval_prometheus_criterion_v2.py",
+        "g_eval_prometheus_criterion_v2_reference_grounded": "scripts/run_geval_prometheus_criterion_v2.py",
     }
     if metric_name not in defaults:
         raise MetricUnavailableError(f"No default dedicated script for metric {metric_name!r}")
@@ -548,10 +567,24 @@ def _dedicated_text_pair_rows(
             continue
         try:
             source = source_record(row)
-            generated_text = _prediction_text_for_metric(row, metric_name)
+            if metric_name in {
+                "g_eval_prometheus_criterion_v2_plausibility",
+                "g_eval_prometheus_criterion_v2_reference_grounded",
+            }:
+                stage_input, stage_output, stage_direction = _final_text_stage(row)
+                generated_text = stage_output or _prediction_text_for_metric(row, metric_name)
+                input_text = stage_input
+                direction = stage_direction
+            else:
+                generated_text = _prediction_text_for_metric(row, metric_name)
+                input_text, direction = _nli_input_text_and_direction(options.task, row, source)
             if not generated_text:
                 raise EvaluationError(f"{metric_name} requires generated text in candidate_text/generated_text/model_extra")
-            input_text, direction = _nli_input_text_and_direction(options.task, row, source)
+            if not input_text:
+                input_text, fallback_direction = _nli_input_text_and_direction(options.task, row, source)
+                direction = direction or fallback_direction
+            if direction not in {"speech_to_audio", "audio_to_speech"}:
+                direction = _infer_t2t_direction(row, source)
             helper_row = {
                 "row_index": row_index,
                 "pair_id": sample_id(row, ordinal),
@@ -562,6 +595,19 @@ def _dedicated_text_pair_rows(
                 "input_text": input_text,
                 "generated_text": generated_text,
             }
+            if metric_name == "g_eval_prometheus_criterion_v2_reference_grounded":
+                reference_text = _paired_reference_text(source, direction)
+                helper_row["reference_anchors"] = (
+                    [
+                        {
+                            "anchor_id": sample_id(row, ordinal),
+                            "text": reference_text,
+                            "source": "paired_dataset_reference",
+                        }
+                    ]
+                    if reference_text
+                    else []
+                )
             helper_rows.append(helper_row)
         except Exception as exc:
             errors[str(row_index)] = {metric_name: f"{type(exc).__name__}: {exc}"}
@@ -651,6 +697,31 @@ def _dedicated_script_command(
         if config.get("trust_remote_code", True):
             command.append("--trust-remote-code")
         return command
+    if metric_name in {
+        "g_eval_prometheus_criterion_v2_plausibility",
+        "g_eval_prometheus_criterion_v2_reference_grounded",
+    }:
+        variant = "reference_grounded" if metric_name.endswith("reference_grounded") else "plausibility"
+        command = [
+            str(python), str(script), "--input", str(input_path), "--output", str(output_path),
+            "--summary-output", str(summary_path), "--summary-csv-output", str(metric_work_dir / "summary.csv"),
+            "--variant", variant,
+            "--backend", str(config.get("script_backend", config.get("runtime_backend", "vllm"))),
+            "--model", str(config.get("model_name", config.get("model_path") or "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0")),
+            "--batch-size", str(config.get("batch_size", 8)),
+            "--cache-dir", str(config.get("cache_dir") or metric_work_dir / "cache"),
+            "--tensor-parallel-size", str(config.get("tensor_parallel_size", 4)),
+            "--temperature", str(config.get("temperature", 0.0)),
+            "--max-tokens", str(config.get("max_tokens", 512)),
+            "--gpu-memory-utilization", str(config.get("gpu_memory_utilization", 0.9)),
+        ]
+        if config.get("max_model_len") is not None:
+            command.extend(["--max-model-len", str(config["max_model_len"])])
+        if config.get("enforce_eager"):
+            command.append("--enforce-eager")
+        if config.get("trust_remote_code", True):
+            command.append("--trust-remote-code")
+        return command
     raise MetricUnavailableError(f"Unsupported dedicated-script metric: {metric_name}")
 
 
@@ -666,7 +737,20 @@ def _dedicated_metric_value(metric_name: str, result: dict[str, Any]) -> float |
         return float(result["max_contradiction_probability"])
     if metric_name == "g_eval_reference_free" and isinstance(result.get("overall_score"), (int, float)):
         return float(result["overall_score"])
+    if metric_name in {
+        "g_eval_prometheus_criterion_v2_plausibility",
+        "g_eval_prometheus_criterion_v2_reference_grounded",
+    } and isinstance(result.get("final_score"), (int, float)):
+        return float(result["final_score"])
     return None
+
+
+def _paired_reference_text(source: dict[str, Any], direction: str) -> str | None:
+    field = "speech_text" if direction == "audio_to_speech" else "audio_cap"
+    value = source.get(field)
+    if not value and field == "audio_cap":
+        value = source.get("audio_caption")
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _merge_result_dicts(target: dict[str, Any], source: dict[str, Any]) -> None:
@@ -761,6 +845,7 @@ def _backend_python(metric_configs: dict[str, dict]) -> Path:
 
 def _backend_env(options: EvalOptions, metric_configs: dict[str, dict]) -> dict[str, str]:
     env = os.environ.copy()
+    repo_root = Path(__file__).resolve().parents[1]
     cache_dir = _first_metric_config_value(metric_configs, "cache_dir") or str(options.cache_dir)
     cache_path = Path(cache_dir)
     hf_home = _first_metric_config_value(metric_configs, "hf_home")
@@ -785,11 +870,27 @@ def _backend_env(options: EvalOptions, metric_configs: dict[str, dict]) -> dict[
     if transformers_offline is not None:
         env["TRANSFORMERS_OFFLINE"] = transformers_offline
     env["TF_CPP_MIN_LOG_LEVEL"] = "3"
-    pythonpath = _first_metric_config_value(metric_configs, "pythonpath")
-    if pythonpath:
-        existing = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = pythonpath if not existing else f"{pythonpath}{os.pathsep}{existing}"
+    configured_pythonpath = _first_metric_config_value(metric_configs, "pythonpath")
+    pythonpath_entries = [
+        str(repo_root),
+        *_split_pythonpath(configured_pythonpath),
+        *_split_pythonpath(env.get("PYTHONPATH")),
+    ]
+    unique_pythonpath_entries: list[str] = []
+    seen_pythonpath_entries: set[Path] = set()
+    for entry in pythonpath_entries:
+        path = Path(entry)
+        resolved = path.resolve() if path.is_absolute() else (repo_root / path).resolve()
+        if resolved in seen_pythonpath_entries:
+            continue
+        seen_pythonpath_entries.add(resolved)
+        unique_pythonpath_entries.append(entry)
+    env["PYTHONPATH"] = os.pathsep.join(unique_pythonpath_entries)
     return env
+
+
+def _split_pythonpath(value: str | None) -> list[str]:
+    return [entry for entry in value.split(os.pathsep) if entry] if value else []
 
 
 def _first_metric_config_value(metric_configs: dict[str, dict], key: str) -> str | None:
@@ -837,6 +938,9 @@ def _nli_input_text_and_direction(task: str, row: dict, source: dict) -> tuple[s
 
 
 def _infer_t2t_direction(row: dict, source: dict) -> str:
+    _, _, stage_direction = _final_text_stage(row)
+    if stage_direction:
+        return stage_direction
     mode = (
         _nested_text(row, ("model_extra", "mode"))
         or _nested_text(row, ("text_mode",))
@@ -849,6 +953,30 @@ def _infer_t2t_direction(row: dict, source: dict) -> str:
     if mode == "audio_description_to_speech" or pipeline == "A2S" or _looks_like_lane(variant, "a2s"):
         return "audio_to_speech"
     return "text_to_text"
+
+
+def _final_text_stage(row: dict) -> tuple[str | None, str | None, str | None]:
+    extra = row.get("model_extra") if isinstance(row.get("model_extra"), dict) else {}
+    stages = extra.get("stages") if isinstance(extra.get("stages"), list) else []
+    stage = stages[-1] if stages and isinstance(stages[-1], dict) else {}
+    stage_input = stage.get("input") if isinstance(stage.get("input"), dict) else {}
+    stage_output = stage.get("output") if isinstance(stage.get("output"), dict) else {}
+    mode = stage.get("mode")
+    if mode == "speech_to_audio_description":
+        direction = "speech_to_audio"
+    elif mode == "audio_description_to_speech":
+        direction = "audio_to_speech"
+    else:
+        direction = None
+    return (
+        _nonempty_text(stage_input.get("text")),
+        _nonempty_text(stage_output.get("text")),
+        direction,
+    )
+
+
+def _nonempty_text(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _looks_like_lane(value: object, token: str) -> bool:

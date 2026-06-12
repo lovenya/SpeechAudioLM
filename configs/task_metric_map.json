@@ -38,7 +38,7 @@
   "T2T": {
     "description": "text to text intermediate conversion stage",
     "default_metrics": ["nli_contradiction"],
-    "allowed_metrics": ["nli_contradiction", "g_eval_reference_free"],
+    "allowed_metrics": ["nli_contradiction", "g_eval_reference_free", "g_eval_prometheus_criterion_v2_plausibility", "g_eval_prometheus_criterion_v2_reference_grounded"],
     "output_type": "text"
   }
 }
