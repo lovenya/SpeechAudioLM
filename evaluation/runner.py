@@ -96,6 +96,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         artifact_dir,
         metric_backend_metadata,
     )
+    _record_nonfinite_metric_errors(per_sample_rows, corpus_metrics)
     validation_report = validate_final_result_completeness(
         options.metric_specs,
         scope.selected_sample_ids,
@@ -997,6 +998,45 @@ def _merge_backend_result(per_sample_rows: list[dict], result: dict[str, Any]) -
         if row is not None:
             row["status"] = "error"
             row["errors"].update(errors)
+
+
+def _record_nonfinite_metric_errors(
+    per_sample_rows: list[dict[str, Any]],
+    corpus_metrics: dict[str, Any],
+) -> None:
+    for row in per_sample_rows:
+        metrics = row.get("metrics")
+        if not isinstance(metrics, dict):
+            continue
+        for metric, value in list(metrics.items()):
+            if _contains_nonfinite_number(value):
+                metrics.pop(metric)
+                row["status"] = "error"
+                row.setdefault("errors", {})[metric] = (
+                    "metric returned a non-finite numeric value"
+                )
+
+    for metric, value in list(corpus_metrics.items()):
+        if not _contains_nonfinite_number(value):
+            continue
+        corpus_metrics.pop(metric)
+        error_name = f"{metric}_corpus_summary"
+        for row in per_sample_rows:
+            row.setdefault("errors", {})[error_name] = (
+                "corpus metric returned a non-finite numeric value"
+            )
+
+
+def _contains_nonfinite_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return not math.isfinite(float(value))
+    if isinstance(value, dict):
+        return any(_contains_nonfinite_number(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_nonfinite_number(item) for item in value)
+    return False
 
 
 def _nli_input_text_and_direction(task: str, row: dict, source: dict) -> tuple[str, str]:

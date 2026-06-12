@@ -586,25 +586,44 @@ def run_audioldm_eval(payload: dict[str, Any]) -> dict[str, Any]:
         "error_sample_ids": failed_ids,
         "input_count": len(valid_rows),
     }
-    if metric == "fad":
-        corpus_metrics = {
-            "fad": common | {
-                "mean": _scalar(raw.get("frechet_audio_distance"), metric="fad", rejected_values=(-1.0,))
-            }
-        }
-    elif metric == "inception_score":
-        corpus_metrics = {
-            "inception_score": common | {
-                "mean": _scalar(raw.get("inception_score_mean"), metric="inception_score"),
-                "std": _scalar(raw.get("inception_score_std"), metric="inception_score"),
-            }
-        }
-    else:
-        raise ValueError(f"Unsupported AudioLDM Eval metric: {metric}")
+    try:
+        corpus_metrics = _audioldm_corpus_metrics(metric, raw, common)
+    except ValueError as exc:
+        _mark_metric_constraint_errors(payload, errors, metric, str(exc))
+        corpus_metrics = {}
     return _result(
         payload, sample_metrics={}, corpus_metrics=corpus_metrics, predictions={}, errors=errors,
         packages=["audioldm_eval", "torch", "numpy"],
     )
+
+
+def _audioldm_corpus_metrics(
+    metric: str,
+    raw: dict[str, Any],
+    common: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    if metric == "fad":
+        return {
+            "fad": common | {
+                "mean": _scalar(
+                    raw.get("frechet_audio_distance"),
+                    metric="fad",
+                    rejected_values=(-1.0,),
+                )
+            }
+        }
+    if metric == "inception_score":
+        return {
+            "inception_score": common | {
+                "mean": _scalar(
+                    raw.get("inception_score_mean"), metric="inception_score"
+                ),
+                "std": _scalar(
+                    raw.get("inception_score_std"), metric="inception_score"
+                ),
+            }
+        }
+    raise ValueError(f"Unsupported AudioLDM Eval metric: {metric}")
 
 
 def run_kadtk(payload: dict[str, Any]) -> dict[str, Any]:

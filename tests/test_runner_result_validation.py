@@ -135,6 +135,33 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(run_config["result_validation"], report)
             self.assertEqual(list((root / "evals").rglob("latest_*")), [])
 
+    def test_nonfinite_sample_score_becomes_explicit_error_and_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            options = self._options(root, EvaluationMode.FINAL)
+
+            def nonfinite_row(row: dict, ordinal: int, specs: list, dataset_root: Path) -> dict:
+                return {
+                    "row_index": row["row_index"],
+                    "sample_id": row["sample_id"],
+                    "status": "success",
+                    "output_file": None,
+                    "references": {},
+                    "predictions": {},
+                    "metrics": {"wer": float("nan")},
+                    "errors": {},
+                }
+
+            with patch("evaluation.runner._evaluate_row", side_effect=nonfinite_row):
+                paths = run_evaluation(options)
+
+            rows = [json.loads(line) for line in paths["per_sample"].read_text().splitlines()]
+            self.assertTrue(all(row["status"] == "error" for row in rows))
+            self.assertTrue(all("wer" not in row["metrics"] for row in rows))
+            self.assertTrue(all("non-finite" in row["errors"]["wer"] for row in rows))
+            summary = json.loads(paths["summary"].read_text())
+            self.assertEqual(summary["result_validation"]["result_status"], "error")
+
     def test_timestamped_artifacts_refuse_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
