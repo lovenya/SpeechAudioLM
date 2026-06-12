@@ -29,7 +29,7 @@ class KLPaSSTPairRecord:
 @dataclass(frozen=True)
 class KLPaSSTAggregation:
     records: tuple[KLPaSSTPairRecord, ...]
-    corpus_mean: float
+    corpus_mean: float | None
     pair_count: int
     expected_pair_count: int
     metadata: Mapping[str, Any]
@@ -62,8 +62,8 @@ def official_passt_preprocessing(*, collect: str = "mean") -> dict[str, Any]:
         "probability_normalization": "softmax over 527 AudioSet logits",
         "reference_epsilon": OFFICIAL_REFERENCE_EPSILON,
         "kl_direction": KL_DIRECTION,
-        "pair_aggregation": "arithmetic mean over all expected pairs",
-        "backend_partial_failure_behavior": "upstream skips failed pairs; project validation rejects them",
+        "pair_aggregation": "arithmetic mean over passed pairs",
+        "backend_partial_failure_behavior": "explicit failed pairs are retained in policy metadata",
         "requires_cuda": True,
     }
 
@@ -117,48 +117,57 @@ def validate_kl_passt_records(
     collect: str = "mean",
     official_corpus_score: Any | None = None,
 ) -> KLPaSSTAggregation:
-    """Require one successful finite pair record for every expected ID."""
+    """Aggregate passed pairs while requiring exact attribution for every attempt."""
 
     collect = _validate_collect(collect)
     expected = _validated_ids(expected_ids, "expected_ids")
     if isinstance(records, (str, bytes, Mapping)) or not isinstance(records, Sequence):
         raise KLPaSSTValidationError("records must be a sequence of per-pair records")
-    if not records:
-        raise KLPaSSTValidationError("all KL-PaSST pairs failed or no records were returned")
 
-    parsed = tuple(_pair_record(value, index) for index, value in enumerate(records))
-    actual_ids = tuple(record.sample_id for record in parsed)
+    attempted = tuple(_attempted_pair(value, index) for index, value in enumerate(records))
+    actual_ids = tuple(sample_id for sample_id, _, _ in attempted)
     duplicates = _duplicates(actual_ids)
     if duplicates:
         raise KLPaSSTValidationError(f"duplicate pair IDs: {duplicates}")
     expected_set, actual_set = set(expected), set(actual_ids)
     missing = tuple(value for value in expected if value not in actual_set)
     extra = tuple(value for value in actual_ids if value not in expected_set)
-    if missing or extra or len(parsed) != len(expected):
+    if missing or extra or len(attempted) != len(expected):
         raise KLPaSSTValidationError(
             "KL-PaSST pair IDs do not exactly match expected IDs; "
-            f"missing={missing}, extra={extra}, expected_count={len(expected)}, actual_count={len(parsed)}"
+            f"missing={missing}, extra={extra}, expected_count={len(expected)}, actual_count={len(attempted)}"
         )
 
-    by_id = {record.sample_id: record for record in parsed}
-    ordered = tuple(by_id[value] for value in expected)
-    corpus_mean = sum(record.kl_eval_to_reference for record in ordered) / len(ordered)
-    if not math.isfinite(corpus_mean):
-        raise KLPaSSTValidationError("KL-PaSST corpus mean must be finite")
+    by_id = {sample_id: (record, error) for sample_id, record, error in attempted}
+    ordered = tuple(by_id[value][0] for value in expected if by_id[value][0] is not None)
+    failed_ids = tuple(value for value in expected if by_id[value][1] is not None)
+    corpus_mean = (
+        sum(record.kl_eval_to_reference for record in ordered) / len(ordered)
+        if ordered
+        else None
+    )
     if official_corpus_score is not None:
+        if corpus_mean is None:
+            raise KLPaSSTValidationError("official KL-PaSST corpus score cannot be provided when all pairs failed")
         official = _finite_scalar(official_corpus_score, "official KL-PaSST corpus score")
         if not math.isclose(official, corpus_mean, rel_tol=1e-7, abs_tol=1e-12):
             raise KLPaSSTValidationError(
-                f"official KL-PaSST corpus score {official} does not match complete pair mean {corpus_mean}"
+                f"official KL-PaSST corpus score {official} does not match passed pair mean {corpus_mean}"
             )
 
+    status = "passed" if not failed_ids else ("passed_with_errors" if ordered else "error")
     metadata = official_passt_preprocessing(collect=collect) | {
         "metric": "kl_passt",
+        "status": status,
+        "attempted_count": len(expected),
+        "passed_count": len(ordered),
+        "error_count": len(failed_ids),
+        "error_sample_ids": failed_ids,
         "expected_pair_count": len(expected),
         "completed_pair_count": len(ordered),
-        "failed_pair_count": 0,
+        "failed_pair_count": len(failed_ids),
         "pair_ids_validated": True,
-        "partial_results_accepted": False,
+        "partial_results_accepted": True,
     }
     return KLPaSSTAggregation(ordered, corpus_mean, len(ordered), len(expected), metadata)
 
@@ -169,16 +178,9 @@ aggregate_kl_passt_pairs = validate_kl_passt_records
 def _pair_record(value: Any, index: int) -> KLPaSSTPairRecord:
     if isinstance(value, KLPaSSTPairRecord):
         sample_id, reference_id, generated_id, score = (
-            value.sample_id,
-            value.reference_id,
-            value.generated_id,
-            value.kl_eval_to_reference,
+            value.sample_id, value.reference_id, value.generated_id, value.kl_eval_to_reference,
         )
     elif isinstance(value, Mapping):
-        status, error = value.get("status", "success"), value.get("error")
-        if status != "success" or error not in (None, ""):
-            identifier = value.get("sample_id", value.get("id", index))
-            raise KLPaSSTValidationError(f"pair {identifier!r} failed: status={status!r}, error={error!r}")
         sample_id = value.get("sample_id", value.get("id"))
         reference_id = value.get("reference_id", sample_id)
         generated_id = value.get("generated_id", sample_id)
@@ -196,6 +198,24 @@ def _pair_record(value: Any, index: int) -> KLPaSSTPairRecord:
             f"reference={reference_id!r}, generated={generated_id!r}"
         )
     return KLPaSSTPairRecord(sample_id, reference_id, generated_id, score)
+
+
+def _attempted_pair(value: Any, index: int) -> tuple[str, KLPaSSTPairRecord | None, str | None]:
+    if not isinstance(value, Mapping):
+        record = _pair_record(value, index)
+        return record.sample_id, record, None
+    sample_id = _identifier(value.get("sample_id", value.get("id")), f"records[{index}].sample_id")
+    reference_id = _identifier(value.get("reference_id", sample_id), f"records[{index}].reference_id")
+    generated_id = _identifier(value.get("generated_id", sample_id), f"records[{index}].generated_id")
+    if reference_id != sample_id or generated_id != sample_id:
+        raise KLPaSSTValidationError(
+            f"records[{index}] has mismatched IDs: sample={sample_id!r}, "
+            f"reference={reference_id!r}, generated={generated_id!r}"
+        )
+    status, error = value.get("status", "success"), value.get("error")
+    if status != "success" or error not in (None, ""):
+        return sample_id, None, str(error or f"status={status!r}")
+    return sample_id, _pair_record(value, index), None
 
 
 def _validated_ids(values: Any, name: str) -> tuple[str, ...]:

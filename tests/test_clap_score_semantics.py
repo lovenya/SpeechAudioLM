@@ -112,35 +112,43 @@ class CLAPScoreSemanticsTest(unittest.TestCase):
         self.assertEqual(result.metadata["metric"], PROMPT_ADHERENCE_CLAP_SCORE)
         self.assertEqual(result.metadata["selected_text_field"], "conditioning_prompt")
 
-    def test_rejects_incomplete_failed_duplicate_and_mismatched_records(self) -> None:
-        base = {
+    def test_partial_and_all_failed_records_are_attributed(self) -> None:
+        passed = {
             "sample_id": "a",
             "generated_id": "a",
             "semantics": TARGET_CAPTION_ALIGNMENT,
             "text": "Caption",
             "score": 0.2,
         }
+        partial = validate_clap_score_records(
+            [passed, {"sample_id": "b", "status": "error", "error": "decode failed"}],
+            expected_ids=["a", "b"],
+            semantics=TARGET_CAPTION_ALIGNMENT,
+            official_corpus_score=0.2,
+        )
+        self.assertEqual(partial.corpus_mean, 0.2)
+        self.assertEqual(partial.metadata["status"], "passed_with_errors")
+        self.assertEqual(partial.metadata["attempted_count"], 2)
+        self.assertEqual(partial.metadata["passed_count"], 1)
+        self.assertEqual(partial.metadata["error_count"], 1)
+        self.assertEqual(partial.metadata["error_sample_ids"], ("b",))
+
+        failed = validate_clap_score_records(
+            [{"sample_id": "a", "status": "error", "error": "decode failed"}],
+            expected_ids=["a"],
+            semantics=TARGET_CAPTION_ALIGNMENT,
+        )
+        self.assertIsNone(failed.corpus_mean)
+        self.assertEqual(failed.records, ())
+        self.assertEqual(failed.metadata["status"], "error")
+
         with self.assertRaisesRegex(CLAPScoreValidationError, "do not exactly match"):
-            validate_clap_score_records(
-                [base],
-                expected_ids=["a", "b"],
-                semantics=TARGET_CAPTION_ALIGNMENT,
-            )
-        with self.assertRaisesRegex(CLAPScoreValidationError, "failed"):
-            validate_clap_score_records(
-                [base | {"status": "error", "error": "decode failed"}],
-                expected_ids=["a"],
-                semantics=TARGET_CAPTION_ALIGNMENT,
-            )
+            validate_clap_score_records([passed], expected_ids=["a", "b"], semantics=TARGET_CAPTION_ALIGNMENT)
         with self.assertRaisesRegex(CLAPScoreValidationError, "duplicate sample IDs"):
-            validate_clap_score_records(
-                [base, base],
-                expected_ids=["a", "b"],
-                semantics=TARGET_CAPTION_ALIGNMENT,
-            )
+            validate_clap_score_records([passed, passed], expected_ids=["a", "b"], semantics=TARGET_CAPTION_ALIGNMENT)
         with self.assertRaisesRegex(CLAPScoreValidationError, "mismatched IDs"):
             validate_clap_score_records(
-                [base | {"generated_id": "other"}],
+                [{"sample_id": "a", "generated_id": "other", "status": "error", "error": "failed"}],
                 expected_ids=["a"],
                 semantics=TARGET_CAPTION_ALIGNMENT,
             )
@@ -193,7 +201,7 @@ class CLAPScoreSemanticsTest(unittest.TestCase):
         self.assertIn("-1.0 dBFS", metadata["amplitude_policy"])
         self.assertIn("int16", metadata["pcm_roundtrip"])
         self.assertIn("32767", metadata["pcm_roundtrip"])
-        self.assertFalse(metadata["partial_results_accepted"])
+        self.assertTrue(metadata["partial_results_accepted"])
 
 
 if __name__ == "__main__":

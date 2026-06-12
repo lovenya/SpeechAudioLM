@@ -115,24 +115,37 @@ class UTMOSValidationTest(unittest.TestCase):
         self.assertEqual(result.expected_sample_count, 2)
         self.assertEqual(result.metadata["completed_sample_count"], 2)
         self.assertEqual(result.metadata["failed_sample_count"], 0)
-        self.assertFalse(result.metadata["partial_results_accepted"])
+        self.assertTrue(result.metadata["partial_results_accepted"])
 
-    def test_rejects_partial_empty_failed_duplicate_and_extra_results(self) -> None:
+    def test_partial_and_all_failed_results_are_attributed(self) -> None:
+        partial = validate_utmos_records(
+            [
+                {"sample_id": "a", "utmos": 4.0},
+                {"sample_id": "b", "status": "error", "error": "decode failed"},
+            ],
+            expected_ids=["a", "b"],
+            official_corpus_score=4.0,
+        )
+        self.assertEqual(partial.corpus_mean, 4.0)
+        self.assertEqual(partial.metadata["status"], "passed_with_errors")
+        self.assertEqual(partial.metadata["attempted_count"], 2)
+        self.assertEqual(partial.metadata["passed_count"], 1)
+        self.assertEqual(partial.metadata["error_count"], 1)
+        self.assertEqual(partial.metadata["error_sample_ids"], ("b",))
+
+        failed = validate_utmos_records(
+            [{"sample_id": "a", "status": "error", "error": "decode failed"}],
+            expected_ids=["a"],
+        )
+        self.assertIsNone(failed.corpus_mean)
+        self.assertEqual(failed.records, ())
+        self.assertEqual(failed.metadata["status"], "error")
+
         with self.assertRaisesRegex(UTMOSValidationError, "do not exactly match"):
             validate_utmos_records([{"sample_id": "a", "utmos": 4.0}], expected_ids=["a", "b"])
-        with self.assertRaisesRegex(UTMOSValidationError, "all UTMOS samples failed"):
-            validate_utmos_records([], expected_ids=["a"])
-        with self.assertRaisesRegex(UTMOSValidationError, "failed"):
-            validate_utmos_records(
-                [{"sample_id": "a", "status": "error", "error": "decode failed"}],
-                expected_ids=["a"],
-            )
         with self.assertRaisesRegex(UTMOSValidationError, "duplicate UTMOS sample IDs"):
             validate_utmos_records(
-                [
-                    {"sample_id": "a", "utmos": 4.0},
-                    {"sample_id": "a", "utmos": 3.0},
-                ],
+                [{"sample_id": "a", "utmos": 4.0}, {"sample_id": "a", "status": "error", "error": "failed"}],
                 expected_ids=["a", "b"],
             )
         with self.assertRaisesRegex(UTMOSValidationError, "extra=.*b"):

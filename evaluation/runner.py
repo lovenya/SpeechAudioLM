@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
+import math
 import json
 import os
 import statistics
@@ -12,6 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from evaluation.artifacts import (
+    write_json_create_only,
+    write_jsonl_create_only,
+    write_text_create_only,
+)
 from evaluation.errors import EvaluationError, MetricUnavailableError
 from evaluation.io import iter_jsonl, read_json, update_latest, utc_timestamp, write_json, write_jsonl
 from evaluation.manifest import is_successful_generation, sample_id, source_record
@@ -29,6 +36,7 @@ from evaluation.metric_contracts import (
 from evaluation.metrics.external import backend_metadata, require_configured_backend
 from evaluation.metrics.registry import MetricSpec
 from evaluation.metrics.text import normalize_text, word_error_rate
+from evaluation.result_validation import validate_final_result_completeness
 from project_conventions import eval_model_root
 
 
@@ -60,12 +68,19 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     dataset_root = Path(dataset_config["dataset_root"])
     rows, scope, provenance = _evaluation_scope_and_provenance(options)
 
-    _validate_rows(rows, options.metric_specs, dataset_root, require_success=scope.scientific)
+    preflight_errors = _validate_rows(
+        rows,
+        options.metric_specs,
+        dataset_root,
+        require_success=False,
+        allow_attributable_errors=True,
+    )
     metric_backend_metadata = _prepare_metric_backends(options.metric_specs, metrics_config, options.device, options.cache_dir)
 
     per_sample_rows = []
     for ordinal, row in enumerate(rows):
         per_sample_rows.append(_evaluate_row(row, ordinal, options.metric_specs, dataset_root))
+    _merge_backend_result(per_sample_rows, {"errors": preflight_errors})
 
     output_dir = _evaluation_output_dir(options)
     timestamp = utc_timestamp()
@@ -81,8 +96,23 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         artifact_dir,
         metric_backend_metadata,
     )
+    validation_report = validate_final_result_completeness(
+        options.metric_specs,
+        scope.selected_sample_ids,
+        per_sample_rows,
+        corpus_metrics,
+        diagnostic=options.evaluation_mode is EvaluationMode.BACKEND_SMOKE,
+    ).to_dict()
 
-    summary = _summarize(options, per_sample_rows, metric_backend_metadata, corpus_metrics, scope, provenance)
+    summary = _summarize(
+        options,
+        per_sample_rows,
+        metric_backend_metadata,
+        corpus_metrics,
+        scope,
+        provenance,
+        validation_report,
+    )
 
     paths = {
         "per_sample": output_dir / f"per_sample_{options.split}_{timestamp}.jsonl",
@@ -92,12 +122,18 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         "run_config": output_dir / f"run_config_{options.split}_{timestamp}.json",
     }
 
-    run_config = _run_config(options, metric_backend_metadata, scope, provenance)
-    write_jsonl(paths["per_sample"], per_sample_rows)
-    write_json(paths["summary"], summary)
-    _write_summary_csv(paths["summary_csv"], summary)
-    _write_report(paths["report"], summary, run_config)
-    write_json(paths["run_config"], run_config)
+    run_config = _run_config(
+        options,
+        metric_backend_metadata,
+        scope,
+        provenance,
+        validation_report,
+    )
+    write_jsonl_create_only(paths["per_sample"], per_sample_rows)
+    write_json_create_only(paths["summary"], summary)
+    write_text_create_only(paths["summary_csv"], _summary_csv_text(summary))
+    write_text_create_only(paths["report"], _report_text(summary, run_config))
+    write_json_create_only(paths["run_config"], run_config)
 
     if scope.publishable:
         latest = {
@@ -129,7 +165,7 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
     dataset_config = read_json(options.dataset_config_path)
     rows, scope, provenance = _evaluation_scope_and_provenance(options)
     dataset_root = Path(dataset_config["dataset_root"])
-    _validate_rows(rows, options.metric_specs, dataset_root, require_success=scope.scientific)
+    _validate_rows(rows, options.metric_specs, dataset_root, require_success=False)
     output_dir = _evaluation_output_dir(options)
     return {
         "dry_run": True,
@@ -270,36 +306,57 @@ def _evaluation_status(scope: EvaluationScope) -> str:
     return "final_scientific" if scope.scientific else "diagnostic_non_authoritative"
 
 
-def _validate_rows(rows: list[dict], specs: list[MetricSpec], dataset_root: Path, *, require_success: bool = False) -> None:
+def _validate_rows(
+    rows: list[dict],
+    specs: list[MetricSpec],
+    dataset_root: Path,
+    *,
+    require_success: bool = False,
+    allow_attributable_errors: bool = False,
+) -> dict[str, dict[str, str]]:
     if not rows:
         raise EvaluationError("Manifest contains no rows after --max-samples filtering.")
-    errors = []
+    errors: list[str] = []
+    attributable: dict[str, dict[str, str]] = {}
     for ordinal, row in enumerate(rows):
         source = source_record(row)
         sid = sample_id(row, ordinal)
+        row_key = str(row.get("row_index", ordinal))
         if not is_successful_generation(row):
             if require_success:
                 errors.append(f"{sid}: generation was not successful")
+            for spec in specs:
+                attributable.setdefault(row_key, {})[spec.name] = str(
+                    row.get("error") or "generation was not successful"
+                )
             continue
-        if any(spec.requires_output_file for spec in specs):
-            output = row.get("output_file")
-            if not isinstance(output, str) or not output:
-                errors.append(f"{sid}: missing output_file")
-            elif not Path(output).is_file():
-                errors.append(f"{sid}: output_file does not exist: {output}")
         for spec in specs:
+            metric_errors: list[str] = []
+            if spec.requires_output_file:
+                output = row.get("output_file")
+                if not isinstance(output, str) or not output:
+                    metric_errors.append("missing output_file")
+                elif not Path(output).is_file():
+                    metric_errors.append(f"output_file does not exist: {output}")
             for field in spec.required_source_fields:
                 value = _source_field_value(source, field, dataset_root)
                 if not isinstance(value, str) or not value.strip():
-                    errors.append(f"{sid}: metric {spec.name} requires source.{field}")
+                    metric_errors.append(f"requires source.{field}")
                 elif field in {"audio_file", "speech_file"} and not _resolve_reference(dataset_root, value).is_file():
-                    errors.append(f"{sid}: metric {spec.name} reference path does not exist: {_resolve_reference(dataset_root, value)}")
+                    metric_errors.append(
+                        f"reference path does not exist: {_resolve_reference(dataset_root, value)}"
+                    )
             if spec.requires_hypothesis_text and _prediction_text_for_metric(row, spec.name) is None:
-                errors.append(f"{sid}: metric {spec.name} requires a text prediction in model_extra")
-    if errors:
+                metric_errors.append("requires a text prediction in model_extra")
+            if metric_errors:
+                message = "; ".join(metric_errors)
+                errors.append(f"{sid}: metric {spec.name}: {message}")
+                attributable.setdefault(row_key, {})[spec.name] = message
+    if errors and not allow_attributable_errors:
         preview = "\n".join(f"  - {item}" for item in errors[:20])
         suffix = "" if len(errors) <= 20 else f"\n  ... {len(errors) - 20} more"
         raise EvaluationError(f"Evaluation inputs are incomplete:\n{preview}{suffix}")
+    return attributable
 
 
 def _prepare_metric_backends(
@@ -394,19 +451,27 @@ def _compute_external_metrics(
         )
     for backend, candidate_metrics in backend_metrics.items():
         metric_names = [name for name in candidate_metrics if name in selected]
-        if not metric_names:
-            continue
-        if backend == "dedicated-script":
-            result = _run_dedicated_script_metrics(options, rows, metrics_config, artifact_dir, metric_names)
-        else:
-            result = _run_backend_worker(options, rows, dataset_root, metrics_config, work_dir, artifact_dir, backend, metric_names)
-        _merge_backend_result(per_sample_rows, result)
-        for metric_name, metadata in result.get("metric_backends", {}).items():
-            if metric_name in metric_backend_metadata:
-                metric_backend_metadata[metric_name].update(metadata)
-        # Prefer backend-provided official corpus scores in summaries while
-        # retaining sentence-level scores in the per-sample JSONL.
-        corpus_metrics.update(result.get("corpus_metrics", {}))
+        for metric_name in metric_names:
+            if backend == "dedicated-script":
+                result = _run_dedicated_script_metrics(
+                    options, rows, metrics_config, artifact_dir, [metric_name]
+                )
+            else:
+                valid_rows = _rows_without_metric_errors(rows, per_sample_rows, metric_name)
+                if valid_rows:
+                    result = _run_backend_worker(
+                        options, valid_rows, dataset_root, metrics_config, work_dir,
+                        artifact_dir, backend, [metric_name]
+                    )
+                else:
+                    result = {"sample_metrics": {}, "corpus_metrics": {}, "predictions": {}, "errors": {}}
+            _merge_backend_result(per_sample_rows, result)
+            for name, metadata in result.get("metric_backends", {}).items():
+                if name in metric_backend_metadata:
+                    metric_backend_metadata[name].update(metadata)
+            # Prefer backend-provided official corpus scores in summaries while
+            # retaining sentence-level scores in the per-sample JSONL.
+            corpus_metrics.update(result.get("corpus_metrics", {}))
     return corpus_metrics
 
 
@@ -758,6 +823,22 @@ def _merge_result_dicts(target: dict[str, Any], source: dict[str, Any]) -> None:
         for row_index, values in source.get(key, {}).items():
             target.setdefault(key, {}).setdefault(str(row_index), {}).update(values)
     target.setdefault("metric_backends", {}).update(source.get("metric_backends", {}))
+
+
+def _rows_without_metric_errors(
+    rows: list[dict],
+    per_sample_rows: list[dict],
+    metric_name: str,
+) -> list[dict]:
+    errors_by_index = {
+        str(row["row_index"]): row.get("errors", {})
+        for row in per_sample_rows
+    }
+    return [
+        row
+        for ordinal, row in enumerate(rows)
+        if metric_name not in errors_by_index.get(str(row.get("row_index", ordinal)), {})
+    ]
 
 
 def _run_backend_worker(
@@ -1124,6 +1205,7 @@ def _summarize(
     corpus_metrics: dict[str, Any] | None,
     scope: EvaluationScope,
     provenance: EvaluationProvenance,
+    validation_report: dict[str, Any],
 ) -> dict:
     corpus_metrics = corpus_metrics or {}
     metric_names = [spec.name for spec in options.metric_specs]
@@ -1154,7 +1236,7 @@ def _summarize(
             grouped_errors[metric][normalized_message] = grouped_errors[metric].get(normalized_message, 0) + 1
 
     return {
-        "status": _evaluation_status(scope),
+        "status": validation_report["status"],
         "scope": scope.report_fields(),
         "provenance": provenance.report_fields(),
         "model": options.model,
@@ -1169,6 +1251,7 @@ def _summarize(
         "metric_summaries": stats,
         "errors_by_metric": grouped_errors,
         "metric_backends": backend_metadata,
+        "result_validation": validation_report,
     }
 
 
@@ -1203,9 +1286,10 @@ def _run_config(
     backend_metadata: dict[str, dict],
     scope: EvaluationScope,
     provenance: EvaluationProvenance,
+    validation_report: dict[str, Any],
 ) -> dict:
     return {
-        "status": _evaluation_status(scope),
+        "status": validation_report["status"],
         "scope": scope.report_fields(),
         "provenance": provenance.report_fields(),
         "model": options.model,
@@ -1218,6 +1302,7 @@ def _run_config(
         "task_metric_map": str(options.task_metric_map_path),
         "metrics": [spec.name for spec in options.metric_specs],
         "metric_backends": backend_metadata,
+        "result_validation": validation_report,
         "start_index": options.start_index,
         "max_samples": options.max_samples,
         "cache_dir": str(options.cache_dir),
@@ -1227,28 +1312,27 @@ def _run_config(
     }
 
 
-def _write_summary_csv(path: Path, summary: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["metric", "count", "mean", "std", "min", "max", "median", "status"])
-        for metric, stats in summary.get("metric_summaries", {}).items():
-            writer.writerow(
-                [
-                    metric,
-                    stats.get("count"),
-                    stats.get("mean"),
-                    stats.get("std"),
-                    stats.get("min"),
-                    stats.get("max"),
-                    stats.get("median"),
-                    stats.get("status"),
-                ]
-            )
+def _summary_csv_text(summary: dict) -> str:
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["metric", "count", "mean", "std", "min", "max", "median", "status"])
+    for metric, stats in summary.get("metric_summaries", {}).items():
+        writer.writerow(
+            [
+                metric,
+                stats.get("count"),
+                stats.get("mean"),
+                stats.get("std"),
+                stats.get("min"),
+                stats.get("max"),
+                stats.get("median"),
+                stats.get("status"),
+            ]
+        )
+    return output.getvalue()
 
 
-def _write_report(path: Path, summary: dict, run_config: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _report_text(summary: dict, run_config: dict) -> str:
     lines = [
         f"# Evaluation Report: {summary['model']} {summary['task']}",
         "",
@@ -1266,10 +1350,12 @@ def _write_report(path: Path, summary: dict, run_config: dict) -> None:
     ]
     for metric, stats in summary.get("metric_summaries", {}).items():
         if "mean" in stats:
-            lines.append(
-                f"- `{metric}`: mean={stats['mean']:.6g}, std={stats['std']:.6g}, "
-                f"min={stats['min']:.6g}, max={stats['max']:.6g}, median={stats['median']:.6g}"
-            )
+            fields = [f"mean={stats['mean']:.6g}"]
+            for name in ("std", "min", "max", "median"):
+                value = stats.get(name)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    fields.append(f"{name}={value:.6g}")
+            lines.append(f"- `{metric}`: " + ", ".join(fields))
         else:
             lines.append(f"- `{metric}`: {stats.get('status', 'not computed')}")
     lines.extend(["", "## Dependency Notes", ""])
@@ -1279,4 +1365,4 @@ def _write_report(path: Path, summary: dict, run_config: dict) -> None:
     lines.append("- Generated-speech dWER is directional: WER(ASR(reference_speech), ASR(generated_speech)).")
     lines.append("- FAD, KAD, KL_PaSST, and Inception Score are corpus-level metrics only.")
     lines.extend(["", "## Command", "", "```text", " ".join(run_config.get("command", [])), "```", ""])
-    path.write_text("\n".join(lines), encoding="utf-8")
+    return "\n".join(lines)

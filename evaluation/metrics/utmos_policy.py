@@ -32,7 +32,7 @@ class UTMOSRecord:
 @dataclass(frozen=True)
 class UTMOSAggregation:
     records: tuple[UTMOSRecord, ...]
-    corpus_mean: float
+    corpus_mean: float | None
     sample_count: int
     expected_sample_count: int
     metadata: Mapping[str, Any]
@@ -102,8 +102,8 @@ def official_utmosv2_policy() -> dict[str, Any]:
         "predict_dataset": UTMOSV2_PREDICT_DATASET,
         "metric_level": "per-sample",
         "higher_is_better": True,
-        "corpus_aggregation": "arithmetic mean over the complete expected sample set",
-        "partial_results_accepted": False,
+        "corpus_aggregation": "arithmetic mean over passed samples",
+        "partial_results_accepted": True,
         "nonfinite_results_accepted": False,
     }
 
@@ -169,47 +169,49 @@ def validate_utmos_records(
     expected_ids: Sequence[str],
     official_corpus_score: Any | None = None,
 ) -> UTMOSAggregation:
-    """Require exactly one successful finite UTMOS value per expected sample."""
+    """Aggregate passed values while requiring exact attribution for every attempt."""
 
     expected = _validated_ids(expected_ids)
     if isinstance(records, (str, bytes, Mapping)) or not isinstance(records, Sequence):
         raise UTMOSValidationError("records must be a sequence of per-sample records")
-    if not records:
-        raise UTMOSValidationError("all UTMOS samples failed or no records were returned")
 
-    parsed = tuple(_record(value, index) for index, value in enumerate(records))
-    actual_ids = tuple(record.sample_id for record in parsed)
+    attempted = tuple(_attempted_record(value, index) for index, value in enumerate(records))
+    actual_ids = tuple(sample_id for sample_id, _, _ in attempted)
     duplicates = _duplicates(actual_ids)
     if duplicates:
         raise UTMOSValidationError(f"duplicate UTMOS sample IDs: {duplicates}")
-
     expected_set, actual_set = set(expected), set(actual_ids)
     missing = tuple(value for value in expected if value not in actual_set)
     extra = tuple(value for value in actual_ids if value not in expected_set)
-    if missing or extra or len(parsed) != len(expected):
+    if missing or extra or len(attempted) != len(expected):
         raise UTMOSValidationError(
             "UTMOS sample IDs do not exactly match expected IDs; "
-            f"missing={missing}, extra={extra}, expected_count={len(expected)}, "
-            f"actual_count={len(parsed)}"
+            f"missing={missing}, extra={extra}, expected_count={len(expected)}, actual_count={len(attempted)}"
         )
 
-    by_id = {record.sample_id: record for record in parsed}
-    ordered = tuple(by_id[sample_id] for sample_id in expected)
-    corpus_mean = sum(record.score for record in ordered) / len(ordered)
-    if not math.isfinite(corpus_mean):
-        raise UTMOSValidationError("UTMOS corpus mean must be finite")
+    by_id = {sample_id: (record, error) for sample_id, record, error in attempted}
+    ordered = tuple(by_id[sample_id][0] for sample_id in expected if by_id[sample_id][0] is not None)
+    failed_ids = tuple(sample_id for sample_id in expected if by_id[sample_id][1] is not None)
+    corpus_mean = sum(record.score for record in ordered) / len(ordered) if ordered else None
     if official_corpus_score is not None:
+        if corpus_mean is None:
+            raise UTMOSValidationError("official UTMOS corpus score cannot be provided when all samples failed")
         official = _finite_scalar(official_corpus_score, "official UTMOS corpus score")
         if not math.isclose(official, corpus_mean, rel_tol=1e-7, abs_tol=1e-12):
             raise UTMOSValidationError(
-                f"official UTMOS corpus score {official} does not match "
-                f"complete sample mean {corpus_mean}"
+                f"official UTMOS corpus score {official} does not match passed sample mean {corpus_mean}"
             )
 
+    status = "passed" if not failed_ids else ("passed_with_errors" if ordered else "error")
     metadata = official_utmosv2_policy() | {
+        "status": status,
+        "attempted_count": len(expected),
+        "passed_count": len(ordered),
+        "error_count": len(failed_ids),
+        "error_sample_ids": failed_ids,
         "expected_sample_count": len(expected),
         "completed_sample_count": len(ordered),
-        "failed_sample_count": 0,
+        "failed_sample_count": len(failed_ids),
         "sample_ids_validated": True,
     }
     return UTMOSAggregation(ordered, corpus_mean, len(ordered), len(expected), metadata)
@@ -222,22 +224,25 @@ def _record(value: Any, index: int) -> UTMOSRecord:
     if isinstance(value, UTMOSRecord):
         sample_id, score = value.sample_id, value.score
     elif isinstance(value, Mapping):
-        status, error = value.get("status", "success"), value.get("error")
-        if status != "success" or error not in (None, ""):
-            identifier = value.get("sample_id", value.get("id", index))
-            raise UTMOSValidationError(
-                f"UTMOS sample {identifier!r} failed: status={status!r}, error={error!r}"
-            )
         sample_id = value.get("sample_id", value.get("id"))
         score = value.get("utmos", value.get("score"))
     else:
-        raise UTMOSValidationError(
-            f"records[{index}] must be a mapping or UTMOSRecord"
-        )
+        raise UTMOSValidationError(f"records[{index}] must be a mapping or UTMOSRecord")
     return UTMOSRecord(
         _identifier(sample_id, f"records[{index}].sample_id"),
         _finite_scalar(score, f"records[{index}].utmos"),
     )
+
+
+def _attempted_record(value: Any, index: int) -> tuple[str, UTMOSRecord | None, str | None]:
+    if not isinstance(value, Mapping):
+        record = _record(value, index)
+        return record.sample_id, record, None
+    sample_id = _identifier(value.get("sample_id", value.get("id")), f"records[{index}].sample_id")
+    status, error = value.get("status", "success"), value.get("error")
+    if status != "success" or error not in (None, ""):
+        return sample_id, None, str(error or f"status={status!r}")
+    return sample_id, _record(value, index), None
 
 
 def _validated_ids(values: Any) -> tuple[str, ...]:

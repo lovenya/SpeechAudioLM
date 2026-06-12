@@ -102,7 +102,7 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
                     )
                 )
 
-    def test_final_rejects_unsuccessful_generation_rows(self) -> None:
+    def test_final_retains_unsuccessful_generation_rows_with_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             options = self._options(
@@ -111,8 +111,16 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
                 common_ids=("sample-a", "sample-b"),
                 failed_second=True,
             )
-            with self.assertRaisesRegex(EvaluationError, "sample-b: generation was not successful"):
-                dry_run(options)
+            scope = dry_run(options)
+            self.assertEqual(scope["scope"]["selected_sample_count"], 2)
+            paths = run_evaluation(options)
+            summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+            validation = summary["result_validation"]
+            self.assertEqual(validation["result_status"], "passed_with_errors")
+            self.assertEqual(validation["metric_counts"]["wer"], {
+                "attempted_count": 2, "passed_count": 1, "error_count": 1,
+            })
+            self.assertEqual(validation["failed_sample_ids"]["wer"], ["sample-b"])
 
     def test_backend_smoke_is_isolated_nonpublishable_and_does_not_update_latest(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

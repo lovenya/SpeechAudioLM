@@ -106,16 +106,25 @@ class SpeechMetricWorkerIntegrationTest(unittest.TestCase):
         )
         self.assertTrue(validation.ok)
 
-    def test_whisper_rejects_missing_and_normalization_empty_references(self) -> None:
+    def test_whisper_retains_bad_reference_as_attributable_error(self) -> None:
         for reference in (None, "", "..."):
+            model = Mock()
+            model.transcribe.side_effect = lambda path, **kwargs: {
+                "text": "one" if path.endswith("a.wav") else "one two three four five six seven eight nine"
+            }
             whisper = types.ModuleType("whisper")
-            whisper.load_model = Mock()
+            whisper.load_model = Mock(return_value=model)
             payload = _whisper_payload()
             payload["rows"][0]["source"]["speech_text"] = reference
             with self.subTest(reference=reference), patch.dict(sys.modules, {"whisper": whisper}):
-                with self.assertRaises(ValueError):
-                    run_whisper(payload)
-            whisper.load_model.assert_not_called()
+                result = run_whisper(payload)
+            self.assertNotIn("asr_wer", result["sample_metrics"]["10"])
+            self.assertIn("asr_wer", result["errors"]["10"])
+            corpus = result["corpus_metrics"]["asr_wer"]
+            self.assertEqual(corpus["attempted_count"], 2)
+            self.assertEqual(corpus["passed_count"], 1)
+            self.assertEqual(corpus["error_count"], 1)
+            self.assertEqual(corpus["error_sample_ids"], ["10"])
 
     def test_utmos_enforces_official_factory_and_prediction_contract(self) -> None:
         model = Mock()
@@ -141,7 +150,9 @@ class SpeechMetricWorkerIntegrationTest(unittest.TestCase):
             self.assertEqual(call.kwargs["num_workers"], 2)
             self.assertEqual(call.kwargs["batch_size"], 4)
         self.assertEqual(result["sample_metrics"], {"3": {"utmos": 3.5}, "7": {"utmos": 4.5}})
-        self.assertEqual(result["corpus_metrics"], {"utmos": 4.0})
+        self.assertEqual(result["corpus_metrics"]["utmos"]["mean"], 4.0)
+        self.assertEqual(result["corpus_metrics"]["utmos"]["passed_count"], 2)
+        self.assertEqual(result["corpus_metrics"]["utmos"]["error_count"], 0)
         policy = result["metric_backends"]["utmos"]["policy_metadata"]
         self.assertFalse(policy["silence_removal"])
         self.assertEqual(policy["num_repetitions"], 5)
@@ -160,8 +171,13 @@ class SpeechMetricWorkerIntegrationTest(unittest.TestCase):
         model.predict.side_effect = [4.0, math.nan]
         utmosv2.create_model.return_value = model
         with patch.dict(sys.modules, {"utmosv2": utmosv2}):
-            with self.assertRaisesRegex(UTMOSValidationError, "finite"):
-                run_utmosv2(_utmos_payload())
+            result = run_utmosv2(_utmos_payload())
+        self.assertEqual(result["sample_metrics"], {"3": {"utmos": 4.0}})
+        self.assertIn("utmos", result["errors"]["7"])
+        corpus = result["corpus_metrics"]["utmos"]
+        self.assertEqual(corpus["passed_count"], 1)
+        self.assertEqual(corpus["error_count"], 1)
+        self.assertEqual(corpus["error_sample_ids"], ["7"])
 
 
 if __name__ == "__main__":

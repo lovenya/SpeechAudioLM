@@ -54,27 +54,30 @@ class FinalResultCompletenessTest(unittest.TestCase):
 
         self.assertTrue(report.ok)
         self.assertTrue(report.scientifically_valid)
-        self.assertEqual(report.status, "final_scientific_valid")
-        self.assertEqual(report.sample_metric_coverage, {"sample_score": 2})
-        self.assertEqual(report.corpus_metric_coverage, {"corpus_score": True})
+        self.assertEqual(report.status, "final_scientific")
+        self.assertTrue(report.comparison_ready)
+        self.assertEqual(report.metric_counts["sample_score"], {
+            "attempted_count": 2, "passed_count": 2, "error_count": 0,
+        })
+        self.assertEqual(report.metric_counts["corpus_score"], {
+            "attempted_count": 2, "passed_count": 2, "error_count": 0,
+        })
+        self.assertEqual(report.to_dict()["result_status"], "passed")
 
-    def test_rejects_row_errors_unsuccessful_status_and_missing_metrics(self) -> None:
-        with self.assertRaises(FinalResultValidationError) as raised:
-            validate_final_result_completeness(
-                [SAMPLE_METRIC],
-                ["a"],
-                [_row("a", metrics={}, status="failed", errors=["backend failed"])],
-                {},
-            )
-
-        self.assertEqual(
-            _issue_codes(raised.exception),
-            {"row_errors", "unsuccessful_row", "missing_sample_metric"},
+    def test_retains_attributable_sample_errors_in_final_report(self) -> None:
+        report = validate_final_result_completeness(
+            [SAMPLE_METRIC], ["a"],
+            [_row("a", metrics={}, status="failed", errors=["backend failed"])], {},
         )
-        self.assertEqual(
-            raised.exception.report.sample_metric_coverage,
-            {"sample_score": 0},
-        )
+        self.assertTrue(report.ok)
+        self.assertTrue(report.scientifically_valid)
+        self.assertFalse(report.comparison_ready)
+        self.assertEqual({issue.code for issue in report.issues}, {"metric_sample_error"})
+        self.assertEqual(report.metric_counts["sample_score"], {
+            "attempted_count": 1, "passed_count": 0, "error_count": 1,
+        })
+        self.assertEqual(report.failed_sample_ids, {"sample_score": ("a",)})
+        self.assertEqual(report.to_dict()["result_status"], "error")
 
     def test_rejects_duplicate_missing_and_unexpected_row_ids(self) -> None:
         with self.assertRaises(FinalResultValidationError) as raised:
@@ -87,76 +90,49 @@ class FinalResultCompletenessTest(unittest.TestCase):
 
         codes = _issue_codes(raised.exception)
         self.assertIn("duplicate_row_id", codes)
-        self.assertIn("missing_row_id", codes)
-        self.assertIn("unexpected_row_id", codes)
+        self.assertIn("row_id_set_mismatch", codes)
 
-    def test_rejects_boolean_and_nonfinite_metric_values(self) -> None:
-        with self.assertRaises(FinalResultValidationError) as raised:
-            validate_final_result_completeness(
-                [
-                    MetricSpec(name="boolean_sample", level="sample"),
-                    MetricSpec(name="nonfinite_sample", level="sample"),
-                    MetricSpec(name="boolean_corpus", level="corpus"),
-                    MetricSpec(name="nonfinite_corpus", level="corpus"),
-                ],
-                ["a"],
-                [
-                    _row(
-                        "a",
-                        metrics={
-                            "boolean_sample": True,
-                            "nonfinite_sample": float("nan"),
-                        },
-                    )
-                ],
-                {
-                    "boolean_corpus": {
-                        "level": "corpus",
-                        "mean": False,
-                        "input_count": 1,
-                    },
-                    "nonfinite_corpus": {
-                        "level": "corpus",
-                        "mean": float("inf"),
-                        "input_count": 1,
-                    },
-                },
-            )
+    def test_retains_boolean_and_nonfinite_metric_values_as_errors(self) -> None:
+        report = validate_final_result_completeness(
+            [
+                MetricSpec(name="boolean_sample", level="sample"),
+                MetricSpec(name="nonfinite_sample", level="sample"),
+                MetricSpec(name="boolean_corpus", level="corpus"),
+                MetricSpec(name="nonfinite_corpus", level="corpus"),
+            ],
+            ["a"],
+            [_row("a", metrics={"boolean_sample": True, "nonfinite_sample": float("nan")})],
+            {
+                "boolean_corpus": {"level": "corpus", "mean": False, "input_count": 1},
+                "nonfinite_corpus": {"level": "corpus", "mean": float("inf"), "input_count": 1},
+            },
+        )
+        self.assertTrue(report.ok)
+        self.assertEqual(report.to_dict()["result_status"], "passed_with_errors")
+        self.assertEqual(report.metric_counts["boolean_sample"]["passed_count"], 0)
+        self.assertEqual(report.metric_counts["nonfinite_sample"]["passed_count"], 0)
+        self.assertEqual(report.metric_counts["boolean_corpus"]["passed_count"], 1)
+        self.assertEqual(report.metric_counts["nonfinite_corpus"]["passed_count"], 1)
 
-        codes = _issue_codes(raised.exception)
-        self.assertIn("non_numeric_metric_value", codes)
-        self.assertIn("boolean_corpus_value", codes)
-        self.assertIn("non_finite_metric_value", codes)
-
-    def test_rejects_missing_malformed_and_wrong_sized_corpus_outputs(self) -> None:
+    def test_retains_missing_malformed_and_wrong_sized_corpus_outputs(self) -> None:
         specs = [
             MetricSpec(name="missing", level="corpus"),
             MetricSpec(name="malformed", level="corpus"),
             MetricSpec(name="wrong_size", level="corpus"),
         ]
-        with self.assertRaises(FinalResultValidationError) as raised:
-            validate_final_result_completeness(
-                specs,
-                ["a", "b"],
-                [_row("a"), _row("b")],
-                {
-                    "malformed": {"level": "sample", "input_count": 2},
-                    "wrong_size": {
-                        "level": "corpus",
-                        "mean": 0.25,
-                        "input_count": 1,
-                    },
-                },
-            )
-
-        codes = _issue_codes(raised.exception)
-        self.assertIn("missing_corpus_metric", codes)
-        self.assertIn("malformed_corpus_summary", codes)
-        self.assertIn("corpus_input_count_mismatch", codes)
-        self.assertEqual(
-            raised.exception.report.corpus_metric_coverage,
-            {"missing": False, "malformed": True, "wrong_size": True},
+        report = validate_final_result_completeness(
+            specs, ["a", "b"], [_row("a"), _row("b")],
+            {
+                "malformed": {"level": "sample", "input_count": 2},
+                "wrong_size": {"level": "corpus", "mean": 0.25, "input_count": 1},
+            },
         )
+        self.assertTrue(report.ok)
+        self.assertEqual(report.to_dict()["result_status"], "passed_with_errors")
+        self.assertEqual(report.failed_sample_ids["missing"], ("a", "b"))
+        self.assertEqual(report.metric_counts["missing"]["passed_count"], 0)
+        self.assertEqual(report.metric_counts["malformed"]["passed_count"], 2)
+        self.assertEqual(report.metric_counts["wrong_size"]["passed_count"], 1)
 
     def test_diagnostic_mode_never_claims_scientific_validity(self) -> None:
         valid_report = validate_final_result_completeness(

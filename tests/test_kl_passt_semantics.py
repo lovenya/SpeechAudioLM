@@ -64,16 +64,33 @@ class KLPaSSTSemanticsTest(unittest.TestCase):
         self.assertEqual(result.metadata["failed_pair_count"], 0)
         self.assertEqual(result.metadata["window_collect_semantics"], "mean over window logits, then softmax")
 
-    def test_rejects_partial_and_all_failed_results(self) -> None:
+    def test_partial_and_all_failed_results_are_attributed(self) -> None:
+        partial = validate_kl_passt_records(
+            [
+                {"sample_id": "a", "kl": 0.2},
+                {"sample_id": "b", "status": "error", "error": "decode failed"},
+            ],
+            expected_ids=["a", "b"],
+            official_corpus_score=0.2,
+        )
+        self.assertEqual(partial.corpus_mean, 0.2)
+        self.assertEqual(partial.metadata["status"], "passed_with_errors")
+        self.assertEqual(partial.metadata["attempted_count"], 2)
+        self.assertEqual(partial.metadata["passed_count"], 1)
+        self.assertEqual(partial.metadata["error_count"], 1)
+        self.assertEqual(partial.metadata["error_sample_ids"], ("b",))
+
+        failed = validate_kl_passt_records(
+            [{"sample_id": "a", "status": "error", "error": "decode failed"}],
+            expected_ids=["a"],
+        )
+        self.assertIsNone(failed.corpus_mean)
+        self.assertEqual(failed.records, ())
+        self.assertEqual(failed.metadata["status"], "error")
+        self.assertEqual(failed.metadata["error_sample_ids"], ("a",))
+
         with self.assertRaisesRegex(KLPaSSTValidationError, "do not exactly match"):
             validate_kl_passt_records([{"sample_id": "a", "kl": 0.2}], expected_ids=["a", "b"])
-        with self.assertRaisesRegex(KLPaSSTValidationError, "all.*failed"):
-            validate_kl_passt_records([], expected_ids=["a"])
-        with self.assertRaisesRegex(KLPaSSTValidationError, "failed"):
-            validate_kl_passt_records(
-                [{"sample_id": "a", "status": "error", "error": "decode failed"}],
-                expected_ids=["a"],
-            )
 
     def test_rejects_nonfinite_duplicate_extra_and_mismatched_ids(self) -> None:
         for invalid in (math.nan, math.inf, -math.inf):
@@ -115,7 +132,7 @@ class KLPaSSTSemanticsTest(unittest.TestCase):
         self.assertEqual(metadata["window_collect_semantics"], "max over window logits, then softmax")
         self.assertEqual(metadata["kl_direction"], KL_DIRECTION)
         self.assertTrue(metadata["requires_cuda"])
-        self.assertIn("rejects", metadata["backend_partial_failure_behavior"])
+        self.assertIn("retained", metadata["backend_partial_failure_behavior"])
 
 
 if __name__ == "__main__":
