@@ -45,6 +45,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
         self.assertNotIn("###Reference Anchors:", plausibility)
         self.assertIn("Direction: audio_to_speech", plausibility)
         self.assertIn("sounds like a natural human utterance", plausibility)
+        self.assertIn("Ignore its relevance to the input", plausibility)
 
         grounded = build_prompt(
             variant="reference_grounded",
@@ -57,6 +58,38 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
         self.assertIn("###Reference Anchors:", grounded)
         self.assertIn("[Anchor 1 | source=paired_dataset_reference | id=a]", grounded)
         self.assertIn("reference audio-caption anchor", grounded)
+
+        anchor = {"anchor_id": "a", "text": "UNIQUE_REFERENCE_ANCHOR_TEXT", "source": "paired_dataset_reference"}
+        for direction in ("audio_to_speech", "speech_to_audio"):
+            for criterion in CRITERION_WEIGHTS[("reference_grounded", direction)]:
+                with self.subTest(direction=direction, criterion=criterion):
+                    prompt = build_prompt(
+                        variant="reference_grounded",
+                        direction=direction,
+                        criterion=criterion,
+                        input_text="Input text.",
+                        generated_text="Generated text.",
+                        reference_anchors=[anchor],
+                    )
+                    if criterion == "reference_anchor_grounding":
+                        self.assertIn("###Reference Anchors:", prompt)
+                        self.assertIn(anchor["text"], prompt)
+                    else:
+                        self.assertNotIn("###Reference Anchors:", prompt)
+                        self.assertNotIn(anchor["text"], prompt)
+
+        grounded_non_contradiction = build_prompt(
+            variant="reference_grounded",
+            direction="speech_to_audio",
+            criterion="non_contradiction",
+            input_text="Please let the dog inside.",
+            generated_text="A dog barks by a door.",
+            reference_anchors=[anchor],
+        )
+        self.assertIn(
+            "Do not lower the score merely because the response is weakly related",
+            grounded_non_contradiction,
+        )
 
     def test_diagnostics_do_not_change_final_score(self) -> None:
         weights = {"non_contradiction": 0.5, "spoken_naturalness": 0.5}

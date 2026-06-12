@@ -22,8 +22,8 @@ METRIC_IDS = {
     "reference_grounded": "g_eval_prometheus_criterion_v2_reference_grounded",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_prometheus_plausibility_direct_assessment_v1",
-    "reference_grounded": "geval_prometheus_reference_grounded_direct_assessment_v1",
+    "plausibility": "geval_prometheus_plausibility_direct_assessment_v2",
+    "reference_grounded": "geval_prometheus_reference_grounded_direct_assessment_v2",
 }
 
 CRITERION_WEIGHTS = {
@@ -64,12 +64,12 @@ CRITERION_WEIGHTS = {
 }
 
 RUBRICS = {
-    "non_contradiction": """Evaluate whether the response explicitly conflicts with the input text.
+    "non_contradiction": """Evaluate the degree to which the response conflicts with the input text.
 
-Score 5: No contradiction; the response is fully compatible with the input.
-Score 4: No clear contradiction, with only minor ambiguity or mild tension.
-Score 3: Mostly non-contradictory, but includes some confusing, unsupported, or potentially inconsistent detail.
-Score 2: Significant tension with the input, though not a direct explicit contradiction.
+Score 5: No contradiction or meaningful tension; the response is fully compatible with the input.
+Score 4: No likely conflict, with only minor ambiguity or mild tension.
+Score 3: Mostly compatible, but includes detail that creates a genuine possible inconsistency with the input.
+Score 2: Likely or significant conflict with the input, though not a direct explicit contradiction.
 Score 1: Clear contradiction of the input.""",
     "meaningful_scene_to_utterance_connection": """Evaluate whether the generated utterance has a meaningful situational, causal, contextual, or reactive relationship to the input audio scene.
 
@@ -89,7 +89,7 @@ Score 1: No meaningful relationship to the speech.""",
 
 Score 5: Highly plausible human utterance for the situation implied by the audio scene.
 Score 4: Plausible utterance with minor contextual or pragmatic weakness.
-Score 3: Possible but generic, weakly motivated, or somewhat unnatural for the situation.
+Score 3: Possible but weakly motivated, atypical, or pragmatically strained for the situation.
 Score 2: Unlikely or forced human reaction to the audio scene.
 Score 1: Implausible as something a human would say in relation to the audio scene.""",
     "causal_contextual_plausibility": """Evaluate whether the generated audio scene could plausibly contextualize, accompany, explain, or be caused by the input speech.
@@ -103,7 +103,7 @@ Score 1: Implausible relationship between the speech and the audio scene.""",
 
 Score 5: Sound sources, events, and acoustic scene are realistic and internally coherent.
 Score 4: Mostly coherent with only minor physical or acoustic weakness.
-Score 3: Generally possible but includes vague, awkward, or mildly questionable acoustic details.
+Score 3: Generally possible but includes mildly questionable interactions among sound sources, events, or acoustic conditions.
 Score 2: Contains significant physical or acoustic implausibility.
 Score 1: Physically impossible, acoustically incoherent, or internally contradictory.""",
     "contextual_emotional_fit": """Evaluate whether the response fits the implied situation, intent, mood, urgency, or emotional context of the input.
@@ -124,14 +124,14 @@ Score 1: Empty, uninformative, or dominated by unsupported invented details.""",
 
 Score 5: Natural, fluent, and plausible as spoken human language.
 Score 4: Mostly natural with minor awkwardness.
-Score 3: Understandable but somewhat stiff, generic, repetitive, or template-like.
+Score 3: Understandable but somewhat stiff, repetitive, or template-like.
 Score 2: Unnatural, awkward, or difficult to accept as human speech.
 Score 1: Broken, incoherent, excessively repetitive, or not a plausible utterance.""",
     "audio_description_naturalness": """Evaluate whether the generated audio description is a coherent natural description of an audio scene.
 
 Score 5: Natural, coherent, and well-formed audio scene description.
 Score 4: Mostly natural with minor awkwardness or wording issue.
-Score 3: Understandable but somewhat generic, stiff, repetitive, or template-like.
+Score 3: Understandable but somewhat stiff, repetitive, or template-like.
 Score 2: Unnatural, awkward, or poorly formed as an audio description.
 Score 1: Broken, incoherent, excessively repetitive, or not a meaningful audio description.""",
 }
@@ -155,6 +155,56 @@ Score 4: Mostly grounded in the reference anchor(s), with minor omission, shift,
 Score 3: Partially grounded, but misses or changes an important aspect of the reference output space.
 Score 2: Weakly grounded; mostly an alternative audio scene not well supported by the reference anchor(s).
 Score 1: Not grounded in, or clearly conflicts with, the reference anchor(s).""",
+}
+
+CRITERION_BOUNDARIES = {
+    "non_contradiction": (
+        "Judge only whether the response conflicts with the input. Do not lower the score merely because the "
+        "response is weakly related, generic, missing details, or contains plausible unsupported details. Those "
+        "properties are evaluated by other criteria. Unsupported detail matters here only when it creates a "
+        "genuine possible, likely, or actual conflict with the input."
+    ),
+    "meaningful_scene_to_utterance_connection": (
+        "Judge only the strength of the scene-to-utterance relationship. Do not score language fluency, emotional "
+        "tone, or reference similarity here."
+    ),
+    "meaningful_utterance_to_scene_connection": (
+        "Judge only the strength of the utterance-to-scene relationship. Do not score prose quality, internal "
+        "acoustic realism, or reference similarity here."
+    ),
+    "human_reaction_plausibility": (
+        "Judge whether the utterance is a plausible thing for a human to say in this situation. Do not require it "
+        "to mention every input detail or match a reference utterance."
+    ),
+    "causal_contextual_plausibility": (
+        "Judge only whether the described audio could plausibly contextualize, accompany, explain, or result from "
+        "the speech. Do not score prose quality, acoustic realism, or reference similarity here."
+    ),
+    "physical_acoustic_coherence": (
+        "Judge only whether the generated audio scene is internally physically and acoustically possible. Do not "
+        "lower the score for weak relevance to the input or disagreement with a reference anchor."
+    ),
+    "contextual_emotional_fit": (
+        "Judge only situational, pragmatic, emotional, and urgency fit. Do not score wording naturalness, exact "
+        "reference similarity, or omission of acoustically irrelevant details here."
+    ),
+    "specificity_without_over_invention": (
+        "Judge only whether the response has an appropriate level of supported detail. Do not treat every "
+        "reasonable unstated detail as a contradiction, and do not score general cross-modal relevance here."
+    ),
+    "spoken_naturalness": (
+        "Judge only whether the generated utterance itself sounds natural and fluent as spoken language. Ignore "
+        "its relevance to the input, factual grounding, and similarity to any reference."
+    ),
+    "audio_description_naturalness": (
+        "Judge only whether the generated text itself is a natural, coherent audio-scene description. Ignore its "
+        "relevance to the input, factual grounding, and similarity to any reference."
+    ),
+    "reference_anchor_grounding": (
+        "Judge grounding in the intended output space represented by the anchor, not exact matching. A different "
+        "utterance or scene may receive a high score when it preserves the anchor's important situation, intent, "
+        "sound source, event, or communicative function. Do not penalize wording or harmless realization changes."
+    ),
 }
 
 
@@ -298,19 +348,24 @@ def build_prompt(
     if (variant, direction) not in CRITERION_WEIGHTS:
         raise ValueError(f"Unsupported variant/direction: {variant}/{direction}")
     rubric = REFERENCE_GROUNDING_RUBRICS[direction] if criterion == "reference_anchor_grounding" else RUBRICS[criterion]
-    if variant == "reference_grounded":
+    if variant == "reference_grounded" and criterion == "reference_anchor_grounding":
         anchors = format_reference_anchors(reference_anchors or [])
-        task_description = """The task is not exact reference matching. Multiple outputs can be valid. The reference anchors are examples of the intended target-output space, not the only correct answers. Do not require exact wording or exact scene matching. Use them to judge whether the response is grounded in the dataset's intended paired output space."""
+        task_description = """The task is not exact reference matching. Multiple outputs can be valid. The reference anchors are examples of the intended target-output space, not the only correct answers. Do not require exact wording or exact scene matching. Use them only to judge whether the response is grounded in the dataset's intended paired output space."""
         reference_section = f"\n\n###Reference Anchors:\n{anchors}"
     else:
-        task_description = "The task is not paraphrase matching and not exact reference matching. Multiple outputs can be valid. Judge only the requested criterion using the score rubric."
+        task_description = "Multiple outputs can be valid. Judge only the requested criterion using the score rubric. No reference comparison is part of this criterion."
         reference_section = ""
+    criterion_boundary = CRITERION_BOUNDARIES[criterion]
     return f"""###Task Description:
 You are evaluating a creative cross-modal generation system.
 
 {task_description}
 
 Judge only the requested criterion using the score rubric.
+Do not let qualities assigned to other criteria affect this score.
+
+Criterion boundary:
+{criterion_boundary}
 
 Direction: {direction}
 
@@ -491,7 +546,7 @@ def _make_item(row: dict[str, Any], row_position: int, criterion: str, *, varian
             "criterion": criterion,
             "input_text": row["input_text"],
             "generated_text": row["generated_text"],
-            "reference_anchors": anchors if variant == "reference_grounded" else [],
+            "reference_anchors": anchors if criterion == "reference_anchor_grounding" else [],
             "prompt_version": PROMPT_VERSIONS[variant],
             "scoring_policy_version": SCORING_POLICY_VERSION,
             "judge": cache_identity,
