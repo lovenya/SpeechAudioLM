@@ -56,89 +56,142 @@ def main() -> None:
 
 
 def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
-    from aac_metrics import evaluate as aac_evaluate
     from aac_metrics.functional.clap_sim import clap_sim
+    from aac_metrics.functional.fense import fense as fense_fn
     from aac_metrics.functional.mace import mace as mace_fn
     from aac_metrics.functional.spider import spider as spider_fn
+    from evaluation.metrics.aac_audio import (
+        PROJECT_EVALUATION_SEED,
+        reconstruct_mace_samples,
+        validate_clap_audio_samples,
+    )
+    from evaluation.metrics.aac_preprocessing import (
+        caption_preprocessing_metadata,
+        prepare_spice_caption,
+    )
 
     metrics = set(payload["metrics"])
     rows = payload["rows"]
-    # PTBTokenizer rejects embedded newlines, which can occur in model captions.
-    candidates = [_single_line_text(row["candidate_text"]) for row in rows]
-    references = [[_single_line_text(row["source"]["audio_cap"])] for row in rows]
+    raw_candidates = [row["candidate_text"] for row in rows]
+    raw_references = [[row["source"]["audio_cap"]] for row in rows]
+    spider_candidates = [prepare_spice_caption(candidate) for candidate in raw_candidates]
+    spider_references = [
+        [prepare_spice_caption(reference) for reference in sample_references]
+        for sample_references in raw_references
+    ]
     audio_paths = [row["source"]["audio_file"] for row in rows]
     cache_path = _first_config_value(payload, "cache_dir") or payload["cache_dir"]
     device = payload["device"]
     sample_metrics: dict[str, dict[str, float]] = {str(row["row_index"]): {} for row in rows}
     corpus_metrics: dict[str, Any] = {}
+    policy_metadata: dict[str, dict[str, Any]] = {}
 
-    java_path = _resolve_java_path(payload) if metrics.intersection({"spider", "fense"}) else None
+    java_path = _resolve_java_path(payload) if "spider" in metrics else None
     java_tool_options = os.environ.pop("JAVA_TOOL_OPTIONS", None)
     try:
         if "spider" in metrics:
             cfg = payload["metric_configs"].get("spider", {})
             corpus_scores, sent_scores = spider_fn(
-                candidates,
-                references,
+                spider_candidates,
+                spider_references,
                 cache_path=cache_path,
                 java_path=java_path,
                 java_max_memory=str(cfg.get("java_max_memory", "32G")),
                 return_all_scores=True,
             )
             _assign_sample_scores(rows, sample_metrics, "spider", sent_scores.get("spider"))
-            corpus_metrics["spider"] = _scalar(corpus_scores.get("spider"))
+            corpus_metrics["spider"] = _scalar(corpus_scores.get("spider"), metric="spider")
+            policy_metadata["spider"] = caption_preprocessing_metadata() | {
+                "corpus_score_policy": "preserve official corpus SPIDEr; do not compare with sentence-score mean",
+            }
 
         if "mace" in metrics:
             cfg = payload["metric_configs"].get("mace", {})
+            penalty = float(cfg.get("penalty", 0.3))
+            error_threshold = float(cfg.get("error_threshold", 0.97))
+            mace_method = cfg.get("mace_method", "combined")
             corpus_scores, sent_scores = mace_fn(
-                candidates,
-                references,
+                raw_candidates,
+                raw_references,
                 audio_paths=audio_paths,
-                mace_method=cfg.get("mace_method", "combined"),
+                mace_method=mace_method,
+                penalty=penalty,
                 clap_model=cfg.get("clap_model", "MS-CLAP-2023"),
+                seed=PROJECT_EVALUATION_SEED,
                 echecker=cfg.get("echecker", "echecker_clotho_audiocaps_base"),
+                error_threshold=error_threshold,
                 device=device,
                 batch_size=int(cfg.get("batch_size", 1)),
                 return_all_scores=True,
             )
-            # aac-metrics 0.5.5 incorrectly stores the corpus MACE scalar in
-            # sent_scores["mace"]. Reconstruct the exact sample-level values
-            # from the returned CLAP-sim and FER vectors using its own formula.
-            penalty = float(cfg.get("penalty", 0.3))
-            sample_mace_scores = sent_scores["clap_sim"] * (1.0 - penalty * sent_scores["fer"])
-            _assign_sample_scores(rows, sample_metrics, "mace", sample_mace_scores)
-            corpus_metrics["mace"] = _scalar(corpus_scores.get("mace"))
+            official_corpus_score = _scalar(corpus_scores.get("mace"), metric="mace")
+            reconstruction = reconstruct_mace_samples(
+                sent_scores,
+                expected_count=len(rows),
+                penalty=penalty,
+                corpus_score=official_corpus_score,
+                mace_method=mace_method,
+                seed=PROJECT_EVALUATION_SEED,
+            )
+            _assign_sample_scores(rows, sample_metrics, "mace", reconstruction.scores)
+            corpus_metrics["mace"] = official_corpus_score
+            policy_metadata["mace"] = dict(reconstruction.metadata) | {
+                "error_threshold": error_threshold,
+            }
 
         if "aac_clapsim" in metrics:
             cfg = payload["metric_configs"].get("aac_clapsim", {})
             corpus_scores, sent_scores = clap_sim(
-                candidates,
+                raw_candidates,
                 audio_paths=audio_paths,
                 clap_method="audio",
                 clap_model=cfg.get("model_name", "MS-CLAP-2023"),
                 device=device,
                 batch_size=int(cfg.get("batch_size", 1)),
+                seed=PROJECT_EVALUATION_SEED,
                 return_all_scores=True,
             )
-            _assign_sample_scores(rows, sample_metrics, "aac_clapsim", sent_scores.get("clap_sim"))
-            corpus_metrics["aac_clapsim"] = _scalar(corpus_scores.get("clap_sim"))
+            official_corpus_score = _scalar(corpus_scores.get("clap_sim"), metric="aac_clapsim")
+            validated = validate_clap_audio_samples(
+                sent_scores,
+                expected_count=len(rows),
+                corpus_score=official_corpus_score,
+                seed=PROJECT_EVALUATION_SEED,
+            )
+            _assign_sample_scores(rows, sample_metrics, "aac_clapsim", validated.scores)
+            corpus_metrics["aac_clapsim"] = official_corpus_score
+            policy_metadata["aac_clapsim"] = dict(validated.metadata)
 
         if "fense" in metrics:
-            corpus_scores, sent_scores = aac_evaluate(
-                candidates,
-                references,
-                metrics=["fense"],
-                cache_path=cache_path,
-                java_path=java_path,
+            cfg = payload["metric_configs"].get("fense", {})
+            penalty = float(cfg.get("penalty", 0.9))
+            error_threshold = float(cfg.get("error_threshold", 0.9))
+            corpus_scores, sent_scores = fense_fn(
+                raw_candidates,
+                raw_references,
+                sbert_model=cfg.get("sbert_model", "paraphrase-TinyBERT-L6-v2"),
+                echecker=cfg.get("echecker", "echecker_clotho_audiocaps_base"),
+                error_threshold=error_threshold,
                 device=device,
+                batch_size=int(cfg.get("batch_size", 1)),
+                penalty=penalty,
+                return_all_scores=True,
             )
-            _assign_sample_scores(rows, sample_metrics, "fense", sent_scores.get("fense"))
-            corpus_metrics["fense"] = _scalar(corpus_scores.get("fense"))
+            fense_scores = _sample_score_vector(sent_scores.get("fense"), len(rows), "fense")
+            official_corpus_score = _scalar(corpus_scores.get("fense"), metric="fense")
+            _require_sample_mean(official_corpus_score, fense_scores, "fense")
+            _assign_sample_scores(rows, sample_metrics, "fense", fense_scores)
+            corpus_metrics["fense"] = official_corpus_score
+            policy_metadata["fense"] = caption_preprocessing_metadata() | {
+                "penalty": penalty,
+                "error_threshold": error_threshold,
+                "corpus_aggregation": "arithmetic mean over the complete official sample vector",
+            }
     finally:
         if java_tool_options is not None:
             os.environ["JAVA_TOOL_OPTIONS"] = java_tool_options
 
-    return _result(
+    result = _result(
         payload,
         sample_metrics=sample_metrics,
         corpus_metrics=corpus_metrics,
@@ -146,6 +199,9 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
         errors={},
         packages=["aac-metrics", "torch", "numpy"],
     )
+    for metric, metadata in policy_metadata.items():
+        result["metric_backends"][metric]["policy_metadata"] = metadata
+    return result
 
 
 
@@ -652,18 +708,38 @@ def _link_or_copy(source: Path, target: Path) -> None:
 
 
 def _assign_sample_scores(rows: list[dict[str, Any]], sample_metrics: dict[str, dict[str, float]], metric: str, scores: Any) -> None:
-    values = scores.detach().cpu().tolist() if hasattr(scores, "detach") else scores
-    if isinstance(values, (int, float)):
-        values = [values]
-    if values is None:
-        return
-    if len(values) != len(rows):
-        raise ValueError(
-            f"{metric} returned {len(values)} sample scores for {len(rows)} rows; "
-            "refusing to attach misaligned scores"
-        )
+    values = _sample_score_vector(scores, len(rows), metric)
     for row, value in zip(rows, values):
-        sample_metrics[str(row["row_index"])][metric] = _scalar(value, metric=metric)
+        sample_metrics[str(row["row_index"])][metric] = value
+
+
+def _sample_score_vector(scores: Any, expected_count: int, metric: str) -> tuple[float, ...]:
+    values = scores.detach().cpu().tolist() if hasattr(scores, "detach") else scores
+    if values is None or isinstance(values, (str, bytes, dict, int, float)):
+        raise ValueError(f"{metric} must return a complete one-dimensional sample score vector")
+    shape = getattr(values, "shape", None)
+    if shape is not None and len(shape) != 1:
+        raise ValueError(f"{metric} sample scores must be one-dimensional, found shape {tuple(shape)}")
+    if hasattr(values, "tolist"):
+        values = values.tolist()
+    try:
+        count = len(values)
+    except TypeError as exc:
+        raise ValueError(f"{metric} must return a complete one-dimensional sample score vector") from exc
+    if count != expected_count:
+        raise ValueError(
+            f"{metric} returned {count} sample scores for {expected_count} rows; "
+            "refusing to attach incomplete or misaligned scores"
+        )
+    return tuple(_scalar(value, metric=metric) for value in values)
+
+
+def _require_sample_mean(corpus_score: float, sample_scores: tuple[float, ...], metric: str) -> None:
+    sample_mean = math.fsum(sample_scores) / len(sample_scores)
+    if not math.isclose(corpus_score, sample_mean, rel_tol=1e-7, abs_tol=1e-12):
+        raise ValueError(
+            f"official {metric} corpus score {corpus_score} does not match sample mean {sample_mean}"
+        )
 
 
 def _resolve_java_path(payload: dict[str, Any]) -> str:
