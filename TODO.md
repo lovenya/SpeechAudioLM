@@ -38,6 +38,11 @@
 
 ## Metric Follow-Up
 
+- **High priority, deferred:** replace Prometheus `non_contradiction` criterion calls in G-Eval v2 with the existing NLI contradiction result once NLI outputs are available before score aggregation.
+  - Normalize deterministically onto the G-Eval scale with `non_contradiction_score = 1 + 4 * (1 - contradiction_probability)`.
+  - Preserve the raw contradiction probability, NLI model/version, and normalization-policy version in criterion metadata.
+  - Reuse the same NLI-derived score for plausibility and reference-grounded variants; references must not affect contradiction.
+  - Until this dependency is implemented, keep G-Eval runnable independently rather than blocking it on NLI completion.
 - Keep the shared metric environment as the main path for wired metrics.
 - Build and validate the separate Prometheus/vLLM environment for `g_eval_reference_free`.
 - Extend judge-based evaluation beyond the current text-only LLM-as-judge baseline.
