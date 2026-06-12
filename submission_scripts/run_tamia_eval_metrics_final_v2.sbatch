@@ -30,7 +30,7 @@ base="$SALM_SCRATCH/results/cascaded_full_validation/ttas_val/cascaded"
 scope_root="$SALM_SCRATCH/results/evaluation_scopes/ttas_val/$SCOPE_TAG"
 out_root="$SALM_SCRATCH/results/evals/final_metrics_v2/$SCOPE_TAG"
 cache="$SALM_SCRATCH/cache/metrics/eval_runtime"
-log_root="$SALM_SCRATCH/logs/eval_packed/final_metrics_v2/${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+log_root="$SALM_SCRATCH/logs/eval_packed/final_metrics_v2/${SLURM_ARRAY_JOB_ID:-manual}_${SLURM_ARRAY_TASK_ID}"
 mkdir -p "$log_root" "$out_root" "$SALM_SCRATCH/logs/slurm"
 
 source submission_scripts/lib_resource_monitor.sh
@@ -94,7 +94,13 @@ elif [ "$index" -lt 14 ]; then
   lane="${lanes[$((index - 2))]}"
   run_metric T2A "$lane" fad 0 & p0=$!
   run_metric T2A "$lane" kad 1 & p1=$!
-  run_metric T2A "$lane" clap_score_t2a 2 & p2=$!
+  (
+    run_metric T2A "$lane" target_caption_clap_score 2
+    target_status=$?
+    run_metric T2A "$lane" prompt_adherence_clap_score 2
+    prompt_status=$?
+    exit $((target_status != 0 || prompt_status != 0))
+  ) & p2=$!
   run_metric T2A "$lane" kl_passt 3 & p3=$!
   wait "$p0" || failures=$((failures + 1))
   run_metric T2A "$lane" inception_score 0 || failures=$((failures + 1))

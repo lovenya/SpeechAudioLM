@@ -106,7 +106,9 @@ class AACAudioReconstructionTest(unittest.TestCase):
         self.assertIn("random.randrange", policy["long_audio_policy"])
         self.assertEqual(policy["crop_seed"], 1337)
         self.assertEqual(policy["text_context_tokens"], 77)
-        self.assertEqual(policy["text_overflow_policy"], "no explicit tokenizer truncation in msclap 1.3.4")
+        self.assertEqual(policy["gpt2_hard_context_tokens"], 1024)
+        self.assertFalse(policy["project_text_truncation"])
+        self.assertIn("reject only", policy["text_overflow_policy"])
         self.assertFalse(policy["crop_offsets_recorded"])
         self.assertIn("accepted_and_disclosed", policy["project_policy_status"])
 

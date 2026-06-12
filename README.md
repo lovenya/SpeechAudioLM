@@ -174,8 +174,8 @@ Current metric backend status:
 
 - Smoke-passed A2T metric: `spider` through `aac-metrics` with Java 11.
 - A2T metrics needing retry after cache/batch fixes: `mace`, `aac_clapsim`.
-- Smoke-passed T2A/S2A-final metrics: `kad`, `clap_score_t2a`, and
-  `kl_passt`.
+- Smoke-passed T2A/S2A-final metrics include `kad`, `kl_passt`,
+  `target_caption_clap_score`, and `prompt_adherence_clap_score`.
 - T2A/S2A-final metrics needing retry after VGGish PCA download:
   `fad`, `inception_score` through AudioLDM Eval.
 - Smoke-passed T2S and A2S-final metrics: `asr_wer`, `dwer`, `utmos` through
@@ -226,10 +226,18 @@ Metric notes:
 - Generated-speech `dnsmos` is computed per sample and summarized with the
   other sample-level metrics.
 - For text-to-audio, FAD, KAD, KL_PaSST, and Inception Score are corpus-level
-  only. T2A CLAPscore is computed per sample and aggregated when the
-  stable-audio-metrics env is available.
-- A2T CLAPSim and T2A CLAPscore use different metric names and backends:
-  `aac_clapsim` and `clap_score_t2a`.
+  only. `target_caption_clap_score` and `prompt_adherence_clap_score` are
+  distinct per-sample metrics aggregated over successful samples.
+- A2T `aac_clapsim` compares a generated caption with reference audio.
+  T2A `target_caption_clap_score` compares generated audio with the dataset
+  target caption, while `prompt_adherence_clap_score` compares generated audio
+  with the exact persisted generation prompt.
+- Official MS-CLAP 2023 scoring uses 44.1 kHz audio and one random contiguous
+  7-second crop for longer clips. For reproducible project reporting, call the
+  official metric once over ordered surviving rows, do not truncate or rewrite
+  captions, and report attempted, passed, and error sample IDs/counts. The
+  released text path has a nominal length of 77 but does not truncate before
+  GPT-2's hard 1,024-token limit; over-limit rows are attributable errors.
 - FAD is the only default Frechet-style audio metric for v1; generic FD is not
   included unless a later paper-specific comparison requires it.
 

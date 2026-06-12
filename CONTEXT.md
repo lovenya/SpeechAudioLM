@@ -170,7 +170,7 @@ Keep these metric envs separate for now:
 ```text
 audioldm_eval:          fad, inception_score
 kadtk:                  kad
-stable_audio_metrics:   clap_score_t2a, kl_passt
+stable_audio_metrics:   target_caption_clap_score, prompt_adherence_clap_score, kl_passt
 prometheus_vllm:        g_eval_reference_free
 ```
 
@@ -183,6 +183,39 @@ Current temporary Prometheus env:
 ```
 
 The env exists and `pip install vllm` succeeded under the cluster-default pip configuration. The remaining gate is a compute-node smoke with the local Prometheus model before any packed eval job.
+
+## Evaluation Reproducibility And Retry Status
+
+Official MS-CLAP 2023 behavior constrains comparable `aac_clapsim` runs:
+
+- Audio is loaded at 44.1 kHz. Audio longer than seven seconds receives one
+  random contiguous seven-second crop; the released API exposes no crop
+  control.
+- The `aac-metrics` project seed is `1337` and is set once per ordered metric
+  invocation. Separate invocations restart the random stream, so sharded or
+  missing-only invocations are not partition invariant.
+- The nominal text `text_len`/`max_length` is `77`, but the released code omits
+  truncation before GPT-2, whose hard input limit is `1,024` tokens.
+
+Project policy is to preserve source captions: do not truncate or rewrite text.
+Rows over GPT-2's limit become attributable metric errors. Preflight text before
+the official call, then call the official metric once over ordered survivors.
+Every report must include attempted, passed, and error IDs/counts and disclose
+that removing failed rows shifts the random crop stream for all later long-audio
+rows. The real Qwen preflight attempted `2,258` rows, passed `2,239`, found `19`
+errors, and observed a maximum token length of `1,510`.
+
+Current evaluation/retry state:
+
+- MACE/AAC retry job `321091` completed in `2m05s`.
+- Qwen SPIDEr retries failed with 32G and 64G requests because of Java heap
+  exhaustion. Isolated job `321058` currently requests the full `500000M` node
+  with a 192G Java heap.
+- T2S job `320913` timed out with `17/36` evaluations complete. Pending
+  three-hour retry `321105` was cancelled and replaced by three disjoint
+  one-hour packed jobs covering exactly the `19` missing metric-lane pairs.
+- TODO: compare metrics on the later union of failure IDs so cross-system
+  comparisons use the same surviving sample set.
 
 ## Immediate Next Steps
 

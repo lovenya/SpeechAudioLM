@@ -18,6 +18,8 @@ MS_CLAP_VERSION = "1.3.4"
 MS_CLAP_2023_SAMPLE_RATE_HZ = 44_100
 MS_CLAP_2023_CLIP_DURATION_SECONDS = 7
 MS_CLAP_2023_TEXT_CONTEXT_TOKENS = 77
+MS_CLAP_GPT2_HARD_CONTEXT_TOKENS = 1024
+MS_CLAP_GPT2_END_OF_TEXT_SUFFIX = " <|endoftext|>"
 PROJECT_EVALUATION_SEED = 1337
 
 
@@ -69,7 +71,10 @@ def ms_clap_2023_backend_behavior(
         "scientifically_approved_project_policy": True,
         "project_policy_status": "official_seeded_backend_cropping_accepted_and_disclosed",
         "text_context_tokens": MS_CLAP_2023_TEXT_CONTEXT_TOKENS,
-        "text_overflow_policy": "no explicit tokenizer truncation in msclap 1.3.4",
+        "gpt2_hard_context_tokens": MS_CLAP_GPT2_HARD_CONTEXT_TOKENS,
+        "text_context_behavior": "msclap 1.3.4 passes max_length=77 without enabling tokenizer truncation",
+        "text_overflow_policy": "preserve text unchanged; reject only tokenized inputs above GPT-2's hard 1024-position limit",
+        "project_text_truncation": False,
     }
 
 

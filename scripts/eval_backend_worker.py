@@ -57,6 +57,9 @@ def main() -> None:
 
 def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     from evaluation.metrics.aac_audio import (
+        MS_CLAP_2023_TEXT_CONTEXT_TOKENS,
+        MS_CLAP_GPT2_END_OF_TEXT_SUFFIX,
+        MS_CLAP_GPT2_HARD_CONTEXT_TOKENS,
         PROJECT_EVALUATION_SEED,
         reconstruct_mace_samples,
         validate_clap_audio_samples,
@@ -108,16 +111,23 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
             from aac_metrics.functional.mace import mace as mace_fn
 
             metric_rows = _valid_aac_rows(rows, "mace", errors)
+            cfg = payload["metric_configs"].get("mace", {})
+            mace_method = cfg.get("mace_method", "combined")
+            overflow_metadata = {}
+            if mace_method in {"text", "combined"}:
+                metric_rows, overflow_metadata = _filter_ms_clap_text_overflow(
+                    metric_rows, "mace", errors, include_references=True
+                )
             if not metric_rows:
-                policy_metadata["mace"] = _metric_attempt_metadata(rows, metric_rows, errors, "mace")
+                policy_metadata["mace"] = overflow_metadata | _metric_attempt_metadata(
+                    rows, metric_rows, errors, "mace"
+                )
             else:
                 raw_candidates = [row["candidate_text"] for row in metric_rows]
                 raw_references = [[row["source"]["audio_cap"]] for row in metric_rows]
                 audio_paths = [row["source"]["audio_file"] for row in metric_rows]
-                cfg = payload["metric_configs"].get("mace", {})
                 penalty = float(cfg.get("penalty", 0.3))
                 error_threshold = float(cfg.get("error_threshold", 0.97))
-                mace_method = cfg.get("mace_method", "combined")
                 corpus_scores, sent_scores = mace_fn(
                     raw_candidates,
                     raw_references,
@@ -145,14 +155,21 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
                 corpus_metrics["mace"] = official_corpus_score
                 policy_metadata["mace"] = dict(reconstruction.metadata) | {
                     "error_threshold": error_threshold,
-                } | _metric_attempt_metadata(rows, metric_rows, errors, "mace")
+                } | overflow_metadata | _metric_attempt_metadata(
+                    rows, metric_rows, errors, "mace"
+                )
 
         if "aac_clapsim" in metrics:
             from aac_metrics.functional.clap_sim import clap_sim
 
             metric_rows = _valid_aac_rows(rows, "aac_clapsim", errors)
+            metric_rows, overflow_metadata = _filter_ms_clap_text_overflow(
+                metric_rows, "aac_clapsim", errors, include_references=False
+            )
             if not metric_rows:
-                policy_metadata["aac_clapsim"] = _metric_attempt_metadata(rows, metric_rows, errors, "aac_clapsim")
+                policy_metadata["aac_clapsim"] = overflow_metadata | _metric_attempt_metadata(
+                    rows, metric_rows, errors, "aac_clapsim"
+                )
             else:
                 raw_candidates = [row["candidate_text"] for row in metric_rows]
                 audio_paths = [row["source"]["audio_file"] for row in metric_rows]
@@ -176,7 +193,11 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
                 )
                 _assign_sample_scores(metric_rows, sample_metrics, "aac_clapsim", validated.scores)
                 corpus_metrics["aac_clapsim"] = official_corpus_score
-                policy_metadata["aac_clapsim"] = dict(validated.metadata) | _metric_attempt_metadata(rows, metric_rows, errors, "aac_clapsim")
+                policy_metadata["aac_clapsim"] = (
+                    dict(validated.metadata)
+                    | overflow_metadata
+                    | _metric_attempt_metadata(rows, metric_rows, errors, "aac_clapsim")
+                )
 
         if "fense" in metrics:
             from aac_metrics.functional.fense import fense as fense_fn
@@ -264,17 +285,81 @@ def _metric_attempt_metadata(
     errors: dict[str, dict[str, str]],
     metric: str,
 ) -> dict[str, Any]:
-    failed_ids = [
-        str(row["row_index"]) for row in attempted_rows
+    failed_rows = [
+        row for row in attempted_rows
         if metric in errors.get(str(row["row_index"]), {})
     ]
     return {
-        "status": "passed" if not failed_ids else ("passed_with_errors" if passed_rows else "error"),
+        "status": "passed" if not failed_rows else ("passed_with_errors" if passed_rows else "error"),
         "attempted_count": len(attempted_rows),
         "passed_count": len(passed_rows),
-        "error_count": len(failed_ids),
-        "error_sample_ids": failed_ids,
+        "error_count": len(failed_rows),
+        "error_row_indices": [str(row["row_index"]) for row in failed_rows],
+        "error_sample_ids": [str(row.get("sample_id", row["row_index"])) for row in failed_rows],
     }
+
+
+def _filter_ms_clap_text_overflow(rows, metric, errors, *, include_references):
+    from evaluation.metrics.aac_audio import (
+        MS_CLAP_2023_TEXT_CONTEXT_TOKENS,
+        MS_CLAP_GPT2_END_OF_TEXT_SUFFIX,
+        MS_CLAP_GPT2_HARD_CONTEXT_TOKENS,
+    )
+
+    valid = []
+    rejected = []
+    tokenizer = _ms_clap_gpt2_tokenizer()
+    for row in rows:
+        fields = [("candidate", row["candidate_text"])]
+        if include_references:
+            fields.append(("reference[0]", row["source"]["audio_cap"]))
+        overflow = None
+        for field, text in fields:
+            encoded = tokenizer.encode_plus(
+                text=f"{text}{MS_CLAP_GPT2_END_OF_TEXT_SUFFIX}",
+                add_special_tokens=True,
+                max_length=MS_CLAP_2023_TEXT_CONTEXT_TOKENS,
+                padding="max_length",
+                return_tensors="pt",
+            )
+            token_count = int(encoded["input_ids"].shape[-1])
+            if token_count > MS_CLAP_GPT2_HARD_CONTEXT_TOKENS:
+                overflow = field, token_count
+                break
+        if overflow is None:
+            valid.append(row)
+            continue
+        field, token_count = overflow
+        row_key = str(row["row_index"])
+        errors.setdefault(row_key, {})[metric] = (
+            f"MS-CLAP GPT-2 tokenized {field} length {token_count} exceeds its hard "
+            f"{MS_CLAP_GPT2_HARD_CONTEXT_TOKENS}-position limit; text was not truncated or modified"
+        )
+        rejected.append({
+            "row_index": row["row_index"],
+            "sample_id": str(row.get("sample_id", row["row_index"])),
+            "field": field,
+            "token_count": token_count,
+        })
+    return valid, {
+        "text_preflight": "exact released MS-CLAP GPT-2 tokenization before CUDA scoring",
+        "nominal_text_context_tokens": MS_CLAP_2023_TEXT_CONTEXT_TOKENS,
+        "gpt2_hard_context_tokens": MS_CLAP_GPT2_HARD_CONTEXT_TOKENS,
+        "project_text_truncation": False,
+        "overflow_action": "record attributable error and score ordered survivors once",
+        "rejected_text_inputs": rejected,
+        "survivor_order": "original relative input order",
+        "official_metric_invocations": 0 if not valid else 1,
+        "seeded_audio_crop_stream_note": "filtering changes the seeded crop stream; independently scored subsets are not merged",
+    }
+
+
+def _ms_clap_gpt2_tokenizer():
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("gpt2", local_files_only=True)
+    tokenizer.add_special_tokens({"pad_token": "!"})
+    return tokenizer
 
 
 def run_whisper(payload: dict[str, Any]) -> dict[str, Any]:
@@ -710,13 +795,23 @@ def run_stable_audio_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     errors: dict[str, dict[str, str]] = {}
 
     policy_metadata: dict[str, dict[str, Any]] = {}
-    if "clap_score_t2a" in metrics:
-        clap_scores, clap_errors, clap_corpus, clap_policy = _stable_clap_scores(payload)
-        sample_metrics.update(clap_scores)
-        errors.update(clap_errors)
+    clap_metrics = (
+        ("target_caption_clap_score", "target_caption_alignment"),
+        ("prompt_adherence_clap_score", "prompt_adherence"),
+    )
+    for metric_name, semantics in clap_metrics:
+        if metric_name not in metrics:
+            continue
+        clap_scores, clap_errors, clap_corpus, clap_policy = _stable_clap_scores(
+            payload, metric_name=metric_name, semantics=semantics
+        )
+        for row_key, row_metrics in clap_scores.items():
+            sample_metrics.setdefault(row_key, {}).update(row_metrics)
+        for row_key, row_errors in clap_errors.items():
+            errors.setdefault(row_key, {}).update(row_errors)
         if clap_corpus is not None:
-            corpus_metrics["clap_score_t2a"] = clap_corpus
-        policy_metadata["clap_score_t2a"] = clap_policy
+            corpus_metrics[metric_name] = clap_corpus
+        policy_metadata[metric_name] = clap_policy
     if "kl_passt" in metrics:
         kl_corpus, kl_errors, kl_policy = _stable_kl_passt(payload)
         errors.update(kl_errors)
@@ -739,6 +834,9 @@ def run_stable_audio_metrics(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _stable_clap_scores(
     payload: dict[str, Any],
+    *,
+    metric_name: str,
+    semantics: str,
 ) -> tuple[
     dict[str, dict[str, float]],
     dict[str, dict[str, str]],
@@ -754,7 +852,7 @@ def _stable_clap_scores(
     from clap_module.factory import load_state_dict
     from tqdm import tqdm
 
-    cfg = payload["metric_configs"].get("clap_score_t2a", {})
+    cfg = payload["metric_configs"].get(metric_name, {})
     generated_dir = _stage_generated_audio_dir(payload)
     cache_dir = Path(cfg.get("cache_dir") or payload["cache_dir"])
     checkpoint = cfg.get("checkpoint", "630k-audioset-fusion-best")
@@ -783,12 +881,18 @@ def _stable_clap_scores(
     model.eval()
 
     from evaluation.metrics.clap_score import (
+        PROMPT_ADHERENCE,
         TARGET_CAPTION_ALIGNMENT,
         validate_clap_score_records,
     )
 
     ids = [_stage_id(index, row) for index, row in enumerate(payload["rows"])]
-    texts = [row["source"]["audio_cap"] for row in payload["rows"]]
+    if semantics == TARGET_CAPTION_ALIGNMENT:
+        texts = [row["source"]["audio_cap"] for row in payload["rows"]]
+    elif semantics == PROMPT_ADHERENCE:
+        texts = [row["conditioning_prompt"] for row in payload["rows"]]
+    else:
+        raise ValueError(f"Unsupported CLAPScore semantics: {semantics}")
 
     def batched_tokenizer(text: list[str]) -> dict[str, Any]:
         return model.tokenize(
@@ -799,14 +903,19 @@ def _stable_clap_scores(
             return_tensors="pt",
         )
 
-    with torch.no_grad():
-        text_embeddings = model.get_text_embedding(texts, tokenizer=batched_tokenizer, use_tensor=True)
+    text_embeddings, text_embedding_errors = _stable_clap_text_embeddings(
+        model, texts, batched_tokenizer, torch
+    )
 
     attempted_records: list[dict[str, Any]] = []
     errors: dict[str, dict[str, str]] = {}
-    for row, stem, text, text_embedding in zip(payload["rows"], ids, texts, text_embeddings):
+    for row, stem, text, text_embedding, text_embedding_error in zip(
+        payload["rows"], ids, texts, text_embeddings, text_embedding_errors
+    ):
         row_key = str(row["row_index"])
         try:
+            if text_embedding_error is not None or text_embedding is None:
+                raise RuntimeError(text_embedding_error or "CLAP text embedding was not produced")
             audio_path = generated_dir / f"{stem}.wav"
             audio, _ = librosa.load(str(audio_path), sr=int(cfg.get("sample_rate", 48000)), mono=True)
             audio = pyln.normalize.peak(audio, -1.0)
@@ -823,17 +932,25 @@ def _stable_clap_scores(
             value = float(score.detach().cpu().item())
             attempted_records.append({
                 "sample_id": row_key, "generated_id": row_key,
-                "semantics": TARGET_CAPTION_ALIGNMENT, "text": text, "score": value,
+                "semantics": semantics, "text": text, "score": value,
             })
         except Exception as exc:
             message = _metric_error(exc)
-            errors[row_key] = {"clap_score_t2a": message}
-            attempted_records.append({"sample_id": row_key, "status": "error", "error": message})
+            errors[row_key] = {metric_name: message}
+            attempted_records.append({
+                "sample_id": row_key,
+                "generated_id": row_key,
+                "status": "error",
+                "error": message,
+            })
     expected_ids = [str(row["row_index"]) for row in payload["rows"]]
     aggregation = validate_clap_score_records(
-        attempted_records, expected_ids=expected_ids, semantics=TARGET_CAPTION_ALIGNMENT
+        attempted_records, expected_ids=expected_ids, semantics=semantics
     )
-    sample_metrics = {record.sample_id: {"clap_score_t2a": record.score} for record in aggregation.records}
+    sample_metrics = {
+        record.sample_id: {metric_name: record.score}
+        for record in aggregation.records
+    }
     corpus = None if aggregation.corpus_mean is None else {
         "level": "corpus", "status": aggregation.metadata["status"],
         "attempted_count": aggregation.metadata["attempted_count"],
@@ -843,6 +960,44 @@ def _stable_clap_scores(
         "input_count": aggregation.sample_count, "mean": aggregation.corpus_mean,
     }
     return sample_metrics, errors, corpus, dict(aggregation.metadata)
+
+
+def _stable_clap_text_embeddings(
+    model: Any,
+    texts: list[str],
+    tokenizer: Any,
+    torch_module: Any,
+) -> tuple[list[Any | None], list[str | None]]:
+    """Embed text in a batch, then isolate individual failures if needed."""
+
+    embeddings: list[Any | None] = [None] * len(texts)
+    errors: list[str | None] = [None] * len(texts)
+    try:
+        with torch_module.no_grad():
+            batch = model.get_text_embedding(
+                texts, tokenizer=tokenizer, use_tensor=True
+            )
+        batch_embeddings = list(batch)
+        if len(batch_embeddings) != len(texts):
+            raise ValueError(
+                f"CLAP returned {len(batch_embeddings)} text embeddings for {len(texts)} texts"
+            )
+        return batch_embeddings, errors
+    except Exception:
+        cuda = getattr(torch_module, "cuda", None)
+        if cuda is not None and cuda.is_available():
+            cuda.empty_cache()
+
+    for index, text in enumerate(texts):
+        try:
+            with torch_module.no_grad():
+                embedding = model.get_text_embedding(
+                    [text], tokenizer=tokenizer, use_tensor=True
+                )
+            embeddings[index] = embedding[0]
+        except Exception as exc:
+            errors[index] = _metric_error(exc)
+    return embeddings, errors
 
 def _stable_kl_passt(
     payload: dict[str, Any],

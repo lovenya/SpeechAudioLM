@@ -89,10 +89,17 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
-    "clap_score_t2a": MetricSpec(
-        name="clap_score_t2a",
+    "target_caption_clap_score": MetricSpec(
+        name="target_caption_clap_score",
         level="sample",
         required_source_fields=("audio_cap",),
+        requires_output_file=True,
+        external=True,
+    ),
+    "prompt_adherence_clap_score": MetricSpec(
+        name="prompt_adherence_clap_score",
+        level="sample",
+        requires_hypothesis_text=True,
         requires_output_file=True,
         external=True,
     ),

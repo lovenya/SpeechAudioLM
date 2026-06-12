@@ -13,6 +13,7 @@ from scripts.eval_backend_worker import (
     _reject_short_audio_files,
     _require_minimum_audio_files,
     _scalar,
+    _stable_clap_text_embeddings,
 )
 
 
@@ -50,6 +51,45 @@ class EvalBackendScientificValidityTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-finite"):
             _assign_sample_scores(rows, sample_metrics, "metric", [math.nan])
         self.assertEqual(sample_metrics, {"0": {}})
+
+    def test_clap_text_embedding_fallback_isolates_failed_samples(self) -> None:
+        class NoGrad:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        class Cuda:
+            emptied = False
+
+            @staticmethod
+            def is_available() -> bool:
+                return True
+
+            @classmethod
+            def empty_cache(cls) -> None:
+                cls.emptied = True
+
+        fake_torch = types.SimpleNamespace(no_grad=NoGrad, cuda=Cuda)
+
+        class Model:
+            def get_text_embedding(self, texts, **kwargs):
+                if len(texts) > 1:
+                    raise RuntimeError("batch failed")
+                if texts[0] == "bad":
+                    raise ValueError("bad prompt")
+                return [f"embedding:{texts[0]}"]
+
+        embeddings, errors = _stable_clap_text_embeddings(
+            Model(), ["good", "bad", "also good"], lambda value: value, fake_torch
+        )
+
+        self.assertEqual(embeddings, ["embedding:good", None, "embedding:also good"])
+        self.assertIsNone(errors[0])
+        self.assertIn("bad prompt", errors[1])
+        self.assertIsNone(errors[2])
+        self.assertTrue(Cuda.emptied)
 
 
 if __name__ == "__main__":

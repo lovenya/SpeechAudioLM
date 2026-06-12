@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -11,7 +12,7 @@ from evaluation.errors import EvaluationError
 from evaluation.metric_contracts import EvaluationMode
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
-from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, dry_run, run_evaluation
+from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, _prediction_text_for_metric, _run_backend_worker, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import baseline_output_root, eval_model_root
 
@@ -71,10 +72,20 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertAlmostEqual(word_error_rate("a b c", "a b"), 1 / 3)
 
     def test_corpus_metrics_are_marked_by_level(self) -> None:
-        specs = get_metric_specs(["fad", "kad", "kl_passt", "inception_score", "clap_score_t2a"])
+        specs = get_metric_specs([
+            "fad",
+            "kad",
+            "kl_passt",
+            "inception_score",
+            "target_caption_clap_score",
+            "prompt_adherence_clap_score",
+        ])
         corpus_metrics = {spec.name for spec in specs if spec.level == "corpus"}
         self.assertEqual(corpus_metrics, {"fad", "kad", "kl_passt", "inception_score"})
-        self.assertEqual(next(spec for spec in specs if spec.name == "clap_score_t2a").level, "sample")
+        self.assertEqual(
+            {spec.name for spec in specs if spec.level == "sample"},
+            {"target_caption_clap_score", "prompt_adherence_clap_score"},
+        )
 
     def test_aac_clapsim_validates_text_against_reference_audio(self) -> None:
         spec = get_metric_specs(["aac_clapsim"])[0]
@@ -87,7 +98,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertEqual(select_metrics("S2T", "wer", mapping).metric_names, ["wer"])
         self.assertEqual(select_metrics("T2A", "fad", mapping).metric_names, ["fad"])
         self.assertEqual(select_metrics("T2A", "kl_passt", mapping).metric_names, ["kl_passt"])
-        self.assertEqual(select_metrics("T2A", "clap_score_t2a", mapping).metric_names, ["clap_score_t2a"])
+        self.assertEqual(
+            select_metrics("T2A", "target_caption_clap_score", mapping).metric_names,
+            ["target_caption_clap_score"],
+        )
+        self.assertEqual(
+            select_metrics("T2A", "prompt_adherence_clap_score", mapping).metric_names,
+            ["prompt_adherence_clap_score"],
+        )
         self.assertEqual(select_metrics("S2A", "fad", mapping).metric_names, ["fad"])
         self.assertEqual(select_metrics("A2S", "asr_wer", mapping).metric_names, ["asr_wer"])
         self.assertEqual(select_metrics("T2T", "nli_contradiction", mapping).metric_names, ["nli_contradiction"])
@@ -103,7 +121,11 @@ class EvaluationScaffoldTest(unittest.TestCase):
         with self.assertRaises(EvaluationError):
             select_metrics("T2A", "aac_clapsim", mapping)
         with self.assertRaises(EvaluationError):
-            select_metrics("A2T", "clap_score_t2a", mapping)
+            select_metrics("A2T", "target_caption_clap_score", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("A2T", "prompt_adherence_clap_score", mapping)
+        with self.assertRaises(EvaluationError):
+            select_metrics("T2A", "clap_score_t2a", mapping)
         with self.assertRaises(EvaluationError):
             select_metrics("T2A", "kld", mapping)
         with self.assertRaises(EvaluationError):
@@ -124,6 +146,97 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertEqual(select_metrics("S2A", None, mapping).metric_names, ["fad", "kad", "inception_score"])
         self.assertEqual(select_metrics("T2S", None, mapping).metric_names, ["asr_wer", "dwer", "utmos"])
         self.assertEqual(select_metrics("T2T", None, mapping).metric_names, ["nli_contradiction"])
+
+    def test_prompt_adherence_uses_only_exact_persisted_generation_prompt(self) -> None:
+        row = {
+            "prompt": "  exact conditioning prompt  ",
+            "candidate_text": "wrong fallback",
+            "model_extra": {"generation_prompt": "also wrong"},
+        }
+        self.assertEqual(
+            _prediction_text_for_metric(row, "prompt_adherence_clap_score"),
+            "  exact conditioning prompt  ",
+        )
+        self.assertIsNone(
+            _prediction_text_for_metric(
+                {"candidate_text": "must not be used"},
+                "prompt_adherence_clap_score",
+            )
+        )
+
+    def test_prompt_adherence_backend_payload_has_explicit_conditioning_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            captured = {}
+
+            def fake_run(command, **kwargs):
+                input_path = Path(command[command.index("--input") + 1])
+                output_path = Path(command[command.index("--output") + 1])
+                captured.update(json.loads(input_path.read_text(encoding="utf-8")))
+                output_path.write_text(
+                    json.dumps({
+                        "sample_metrics": {},
+                        "corpus_metrics": {},
+                        "predictions": {},
+                        "errors": {},
+                        "metric_backends": {
+                            "prompt_adherence_clap_score": {}
+                        },
+                    }),
+                    encoding="utf-8",
+                )
+                return type("Completed", (), {"returncode": 0, "stdout": ""})()
+
+            options = EvalOptions(
+                model="cascaded",
+                task="T2A",
+                dataset="ttas",
+                split="val",
+                manifest_path=root / "manifest.jsonl",
+                dataset_config_path=root / "dataset.json",
+                metrics_config_path=root / "metrics.json",
+                task_metric_map_path=root / "task_metric_map.json",
+                output_root=root / "evals",
+                metric_specs=get_metric_specs(["prompt_adherence_clap_score"]),
+                max_samples=1,
+                start_index=0,
+                cache_dir=root / "cache",
+                device="cpu",
+                command=["evaluate.py"],
+                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+            )
+            rows = [{
+                "row_index": 0,
+                "sample_id": "sample-a",
+                "status": "success",
+                "candidate_text": "must not become the prompt",
+                "prompt": "  exact persisted prompt  ",
+                "output_file": str(root / "generated.wav"),
+                "source": {"audio_cap": "dataset target caption"},
+            }]
+            metrics_config = {
+                "prompt_adherence_clap_score": {
+                    "python": sys.executable,
+                    "cache_dir": str(root / "cache"),
+                }
+            }
+
+            with patch("evaluation.runner.subprocess.run", side_effect=fake_run):
+                _run_backend_worker(
+                    options,
+                    rows,
+                    root,
+                    metrics_config,
+                    root / "work",
+                    root / "artifacts",
+                    "stable-audio-metrics",
+                    ["prompt_adherence_clap_score"],
+                )
+
+            backend_row = captured["rows"][0]
+            self.assertEqual(backend_row["conditioning_prompt"], "  exact persisted prompt  ")
+            self.assertEqual(backend_row["candidate_text"], "  exact persisted prompt  ")
+            self.assertNotEqual(backend_row["conditioning_prompt"], rows[0]["candidate_text"])
 
     def test_metric_specific_validation_does_not_require_unused_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

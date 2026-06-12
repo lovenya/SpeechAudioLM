@@ -67,7 +67,13 @@ class AACBackendIntegrationTest(unittest.TestCase):
             "mace": {"penalty": 0.7, "error_threshold": 0.8},
             "aac_clapsim": {},
         }
-        with patch.dict(sys.modules, _modules(mace=mace, clap=clap)):
+        fake_tokenizer = types.SimpleNamespace(
+            encode_plus=lambda **kwargs: {"input_ids": types.SimpleNamespace(shape=(1, 77))}
+        )
+        with patch.dict(sys.modules, _modules(mace=mace, clap=clap)), patch(
+            "scripts.eval_backend_worker._ms_clap_gpt2_tokenizer",
+            return_value=fake_tokenizer,
+        ):
             result = run_aac_metrics(_payload(["mace", "aac_clapsim"], configs))
         self.assertEqual(captured["mace"]["seed"], 1337)
         self.assertEqual(captured["mace"]["penalty"], 0.7)

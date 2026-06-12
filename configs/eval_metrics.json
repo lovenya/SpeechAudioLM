@@ -53,7 +53,7 @@
       "transformers_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics/huggingface",
       "batch_size": 1
     },
-    "clap_score_t2a": {
+    "target_caption_clap_score": {
       "backend": "stable-audio-metrics",
       "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-stable-audio-metrics/bin/python",
       "pythonpath": "/scratch/l/lovenya/salm_migration_clean/code/metrics/stable-audio-metrics/src",
@@ -212,6 +212,17 @@
       "trust_remote_code": true,
       "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/g_eval_prometheus_criterion_v2_reference_grounded",
       "note": "Criterion-wise paired-reference-grounded Prometheus G-Eval v2 with deterministic weighted final score."
+    },
+    "prompt_adherence_clap_score": {
+      "backend": "stable-audio-metrics",
+      "python": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-stable-audio-metrics/bin/python",
+      "pythonpath": "/scratch/l/lovenya/salm_migration_clean/code/metrics/stable-audio-metrics/src",
+      "model_name": "LAION-CLAP",
+      "checkpoint": "630k-audioset-fusion-best",
+      "model_path": null,
+      "cache_dir": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/stable_audio_metrics",
+      "sample_rate": 48000,
+      "resampling_policy": "backend_default"
     }
   }
 }

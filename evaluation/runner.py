@@ -348,7 +348,10 @@ def _validate_rows(
                         f"reference path does not exist: {_resolve_reference(dataset_root, value)}"
                     )
             if spec.requires_hypothesis_text and _prediction_text_for_metric(row, spec.name) is None:
-                metric_errors.append("requires a text prediction in model_extra")
+                if spec.name == "prompt_adherence_clap_score":
+                    metric_errors.append("requires the exact persisted generation prompt")
+                else:
+                    metric_errors.append("requires a text prediction in model_extra")
             if metric_errors:
                 message = "; ".join(metric_errors)
                 errors.append(f"{sid}: metric {spec.name}: {message}")
@@ -435,7 +438,11 @@ def _compute_external_metrics(
         "torchmetrics-dnsmos": ["dnsmos"],
         "audioldm_eval": ["fad", "inception_score"],
         "kadtk": ["kad"],
-        "stable-audio-metrics": ["clap_score_t2a", "kl_passt"],
+        "stable-audio-metrics": [
+            "target_caption_clap_score",
+            "prompt_adherence_clap_score",
+            "kl_passt",
+        ],
         "dedicated-script": [
             "nli_contradiction",
             "g_eval_reference_free",
@@ -871,6 +878,7 @@ def _run_backend_worker(
                 "sample_id": sample_id(row, ordinal),
                 "output_file": row.get("output_file"),
                 "candidate_text": _prediction_text_for_metric(row, metric_names[0]),
+                "conditioning_prompt": row.get("prompt"),
                 "source": backend_source,
             }
         )
@@ -1124,6 +1132,9 @@ def _nested_text(record: dict, keys: tuple[str, ...]) -> str | None:
 
 
 def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> str | None:
+    if metric_name == "prompt_adherence_clap_score":
+        prompt = row.get("prompt")
+        return prompt if isinstance(prompt, str) and prompt.strip() else None
     candidate_text = row.get("candidate_text")
     if isinstance(candidate_text, str) and candidate_text.strip():
         return candidate_text

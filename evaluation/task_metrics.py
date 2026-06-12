@@ -94,6 +94,16 @@ def _invalid_metric_message(task: str, invalid: list[str]) -> str:
         message += " NLI contradiction is a T2T/intermediate-text metric; evaluate the text-to-text stage manifest directly."
     if task in {"T2A", "S2A"} and any(name in {"mace", "spider", "aac_clapsim"} for name in invalid):
         message += " AAC caption metrics are valid for A2T captioning, not final generated-audio evaluation."
-    if task == "A2T" and any(name in {"clap_score_t2a", "kl_passt", "fad", "kad", "inception_score"} for name in invalid):
+    if task == "A2T" and any(
+        name in {
+            "target_caption_clap_score",
+            "prompt_adherence_clap_score",
+            "kl_passt",
+            "fad",
+            "kad",
+            "inception_score",
+        }
+        for name in invalid
+    ):
         message += " Audio-generation metrics are valid for T2A/S2A final audio, not A2T captioning."
     return message
