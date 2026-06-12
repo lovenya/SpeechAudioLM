@@ -206,9 +206,28 @@ def run_aac_metrics(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_whisper(payload: dict[str, Any]) -> dict[str, Any]:
-    import whisper
+    from scripts.wer_backend import (
+        NORMALIZED_SCORE,
+        aggregate_wer_scores,
+        score_wer_pair,
+        transcribe_whisper,
+    )
 
     metrics = set(payload["metrics"])
+    rows = payload["rows"]
+    if not rows:
+        raise ValueError("Cannot score WER for an empty corpus")
+    if "asr_wer" in metrics:
+        for row in rows:
+            reference = row.get("source", {}).get("speech_text")
+            if not isinstance(reference, str) or not reference.strip():
+                raise ValueError(
+                    f"asr_wer requires a non-empty reference transcript for row {row.get('row_index')!r}"
+                )
+            score_wer_pair(reference, reference)
+
+    import whisper
+
     cfg = payload["metric_configs"].get("asr_wer") or payload["metric_configs"].get("dwer") or {}
     model_name = cfg.get("model_name", "large-v3")
     cache_dir = cfg.get("cache_dir") or payload["cache_dir"]
@@ -216,74 +235,137 @@ def run_whisper(payload: dict[str, Any]) -> dict[str, Any]:
     model = whisper.load_model(model_name, download_root=cache_dir, device=device)
 
     sample_metrics: dict[str, dict[str, float]] = {}
-    predictions: dict[str, dict[str, str]] = {}
-    errors: dict[str, dict[str, str]] = {}
-    for row in payload["rows"]:
+    predictions: dict[str, dict[str, Any]] = {}
+    scores_by_metric: dict[str, list[dict[str, dict[str, Any]]]] = {
+        metric: [] for metric in metrics
+    }
+    for row in rows:
         row_key = str(row["row_index"])
-        try:
-            generated_text = _transcribe_whisper(model, row["output_file"], device)
-        except Exception as exc:
-            errors[row_key] = {metric: _metric_error(exc) for metric in metrics}
-            continue
+        generated_text = transcribe_whisper(model, row["output_file"], device)
         sample_metrics[row_key] = {}
         predictions[row_key] = {"generated_speech_asr": generated_text}
         if "asr_wer" in metrics:
-            try:
-                reference = _normalize_text(row["source"]["speech_text"])
-                sample_metrics[row_key]["asr_wer"] = _word_error_rate(reference, _normalize_text(generated_text))
-            except Exception as exc:
-                errors.setdefault(row_key, {})["asr_wer"] = _metric_error(exc)
+            score = score_wer_pair(row["source"]["speech_text"], generated_text)
+            scores_by_metric["asr_wer"].append(score)
+            sample_metrics[row_key]["asr_wer"] = float(score[NORMALIZED_SCORE]["wer"])
+            predictions[row_key]["asr_wer_details"] = score
         if "dwer" in metrics:
-            try:
-                reference_text = _transcribe_whisper(model, row["source"]["speech_file"], device)
-                predictions[row_key]["reference_speech_asr"] = reference_text
-                sample_metrics[row_key]["dwer"] = _word_error_rate(_normalize_text(reference_text), _normalize_text(generated_text))
-            except Exception as exc:
-                errors.setdefault(row_key, {})["dwer"] = _metric_error(exc)
-    return _result(
+            reference_text = transcribe_whisper(model, row["source"]["speech_file"], device)
+            score = score_wer_pair(reference_text, generated_text)
+            scores_by_metric["dwer"].append(score)
+            predictions[row_key]["reference_speech_asr"] = reference_text
+            predictions[row_key]["dwer_details"] = score
+            sample_metrics[row_key]["dwer"] = float(score[NORMALIZED_SCORE]["wer"])
+
+    semantics = {
+        "asr_wer": "WER(reference_transcript, ASR(generated_speech))",
+        "dwer": "WER(ASR(reference_speech), ASR(generated_speech))",
+    }
+    corpus_metrics = {}
+    for metric, scores in scores_by_metric.items():
+        aggregates = aggregate_wer_scores(scores)
+        corpus_metrics[metric] = {
+            "level": "corpus",
+            "count": 1,
+            "input_count": len(scores),
+            "mean": aggregates[NORMALIZED_SCORE]["wer"],
+            "mean_semantics": "normalized corpus WER from summed edit counts; not sample mean",
+            "semantics": semantics[metric],
+            **aggregates,
+        }
+    result = _result(
         payload,
         sample_metrics=sample_metrics,
-        corpus_metrics={},
+        corpus_metrics=corpus_metrics,
         predictions=predictions,
-        errors=errors,
+        errors={},
         packages=["openai-whisper", "torch", "numpy"],
     )
+    for metric in metrics:
+        result["metric_backends"][metric]["policy_metadata"] = {
+            "semantics": semantics[metric],
+            "sample_metric": "normalized utterance WER",
+            "corpus_aggregation": "WER from summed edit counts; macro_wer is secondary",
+            "corpus": corpus_metrics[metric],
+        }
+    return result
 
 
 def run_utmosv2(payload: dict[str, Any]) -> dict[str, Any]:
     import utmosv2
+    from evaluation.metrics.utmos_policy import (
+        UTMOSV2_CHECKPOINT_FOLD,
+        UTMOSV2_CHECKPOINT_SEED,
+        UTMOSV2_CONFIG,
+        scientific_prediction_kwargs,
+        validate_prediction_policy,
+        validate_utmos_records,
+    )
 
     cfg = payload["metric_configs"].get("utmos", {})
     device = payload["device"]
+    config = cfg.get("config_name", UTMOSV2_CONFIG)
+    fold = cfg.get("fold", UTMOSV2_CHECKPOINT_FOLD)
+    checkpoint_seed = cfg.get("checkpoint_seed", cfg.get("seed", UTMOSV2_CHECKPOINT_SEED))
+    pretrained = cfg.get("pretrained", True)
+    checkpoint_path = cfg.get("model_path")
+    prediction_kwargs = scientific_prediction_kwargs()
+    predict_dataset = cfg.get("predict_dataset", prediction_kwargs["predict_dataset"])
+    num_repetitions = cfg.get("num_repetitions", prediction_kwargs["num_repetitions"])
+    remove_silent_section = cfg.get(
+        "remove_silent_section", prediction_kwargs["remove_silent_section"]
+    )
+    validate_prediction_policy(
+        config=config,
+        fold=fold,
+        checkpoint_seed=checkpoint_seed,
+        pretrained=pretrained,
+        checkpoint_path=checkpoint_path,
+        predict_dataset=predict_dataset,
+        num_repetitions=num_repetitions,
+        remove_silent_section=remove_silent_section,
+    )
     model = utmosv2.create_model(
-        pretrained=True,
-        config=cfg.get("config_name", "fusion_stage3"),
-        checkpoint_path=cfg.get("model_path"),
+        pretrained=pretrained,
+        config=config,
+        fold=fold,
+        checkpoint_path=checkpoint_path,
+        seed=checkpoint_seed,
         device=device,
     )
-    sample_metrics: dict[str, dict[str, float]] = {}
-    errors: dict[str, dict[str, str]] = {}
+    records: list[dict[str, Any]] = []
     for row in payload["rows"]:
         row_key = str(row["row_index"])
-        try:
-            score = model.predict(
-                input_path=row["output_file"],
-                device=device,
-                num_workers=int(cfg.get("num_workers", 0)),
-                batch_size=int(cfg.get("batch_size", 1)),
-                verbose=False,
-            )
-            sample_metrics[row_key] = {"utmos": float(score)}
-        except Exception as exc:
-            errors[row_key] = {"utmos": _metric_error(exc)}
-    return _result(
+        score = model.predict(
+            input_path=row["output_file"],
+            device=device,
+            num_workers=int(cfg.get("num_workers", 0)),
+            batch_size=int(cfg.get("batch_size", 1)),
+            predict_dataset=predict_dataset,
+            num_repetitions=num_repetitions,
+            remove_silent_section=remove_silent_section,
+            verbose=False,
+        )
+        records.append({"sample_id": row_key, "utmos": score})
+
+    aggregation = validate_utmos_records(
+        records,
+        expected_ids=[str(row["row_index"]) for row in payload["rows"]],
+    )
+    sample_metrics = {
+        record.sample_id: {"utmos": record.score}
+        for record in aggregation.records
+    }
+    result = _result(
         payload,
         sample_metrics=sample_metrics,
-        corpus_metrics={},
+        corpus_metrics={"utmos": aggregation.corpus_mean},
         predictions={},
-        errors=errors,
+        errors={},
         packages=["utmosv2", "torch", "numpy"],
     )
+    result["metric_backends"]["utmos"]["policy_metadata"] = dict(aggregation.metadata)
+    return result
 
 
 def run_dnsmos(payload: dict[str, Any]) -> dict[str, Any]:
