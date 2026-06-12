@@ -191,8 +191,10 @@ for variant in ("plausibility", "reference_grounded"):
         rows = [json.loads(line) for line in path.open(encoding="utf-8") if line.strip()]
     report["variants"][variant] = {
         "rows": len(rows),
-        "complete": sum(row.get("status") == "complete" for row in rows),
-        "incomplete": sum(row.get("status") != "complete" for row in rows),
+        "complete": sum(row.get("status") in {"complete", "complete_with_abstention"} for row in rows),
+        "complete_with_abstention": sum(row.get("status") == "complete_with_abstention" for row in rows),
+        "incomplete": sum(row.get("status") == "incomplete" for row in rows),
+        "pending": sum(row.get("status") == "pending" for row in rows),
         "directions": {
             direction: sum(row.get("direction") == direction for row in rows)
             for direction in ("audio_to_speech", "speech_to_audio")

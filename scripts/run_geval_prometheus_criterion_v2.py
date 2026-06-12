@@ -10,7 +10,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from statistics import mean
+from statistics import mean, median, multimode, pstdev
 from typing import Any, Protocol
 
 
@@ -22,8 +22,8 @@ METRIC_IDS = {
     "reference_grounded": "g_eval_prometheus_criterion_v2_reference_grounded",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_prometheus_plausibility_direct_assessment_v2",
-    "reference_grounded": "geval_prometheus_reference_grounded_direct_assessment_v2",
+    "plausibility": "geval_prometheus_plausibility_direct_assessment_v3",
+    "reference_grounded": "geval_prometheus_reference_grounded_direct_assessment_v3",
 }
 
 CRITERION_WEIGHTS = {
@@ -291,13 +291,21 @@ def parse_prometheus_result(raw: str) -> dict[str, Any]:
     if not matches:
         raise ValueError("Missing [RESULT] marker")
     result_text = matches[-1].group(1).strip()
-    score_match = re.fullmatch(r"([1-5])", result_text)
-    if not score_match:
-        raise ValueError(f"Final [RESULT] must contain exactly one integer from 1 to 5: {result_text!r}")
     feedback = raw[: matches[-1].start()].strip()
     feedback = re.sub(r"^\s*Feedback:\s*", "", feedback, flags=re.IGNORECASE).strip()
     if not feedback:
         raise ValueError("Feedback must be non-empty")
+    if re.fullmatch(r"N/?A|null", result_text, flags=re.IGNORECASE):
+        return {
+            "score": None,
+            "feedback": feedback,
+            "parse_status": "abstained",
+            "repair_applied": False,
+            "abstention_reason": "judge_returned_no_score",
+        }
+    score_match = re.fullmatch(r"([1-5])", result_text)
+    if not score_match:
+        raise ValueError(f"Final [RESULT] must contain one integer from 1 to 5 or N/A: {result_text!r}")
     return {"score": int(score_match.group(1)), "feedback": feedback, "parse_status": "parsed", "repair_applied": False}
 
 
@@ -376,6 +384,9 @@ For speech_to_audio, the input is a speech utterance and the response is a gener
 Write concise feedback strictly based on the criterion and rubric. Then output the final score as:
 Feedback: <feedback> [RESULT] <integer score from 1 to 5>
 
+If the criterion genuinely cannot be assessed from the response, you may instead output [RESULT] N/A. Do not use
+N/A merely because the response is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
+
 ###The instruction to evaluate:
 Input text:
 {input_text}
@@ -402,10 +413,11 @@ def format_reference_anchors(anchors: list[dict[str, str]]) -> str:
 def build_repair_prompt(raw_response: str) -> str:
     return f"""Repair the evaluator response into the native Prometheus direct-assessment format.
 
-Return exactly:
+Return exactly one of:
 Feedback: <non-empty concise feedback> [RESULT] <one integer from 1 to 5>
+Feedback: <non-empty concise feedback> [RESULT] N/A
 
-Do not return JSON. Preserve the intended feedback and score when possible.
+Do not return JSON. Preserve an explicit N/A rather than forcing a score.
 
 Response to repair:
 {raw_response}"""
@@ -458,7 +470,7 @@ def run_geval(
                 assert raw is not None
                 result = _parse_with_repair(judge, raw)
             states[item.row_position]["criteria"][item.criterion] = result
-            if result.get("parse_status") == "parsed":
+            if result.get("parse_status") in {"parsed", "abstained"}:
                 _write_cache(cache_dir, item.prompt_hash, result)
         _write_progress(
             states,
@@ -613,13 +625,24 @@ def _finalize_state(state: dict[str, Any]) -> None:
     if state.get("incomplete_reason") == "missing_required_reference_anchor":
         state["status"] = "incomplete"
         return
+    expected = set(state["criterion_weights"])
+    if not expected.issubset(state["criteria"]):
+        state["status"] = "pending"
+        state["final_score"] = None
+        state["incomplete_reason"] = "criteria_pending"
+        return
+    statuses = {result.get("parse_status") for result in state["criteria"].values()}
     state["final_score"] = weighted_final_score(state["criteria"], state["criterion_weights"])
     state["diagnostics"] = deterministic_diagnostics(state["criteria"])
-    state["status"] = "complete" if state["final_score"] is not None else "incomplete"
-    if state["final_score"] is None:
-        state["incomplete_reason"] = "one_or_more_required_criteria_failed"
-    else:
+    if statuses.issubset({"parsed", "abstained"}) and "abstained" in statuses:
+        state["status"] = "complete_with_abstention"
+        state["incomplete_reason"] = "one_or_more_criteria_abstained"
+    elif state["final_score"] is not None:
+        state["status"] = "complete"
         state.pop("incomplete_reason", None)
+    else:
+        state["status"] = "incomplete"
+        state["incomplete_reason"] = "one_or_more_required_criteria_failed"
 
 
 def _write_progress(
@@ -638,8 +661,9 @@ def _write_progress(
     states.sort(key=lambda row: int(row.get("row_index", 0)))
     summary = _summary(states, input_path=input_path, output_path=output_path, judge_name=judge_name, variant=variant)
     summary["requested_pairs"] = requested_rows
-    summary["remaining_pairs"] = sum(state.get("status") != "complete" for state in states)
-    summary["complete"] = summary["remaining_pairs"] == 0
+    summary["remaining_pairs"] = sum(state.get("status") == "pending" for state in states)
+    summary["failed_pairs"] = sum(state.get("status") == "incomplete" for state in states)
+    summary["complete"] = summary["remaining_pairs"] == 0 and summary["failed_pairs"] == 0
     _write_jsonl(output_path, states)
     _write_json(summary_output, summary)
     if summary_csv_output:
@@ -648,28 +672,152 @@ def _write_progress(
 
 
 def _summary(rows: list[dict[str, Any]], *, input_path: Path, output_path: Path, judge_name: str, variant: str) -> dict[str, Any]:
-    valid = [row for row in rows if _is_score(row.get("final_score"))]
+    final_scores = [float(row["final_score"]) for row in rows if _is_score(row.get("final_score"))]
     criterion_scores: dict[str, list[float]] = {}
+    criterion_metadata: dict[str, dict[str, int]] = {}
+    criterion_parse_status_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+
     for row in rows:
-        for criterion, result in row.get("criteria", {}).items():
+        status = _effective_row_status(row)
+        status_counts[status] = status_counts.get(status, 0) + 1
+        for criterion in row.get("criterion_weights", {}):
+            metadata = criterion_metadata.setdefault(
+                criterion,
+                {"eligible_count": 0, "abstention_count": 0, "failure_count": 0, "missing_count": 0},
+            )
+            metadata["eligible_count"] += 1
+            result = row.get("criteria", {}).get(criterion)
+            if not isinstance(result, dict):
+                metadata["missing_count"] += 1
+                continue
+            outcome = _criterion_outcome(result)
+            criterion_parse_status_counts[outcome] = criterion_parse_status_counts.get(outcome, 0) + 1
             if _is_score(result.get("score")):
                 criterion_scores.setdefault(criterion, []).append(float(result["score"]))
+            elif outcome == "abstained":
+                metadata["abstention_count"] += 1
+            else:
+                metadata["failure_count"] += 1
+
+    criterion_statistics = {}
+    for name, metadata in sorted(criterion_metadata.items()):
+        criterion_statistics[name] = {
+            **_score_statistics(criterion_scores.get(name, []), total_count=metadata["eligible_count"], distribution="exact_1_to_5"),
+            **metadata,
+        }
+
+    prompt_versions = sorted({str(row.get("prompt_version")) for row in rows if row.get("prompt_version")})
+    prompt_version = prompt_versions[0] if len(prompt_versions) == 1 else prompt_versions
+    final_statistics = _score_statistics(final_scores, total_count=len(rows), distribution="fixed_half_point_bins")
+    abstained_judgments = status_counts.get("complete_with_abstention", 0)
+    failed_judgments = status_counts.get("incomplete", 0)
+    existing_rows_reinterpreted_as_abstentions = sum(
+        _effective_row_status(row) == "complete_with_abstention"
+        and row.get("status") != "complete_with_abstention"
+        for row in rows
+    )
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "metric": METRIC_IDS[variant],
         "evaluator_version": EVALUATOR_VERSION,
         "evaluation_variant": variant,
-        "prompt_version": PROMPT_VERSIONS[variant],
+        "prompt_version": prompt_version or PROMPT_VERSIONS[variant],
         "scoring_policy_version": SCORING_POLICY_VERSION,
+        "aggregation_policy_version": "geval_descriptive_statistics_v1_null_excluded",
         "input_path": str(input_path),
         "output_path": str(output_path),
         "judge_model": judge_name,
         "total_pairs_processed": len(rows),
-        "valid_judgments": len(valid),
-        "incomplete_judgments": len(rows) - len(valid),
-        "mean_final_score": mean(float(row["final_score"]) for row in valid) if valid else None,
-        "mean_criterion_scores": {name: mean(values) for name, values in sorted(criterion_scores.items())},
+        "scored_judgments": len(final_scores),
+        "abstained_judgments": abstained_judgments,
+        "failed_judgments": failed_judgments,
+        "existing_rows_reinterpreted_as_abstentions": existing_rows_reinterpreted_as_abstentions,
+        "status_counts": dict(sorted(status_counts.items())),
+        "criterion_parse_status_counts": dict(sorted(criterion_parse_status_counts.items())),
+        "final_score_statistics": final_statistics,
+        "criterion_score_statistics": criterion_statistics,
     }
+
+
+def _effective_row_status(row: dict[str, Any]) -> str:
+    if row.get("incomplete_reason") == "missing_required_reference_anchor":
+        return "incomplete"
+    expected = set(row.get("criterion_weights", {}))
+    criteria = row.get("criteria", {})
+    if not expected.issubset(criteria):
+        return "pending" if row.get("status") == "pending" else "incomplete"
+    outcomes = {_criterion_outcome(criteria[name]) for name in expected}
+    if outcomes.issubset({"parsed", "abstained"}):
+        return "complete_with_abstention" if "abstained" in outcomes else "complete"
+    return "incomplete"
+
+
+def _criterion_outcome(result: dict[str, Any]) -> str:
+    if result.get("parse_status") == "abstained" or _is_existing_na_abstention(result):
+        return "abstained"
+    return str(result.get("parse_status") or "missing")
+
+
+def _is_existing_na_abstention(result: dict[str, Any]) -> bool:
+    if result.get("score") is not None or result.get("parse_status") != "parse_failed":
+        return False
+    old_parser_message = "Final [RESULT] must contain exactly one integer from 1 to 5"
+    if old_parser_message not in str(result.get("parse_error") or ""):
+        return False
+    responses = (
+        str(result.get("initial_raw_response") or ""),
+        str(result.get("raw_response") or ""),
+    )
+    for response in responses:
+        matches = list(re.finditer(r"\[RESULT\]\s*([^\r\n]*)", response, flags=re.IGNORECASE))
+        if not matches or not re.fullmatch(r"N/?A|null", matches[-1].group(1).strip(), flags=re.IGNORECASE):
+            return False
+    return True
+
+
+def _score_statistics(
+    values: list[float],
+    *,
+    total_count: int,
+    distribution: str,
+) -> dict[str, Any]:
+    sorted_values = sorted(values)
+    modes = sorted(multimode(sorted_values)) if sorted_values else []
+    mode_count = max((sorted_values.count(value) for value in modes), default=0)
+    if mode_count <= 1:
+        modes = []
+    result = {
+        "count": len(sorted_values),
+        "null_count": total_count - len(sorted_values),
+        "mean": mean(sorted_values) if sorted_values else None,
+        "std": pstdev(sorted_values) if sorted_values else None,
+        "min": min(sorted_values) if sorted_values else None,
+        "max": max(sorted_values) if sorted_values else None,
+        "median": median(sorted_values) if sorted_values else None,
+        "mode": modes[0] if len(modes) == 1 else None,
+        "modes": modes,
+        "mode_count": mode_count if modes else 0,
+        "distribution_type": distribution,
+    }
+    if distribution == "exact_1_to_5":
+        counts = {str(score): 0 for score in range(1, 6)}
+        for value in sorted_values:
+            if value.is_integer() and 1 <= value <= 5:
+                counts[str(int(value))] += 1
+    elif distribution == "fixed_half_point_bins":
+        labels = [
+            "[1.0,1.5)", "[1.5,2.0)", "[2.0,2.5)", "[2.5,3.0)",
+            "[3.0,3.5)", "[3.5,4.0)", "[4.0,4.5)", "[4.5,5.0]",
+        ]
+        counts = {label: 0 for label in labels}
+        for value in sorted_values:
+            index = min(max(int((value - 1.0) / 0.5), 0), len(labels) - 1)
+            counts[labels[index]] += 1
+    else:
+        raise ValueError(f"Unsupported distribution: {distribution}")
+    result["score_distribution"] = counts
+    return result
 
 
 def _is_score(value: Any) -> bool:
@@ -705,7 +853,10 @@ def _read_cache(cache_dir: Path | None, prompt_hash: str) -> dict[str, Any] | No
     if not isinstance(cached, dict):
         return None
     score = cached.get("score")
-    if cached.get("parse_status") != "parsed" or isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
+    status = cached.get("parse_status")
+    valid_score = status == "parsed" and not isinstance(score, bool) and isinstance(score, int) and 1 <= score <= 5
+    valid_abstention = status == "abstained" and score is None
+    if not (valid_score or valid_abstention):
         return None
     if not isinstance(cached.get("feedback"), str) or not isinstance(cached.get("raw_response"), str):
         return None
@@ -733,11 +884,46 @@ def _write_summary_csv(path: Path, summary: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as dst:
         writer = csv.writer(dst)
-        writer.writerow(["scope", "criterion", "mean"])
-        if summary.get("mean_final_score") is not None:
-            writer.writerow(["all", "final_score", summary["mean_final_score"]])
-        for criterion, value in summary.get("mean_criterion_scores", {}).items():
-            writer.writerow(["all", criterion, value])
+        fields = [
+            "count", "null_count", "mean", "std", "min", "max", "median", "mode", "modes",
+            "mode_count", "distribution_type", "score_distribution", "eligible_count",
+            "abstention_count", "failure_count", "missing_count",
+        ]
+        writer.writerow(["scope", "criterion", *fields])
+        statistics = {"final_score": summary.get("final_score_statistics", {})}
+        statistics.update(summary.get("criterion_score_statistics", {}))
+        for criterion, values in statistics.items():
+            writer.writerow(
+                ["all", criterion]
+                + [
+                    json.dumps(values.get(field), sort_keys=True)
+                    if field in {"modes", "score_distribution"}
+                    else values.get(field)
+                    for field in fields
+                ]
+            )
+
+
+def reaggregate_existing_output(
+    *,
+    input_path: Path,
+    output_path: Path,
+    summary_output: Path,
+    summary_csv_output: Path | None,
+    variant: str,
+) -> dict[str, Any]:
+    rows = _read_input_rows(output_path, max_samples=None)
+    judge_names = sorted({str(row.get("judge_model")) for row in rows if row.get("judge_model")})
+    judge_name = judge_names[0] if len(judge_names) == 1 else json.dumps(judge_names)
+    summary = _summary(rows, input_path=input_path, output_path=output_path, judge_name=judge_name, variant=variant)
+    summary["requested_pairs"] = len(rows)
+    summary["remaining_pairs"] = 0
+    summary["failed_pairs"] = summary["failed_judgments"]
+    summary["complete"] = summary["failed_pairs"] == 0
+    _write_json(summary_output, summary)
+    if summary_csv_output:
+        _write_summary_csv(summary_csv_output, summary)
+    return summary
 
 
 def _build_judge(args: argparse.Namespace) -> Judge:
@@ -774,11 +960,21 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--enforce-eager", action="store_true")
+    parser.add_argument("--reaggregate-existing", action="store_true")
     return parser
 
 
 def main() -> None:
     args = _build_parser().parse_args()
+    if args.reaggregate_existing:
+        reaggregate_existing_output(
+            input_path=args.input,
+            output_path=args.output,
+            summary_output=args.summary_output,
+            summary_csv_output=args.summary_csv_output,
+            variant=args.variant,
+        )
+        return
     if args.batch_size <= 0:
         raise ValueError("--batch-size must be positive")
     run_geval(

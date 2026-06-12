@@ -159,7 +159,7 @@ if [[ "${VARIANT}" == "reference_grounded" ]]; then
 fi
 
 set +e
-timeout --signal=TERM --kill-after=60s 230m \
+timeout --signal=TERM --kill-after=60s "${EVAL_TIMEOUT}" \
     "${PYTHON}" scripts/run_geval_prometheus_criterion_v2.py \
     --input "${RUN_ROOT}/input_full.jsonl" \
     --output "${RUN_ROOT}/output.jsonl" \
@@ -197,8 +197,10 @@ report = {
     "variant": variant,
     "process_status": process_status,
     "rows": len(rows),
-    "complete": sum(row.get("status") == "complete" for row in rows),
-    "incomplete": sum(row.get("status") != "complete" for row in rows),
+    "complete": sum(row.get("status") in {"complete", "complete_with_abstention"} for row in rows),
+    "complete_with_abstention": sum(row.get("status") == "complete_with_abstention" for row in rows),
+    "incomplete": sum(row.get("status") == "incomplete" for row in rows),
+    "pending": sum(row.get("status") == "pending" for row in rows),
     "directions": {direction: sum(row.get("direction") == direction for row in rows) for direction in ("audio_to_speech", "speech_to_audio")},
 }
 (root / "job_report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -210,9 +212,10 @@ echo "completed run_root=${RUN_ROOT} process_status=${run_status}"
 if [[ "${run_status}" -ne 0 ]]; then
     exit "${run_status}"
 fi
-incomplete=$("${PYTHON}" -c 'import json,sys; print(json.load(open(sys.argv[1]))["incomplete"])' "${RUN_ROOT}/job_report.json")
-if [[ "${incomplete}" -ne 0 ]]; then
-    echo "completed_with_incomplete_rows=${incomplete}" >&2
+
+unfinished=$("${PYTHON}" -c 'import json,sys; report=json.load(open(sys.argv[1])); print(report["incomplete"] + report["pending"])' "${RUN_ROOT}/job_report.json")
+if [[ "${unfinished}" -ne 0 ]]; then
+    echo "completed_with_failed_or_pending_rows=${unfinished}" >&2
     exit 3
 fi
 exit 0

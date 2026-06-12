@@ -10,6 +10,7 @@ from scripts.run_geval_prometheus_criterion_v2 import (
     deterministic_diagnostics,
     build_prompt,
     parse_prometheus_result,
+    reaggregate_existing_output,
     run_geval,
     weighted_final_score,
 )
@@ -24,6 +25,11 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
         parsed = parse_prometheus_result("Preface\nFeedback: First. [RESULT] 2\nFeedback: Final. [RESULT] 4")
         self.assertEqual(parsed["score"], 4)
         self.assertIn("Final.", parsed["feedback"])
+
+        abstained = parse_prometheus_result("Feedback: The criterion cannot be assessed. [RESULT] N/A")
+        self.assertIsNone(abstained["score"])
+        self.assertEqual(abstained["parse_status"], "abstained")
+        self.assertEqual(abstained["abstention_reason"], "judge_returned_no_score")
 
         for invalid in ("Feedback: missing", "Feedback: bad [RESULT] 0", "Feedback: bad [RESULT] 6", "Feedback: bad [RESULT] 4.5", "Feedback: bad [RESULT] 4."):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
@@ -212,6 +218,125 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             self.assertEqual(row["criteria"]["non_contradiction"]["initial_raw_response"], "unparseable")
             self.assertEqual(row["criteria"]["non_contradiction"]["raw_response"], "unparseable")
 
+
+    def test_abstention_is_valid_but_excluded_from_final_score_and_statistics(self) -> None:
+        class AbstainingJudge:
+            name = "abstaining-judge"
+            cache_identity = "abstaining-judge-v1"
+
+            def generate(self, prompts: list[str]) -> list[str]:
+                return [
+                    "Feedback: Too little language to assess this criterion. [RESULT] N/A"
+                    if "Criterion: spoken_naturalness" in prompt
+                    else "Feedback: Assessable criterion. [RESULT] 4"
+                    for prompt in prompts
+                ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_path = root / "input.jsonl"
+            output_path = root / "output.jsonl"
+            summary_path = root / "summary.json"
+            input_path.write_text(
+                json.dumps({
+                    "row_index": 0,
+                    "sample_id": "sample",
+                    "direction": "audio_to_speech",
+                    "input_text": "A vehicle drives away.",
+                    "generated_text": "So...",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            summary = run_geval(
+                input_path=input_path, output_path=output_path, summary_output=summary_path,
+                summary_csv_output=root / "summary.csv", judge=AbstainingJudge(), variant="plausibility",
+                cache_dir=None, batch_size=20,
+            )
+            row = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(row["status"], "complete_with_abstention")
+            self.assertIsNone(row["final_score"])
+            self.assertEqual(row["criteria"]["spoken_naturalness"]["parse_status"], "abstained")
+            self.assertTrue(summary["complete"])
+            self.assertEqual(summary["abstained_judgments"], 1)
+            self.assertEqual(summary["failed_judgments"], 0)
+            self.assertEqual(summary["final_score_statistics"]["count"], 0)
+            self.assertEqual(summary["final_score_statistics"]["null_count"], 1)
+            self.assertEqual(
+                summary["final_score_statistics"]["distribution_type"],
+                "fixed_half_point_bins",
+            )
+            self.assertEqual(
+                sum(summary["final_score_statistics"]["score_distribution"].values()),
+                0,
+            )
+            naturalness = summary["criterion_score_statistics"]["spoken_naturalness"]
+            self.assertEqual(naturalness["count"], 0)
+            self.assertEqual(naturalness["null_count"], 1)
+            self.assertEqual(naturalness["abstention_count"], 1)
+            self.assertNotIn("mean_final_score", summary)
+            self.assertNotIn("mean_criterion_scores", summary)
+
+    def test_reaggregation_distinguishes_existing_na_from_real_parse_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_path = root / "output.jsonl"
+            base = {
+                "metric": "g_eval_prometheus_criterion_v2_plausibility",
+                "evaluator_version": "geval_prometheus_criterion_v2",
+                "evaluation_variant": "plausibility",
+                "direction": "audio_to_speech",
+                "criterion_weights": {"spoken_naturalness": 1.0},
+                "final_score": None,
+                "prompt_version": "geval_prometheus_plausibility_direct_assessment_v2",
+                "judge_model": "judge",
+            }
+            old_na = {
+                **base,
+                "row_index": 0,
+                "status": "incomplete",
+                "criteria": {
+                    "spoken_naturalness": {
+                        "score": None,
+                        "parse_status": "parse_failed",
+                        "parse_error": (
+                            "initial=ValueError: Final [RESULT] must contain exactly one integer from 1 to 5: 'N/A'; "
+                            "repair=ValueError: Final [RESULT] must contain exactly one integer from 1 to 5: 'N/A'"
+                        ),
+                        "initial_raw_response": "Feedback: Cannot assess. [RESULT] N/A",
+                        "raw_response": "Feedback: Cannot assess. [RESULT] N/A",
+                    }
+                },
+            }
+            real_failure = {
+                **base,
+                "row_index": 1,
+                "status": "incomplete",
+                "criteria": {
+                    "spoken_naturalness": {
+                        "score": None,
+                        "parse_status": "parse_failed",
+                        "parse_error": "Missing [RESULT] marker",
+                        "initial_raw_response": "No score.",
+                        "raw_response": "Still no score.",
+                    }
+                },
+            }
+            output_path.write_text(
+                "\n".join(json.dumps(row) for row in (old_na, real_failure)) + "\n",
+                encoding="utf-8",
+            )
+            summary = reaggregate_existing_output(
+                input_path=root / "input.jsonl",
+                output_path=output_path,
+                summary_output=root / "summary.json",
+                summary_csv_output=None,
+                variant="plausibility",
+            )
+            self.assertEqual(summary["abstained_judgments"], 1)
+            self.assertEqual(summary["failed_judgments"], 1)
+            self.assertEqual(summary["existing_rows_reinterpreted_as_abstentions"], 1)
+            self.assertEqual(summary["status_counts"], {"complete_with_abstention": 1, "incomplete": 1})
+            self.assertFalse(summary["complete"])
 
     def test_successful_repair_and_cache_resume(self) -> None:
         class RepairJudge:
