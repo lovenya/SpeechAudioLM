@@ -24,6 +24,8 @@ export HF_HUB_CACHE="$HF_HOME" HUGGINGFACE_HUB_CACHE="$HF_HOME" TRANSFORMERS_CAC
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export TORCH_HOME="$SALM_SCRATCH/cache/metrics/torch"
 export RESOURCE_INTERVAL="${RESOURCE_INTERVAL:-60}"
+export METRIC_LOG_INTERVAL="${METRIC_LOG_INTERVAL:-60}"
+export PYTHONUNBUFFERED=1
 
 SCOPE_TAG="${SCOPE_TAG:?Submit with --export=ALL,SCOPE_TAG=<prepared-scope-tag>}"
 base="$SALM_SCRATCH/results/cascaded_full_validation/ttas_val/cascaded"
@@ -42,21 +44,49 @@ run_metric() {
   local scope="$scope_root/$task.json"
   local out="$out_root/$task/$lane/$metric"
   local log="$log_root/${task}.${lane}.${metric}.log"
+  local label="task=$task lane=$lane metric=$metric gpu=$gpu"
+  local started_at started_epoch eval_pid status elapsed rss_kb
   if [ ! -f "$manifest" ]; then echo "missing manifest: $manifest" | tee "$log"; return 2; fi
   if [ ! -f "$scope" ]; then echo "missing final scope: $scope" | tee "$log"; return 2; fi
   local extra_args=()
   if [ "${DRY_RUN:-0}" = "1" ]; then extra_args+=(--dry-run); fi
-  if CUDA_VISIBLE_DEVICES="$gpu" python evaluate.py \
+
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  started_epoch="$(date +%s)"
+  {
+    echo "START time=$started_at $label"
+    echo "INPUT manifest=$manifest scope=$scope output=$out"
+  } | tee "$log"
+
+  CUDA_VISIBLE_DEVICES="$gpu" python -u evaluate.py \
     --model cascaded --task "$task" --dataset ttas --split val \
     --manifest "$manifest" --metrics "$metric" \
     --evaluation-mode final --common-sample-ids "$scope" \
     --metrics-config configs/eval_metrics.json \
     --output-root "$out" --cache-dir "$cache" --device cuda \
-    "${extra_args[@]}" >"$log" 2>&1; then
-    echo "PASS task=$task lane=$lane metric=$metric" | tee -a "$log"
+    "${extra_args[@]}" >>"$log" 2>&1 &
+  eval_pid=$!
+
+  trap 'echo "TERMINATED time=$(date -u +%Y-%m-%dT%H:%M:%SZ) '"$label"' pid='"$eval_pid"'" | tee -a "'"$log"'"; kill '"$eval_pid"' 2>/dev/null || true; wait '"$eval_pid"' 2>/dev/null || true; exit 143' TERM INT
+
+  while kill -0 "$eval_pid" 2>/dev/null; do
+    timeout "$METRIC_LOG_INTERVAL" tail --pid="$eval_pid" -f /dev/null >/dev/null 2>&1 || true
+    if kill -0 "$eval_pid" 2>/dev/null; then
+      elapsed=$(( $(date +%s) - started_epoch ))
+      rss_kb="$(ps -o rss= -p "$eval_pid" 2>/dev/null | tr -d ' ' || true)"
+      echo "HEARTBEAT time=$(date -u +%Y-%m-%dT%H:%M:%SZ) elapsed_seconds=$elapsed pid=$eval_pid rss_kb=${rss_kb:-unknown} $label" >>"$log"
+    fi
+  done
+
+  wait "$eval_pid"
+  status=$?
+  trap - TERM INT
+  elapsed=$(( $(date +%s) - started_epoch ))
+  if [ "$status" -eq 0 ]; then
+    echo "PASS time=$(date -u +%Y-%m-%dT%H:%M:%SZ) elapsed_seconds=$elapsed $label" | tee -a "$log"
   else
-    echo "FAIL task=$task lane=$lane metric=$metric" | tee -a "$log"
-    return 1
+    echo "FAIL time=$(date -u +%Y-%m-%dT%H:%M:%SZ) elapsed_seconds=$elapsed exit_status=$status $label" | tee -a "$log"
+    return "$status"
   fi
 }
 
