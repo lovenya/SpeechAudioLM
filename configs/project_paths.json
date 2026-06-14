@@ -1,10 +1,15 @@
 {
-  "schema_version": 1,
-  "note": "Human-maintained path registry for SpeechAudioLM. These paths document the current cluster layout; scripts may still keep their own defaults.",
+  "schema_version": 2,
+  "note": "Canonical named-path registry. Change roots here or with SALM_*_ROOT environment variables; consumers must not embed absolute machine paths.",
   "roots": {
-    "repo": "/scratch/l/lovenya/SpeechAudioLM",
-    "scratch": "/scratch/l/lovenya/salm_migration_clean",
-    "note": "Keep large assets and generated outputs under scratch, not in git."
+    "repo_root": ".",
+    "results_root": "results",
+    "environments_root": ".venvs",
+    "models_root": "models",
+    "cache_root": "cache",
+    "datasets_root": "../salm_migration_clean/datasets",
+    "sources_root": "../salm_migration_clean/code",
+    "logs_root": "logs"
   },
   "dataset": {
     "name": "ttas",
@@ -35,93 +40,85 @@
       }
     }
   },
+  "datasets": {
+    "ttas": "ttas/extracted",
+    "ttas_source_manifest": "ttas/extracted/ttas/22k_samples_clean_manual_meta_clean.jsonl"
+  },
+  "models": {
+    "hf_cache": "hf_cache",
+    "audiogen": "audiogen-medium",
+    "tangoflux": "tangoflux",
+    "audio_omni": "audio-omni",
+    "audio_omni_config": "audio-omni/Audio-Omni.json",
+    "audio_omni_checkpoint": "audio-omni/model.ckpt",
+    "qwen2_5_omni": "qwen2.5-omni-3b",
+    "qwen3_omni": "qwen3-omni-30b-a3b-instruct",
+    "whisper_large_v3_asr": "cascaded/asr/whisper-large-v3",
+    "qwen3_asr": "cascaded/asr/qwen3-asr-1.7b",
+    "audio_flamingo_next": "cascaded/captioning/audio-flamingo-next-captioner-hf",
+    "qwen3_omni_captioner": "cascaded/captioning/qwen3-omni-30b-a3b-captioner",
+    "qwen3_32b": "cascaded/text/qwen3-32b",
+    "llama3_3_70b_instruct": "cascaded/text/llama-3.3-70b-instruct",
+    "f5_tts": "cascaded/tts/f5-tts",
+    "f5_tts_vocoder": "cascaded/tts/vocos-mel-24khz",
+    "cosyvoice3": "cascaded/tts/fun-cosyvoice3-0.5b-2512",
+    "panns_cnn14_audioset": "panns/Cnn14_mAP=0.431.pth",
+    "metric_whisper": "metrics/whisper",
+    "metric_dnsmos": "metrics/dnsmos",
+    "prometheus_8x7b_v2": "eval/prometheus-8x7b-v2.0"
+  },
   "environments": {
-    "models_root": "/scratch/l/lovenya/salm_migration_clean/.venvs/models",
-    "metrics_root": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics",
-    "metadata_root": "/scratch/l/lovenya/salm_migration_clean/.venvs/metadata",
-    "model_envs": {
-      "audiogen": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-audiocraft",
-      "tangoflux": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-tangoflux",
-      "audio_omni": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-audio-omni",
-      "qwen3_omni": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-qwen3-omni",
-      "cascade_asr": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-cascade-asr",
-      "cascade_qwen3_asr": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-cascade-qwen3-asr-py312",
-      "cascade_caption": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-cascade-caption",
-      "cascade_text": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-cascade-text",
-      "cascade_f5_tts": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-cascade-f5-tts",
-      "cascade_cosyvoice3": "/scratch/l/lovenya/salm_migration_clean/.venvs/models/.venv-cascade-cosyvoice3-py310"
-    },
-    "metric_envs": {
-      "whisper": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-whisper",
-      "aac_metrics": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-aac",
-      "audioldm_eval": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-audioldm-eval",
-      "kadtk": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-kadtk",
-      "stable_audio_metrics": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-stable-audio-metrics",
-      "utmosv2": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-utmosv2",
-      "dnsmos": "/scratch/l/lovenya/salm_migration_clean/.venvs/metrics/.venv-eval-dnsmos"
-    },
-    "metadata_envs": {
-      "panns_cnn14_audio_tags": "/scratch/l/lovenya/salm_migration_clean/.venvs/metadata/.venv-panns-cnn14"
-    }
+    "shared_metrics_py312": "metrics/.venv-eval-metrics-shared-py312",
+    "prometheus_vllm": "metrics/.venv-eval-prometheus-vllm-py312",
+    "audioldm_eval": "metrics/.venv-eval-audioldm-eval",
+    "kadtk": "metrics/.venv-eval-kadtk",
+    "stable_audio_metrics": "metrics/.venv-eval-stable-audio-metrics",
+    "panns_metadata": "metadata/.venv-panns-cnn14",
+    "hf_download": "download/.venv-hf-download",
+    "audiocraft": "models/.venv-audiocraft",
+    "tangoflux": "models/.venv-tangoflux",
+    "audio_omni": "models/.venv-audio-omni",
+    "qwen3_omni": "models/.venv-qwen3-omni",
+    "cascade_asr": "models/.venv-cascade-asr",
+    "cascade_qwen3_asr": "models/.venv-cascade-qwen3-asr-py312",
+    "cascade_caption": "models/.venv-cascade-caption",
+    "cascade_text": "models/.venv-cascade-text",
+    "cascade_f5_tts": "models/.venv-cascade-f5-tts",
+    "cascade_cosyvoice3": "models/.venv-cascade-cosyvoice3-py310"
   },
-  "model_assets": {
-    "hf_cache": "/scratch/l/lovenya/salm_migration_clean/models/hf_cache",
-    "generation_models": {
-      "audiogen": "/scratch/l/lovenya/salm_migration_clean/models/audiogen-medium",
-      "tangoflux": "/scratch/l/lovenya/salm_migration_clean/models/tangoflux",
-      "audio_omni_config": "/scratch/l/lovenya/salm_migration_clean/models/audio-omni/Audio-Omni.json",
-      "audio_omni_checkpoint": "/scratch/l/lovenya/salm_migration_clean/models/audio-omni/model.ckpt",
-      "qwen2_5_omni": "/scratch/l/lovenya/salm_migration_clean/models/qwen2.5-omni-3b",
-      "qwen3_omni": "/scratch/l/lovenya/salm_migration_clean/models/qwen3-omni-30b-a3b-instruct"
-    },
-    "cascade_models": {
-      "whisper_large_v3_asr": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/asr/whisper-large-v3",
-      "qwen3_asr": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/asr/qwen3-asr-1.7b",
-      "audio_flamingo_next_captioner": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/captioning/audio-flamingo-next-captioner-hf",
-      "qwen3_omni_captioner": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/captioning/qwen3-omni-30b-a3b-captioner",
-      "qwen3_32b_text": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/text/qwen3-32b",
-      "llama3_3_70b_text": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/text/llama-3.3-70b-instruct",
-      "f5_tts": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/f5-tts",
-      "f5_tts_vocoder": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/vocos-mel-24khz",
-      "cosyvoice3": "/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/fun-cosyvoice3-0.5b-2512"
-    },
-    "metadata_models": {
-      "panns_cnn14_audioset": {
-        "checkpoint": "/scratch/l/lovenya/salm_migration_clean/models/panns/Cnn14_mAP=0.431.pth",
-        "md5": "541141fa2ee191a88f24a3219fff024e",
-        "note": "Used only for AudioSet tag metadata prep, not KAD distributional evaluation."
-      }
-    },
-    "metric_models": {
-      "whisper": "/scratch/l/lovenya/salm_migration_clean/models/metrics/whisper",
-      "dnsmos": "/scratch/l/lovenya/salm_migration_clean/models/metrics/dnsmos",
-      "audioldm_eval_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/audioldm_eval",
-      "kadtk_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/kadtk",
-      "aac_metrics_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/aac_metrics",
-      "stable_audio_metrics_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/stable_audio_metrics",
-      "utmosv2_cache": "/scratch/l/lovenya/salm_migration_clean/cache/metrics/utmosv2",
-      "note": "Metric caches may contain downloaded weights or backend-specific feature caches."
-    }
+  "caches": {
+    "metrics": "metrics",
+    "aac_metrics": "metrics/aac_metrics",
+    "audioldm_eval": "metrics/audioldm_eval",
+    "kadtk": "metrics/kadtk",
+    "stable_audio_metrics": "metrics/stable_audio_metrics",
+    "utmosv2": "metrics/utmosv2",
+    "runtime_home": "metrics/runtime_home",
+    "huggingface": "metrics/huggingface",
+    "g_eval_reference_free": "metrics/g_eval_reference_free",
+    "g_eval_prometheus_criterion_v2_plausibility": "metrics/g_eval_prometheus_criterion_v2_plausibility",
+    "g_eval_prometheus_criterion_v2_reference_grounded": "metrics/g_eval_prometheus_criterion_v2_reference_grounded"
   },
-  "source_checkouts": {
-    "audio_omni": "/scratch/l/lovenya/salm_migration_clean/code/Audio-Omni",
-    "f5_tts": "/scratch/l/lovenya/salm_migration_clean/code/cascaded/F5-TTS",
-    "cosyvoice": "/scratch/l/lovenya/salm_migration_clean/code/cascaded/CosyVoice",
-    "stable_audio_metrics": "/scratch/l/lovenya/salm_migration_clean/code/metrics/stable-audio-metrics/src",
-    "note": "External code checkouts live in scratch and should not be copied into this repo."
+  "sources": {
+    "audio_omni": "Audio-Omni",
+    "f5_tts": "cascaded/F5-TTS",
+    "cosyvoice": "cascaded/CosyVoice",
+    "stable_audio_metrics": "metrics/stable-audio-metrics/src"
   },
-  "outputs": {
-    "baseline_root": "/scratch/l/lovenya/salm_migration_clean/results/baselines",
-    "baseline_shards_root": "/scratch/l/lovenya/salm_migration_clean/results/baselines_shards",
-    "eval_root": "/scratch/l/lovenya/salm_migration_clean/results/evals",
-    "cascaded_full_validation_root": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation",
-    "cascaded_full_validation_ttas_val": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/ttas_val",
-    "cascaded_full_validation_metadata_ttas_val": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation_metadata/ttas_val",
-    "cascaded_stage_inputs_ttas_val": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation_metadata/ttas_val/stage_inputs",
-    "audio_tag_smoke_root": "/scratch/l/lovenya/salm_migration_clean/results/audio_tags_smoke",
-    "logs_root": "/scratch/l/lovenya/salm_migration_clean/logs",
-    "slurm_logs": "/scratch/l/lovenya/salm_migration_clean/logs/slurm",
-    "resource_logs": "/scratch/l/lovenya/salm_migration_clean/logs/resources",
-    "note": "Repo-local results/ and logs/ are ignored; prefer scratch outputs for real runs."
+  "results": {
+    "baselines": "baselines",
+    "baseline_shards": "baseline_shards",
+    "evaluations": "evaluations",
+    "evaluation_cache": "evaluations/cache",
+    "cascaded": "cascaded",
+    "cascaded_metadata": "cascaded_metadata",
+    "presentations": "presentations",
+    "smokes": "smokes",
+    "archive": "archive"
+  },
+  "logs": {
+    "baselines": "baselines",
+    "slurm": "slurm",
+    "resources": "resources"
   }
 }
