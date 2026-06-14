@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from project_paths import result_path
 
-DEFAULT_BASELINE_ROOT = Path("results/baselines")
-DEFAULT_EVAL_ROOT = Path("results/evals")
+
+DEFAULT_BASELINE_ROOT = result_path("baselines")
+DEFAULT_EVAL_ROOT = result_path("evaluations")
 
 
 def baseline_output_root(

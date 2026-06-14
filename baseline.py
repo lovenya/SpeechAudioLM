@@ -10,6 +10,7 @@ from baselines.dataset import count_jsonl_rows, iter_split_rows, load_dataset_co
 from baselines.models import get_runner
 from baselines.run import dry_run_inference, run_inference
 from project_conventions import baseline_output_root, default_prompt_field
+from project_paths import log_path, model_path, result_path, source_path
 
 
 
@@ -94,12 +95,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="results/baselines",
+        default=str(result_path("baselines")),
         help="Output root. The default repo-local results/ directory is ignored by git.",
     )
     parser.add_argument(
         "--log-dir",
-        default="logs/baselines",
+        default=str(log_path("baselines")),
         help="Log root. The default repo-local logs/ directory is ignored by git.",
     )
     parser.add_argument("--device", default="cuda", help="Torch device for model loading.")
@@ -142,22 +143,22 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tangoflux-source-dir",
-        default="/scratch/l/lovenya/salm_migration_clean/models/tangoflux",
+        default=str(model_path("tangoflux")),
         help="TangoFlux source/model directory.",
     )
     parser.add_argument(
         "--audio-omni-config",
-        default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/Audio-Omni.json",
+        default=str(model_path("audio_omni_config")),
         help="Audio-Omni config path.",
     )
     parser.add_argument(
         "--audio-omni-ckpt",
-        default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/model.ckpt",
+        default=str(model_path("audio_omni_checkpoint")),
         help="Audio-Omni checkpoint path.",
     )
     parser.add_argument(
         "--audio-omni-source-dir",
-        default="/scratch/l/lovenya/salm_migration_clean/code/Audio-Omni",
+        default=str(source_path("audio_omni")),
         help="Audio-Omni source directory. Used internally for relative config assets.",
     )
     parser.add_argument(

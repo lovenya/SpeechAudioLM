@@ -15,6 +15,7 @@ from evaluation.metrics.text import word_error_rate
 from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, _prediction_text_for_metric, _run_backend_worker, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import baseline_output_root, eval_model_root
+from project_paths import result_path
 
 
 class EvaluationScaffoldTest(unittest.TestCase):
@@ -49,11 +50,11 @@ class EvaluationScaffoldTest(unittest.TestCase):
     def test_path_conventions(self) -> None:
         self.assertEqual(
             baseline_output_root("audio_omni", "T2A", "ttas", "test"),
-            Path("results/baselines/audio_omni/T2A/ttas/test"),
+            result_path("baselines") / "audio_omni" / "T2A" / "ttas" / "test",
         )
         self.assertEqual(
             eval_model_root("T2A", "ttas", "audio_omni"),
-            Path("results/evals/T2A/ttas/audio_omni"),
+            result_path("evaluations") / "T2A" / "ttas" / "audio_omni",
         )
 
     def test_capability_validation(self) -> None:

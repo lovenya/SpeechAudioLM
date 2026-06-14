@@ -7,18 +7,19 @@ from pathlib import Path
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
+from project_paths import model_path
 
 
 class TangoFluxRunner(BaselineRunner):
     def __init__(
         self,
-        tangoflux_source_dir: str = "/scratch/l/lovenya/salm_migration_clean/models/tangoflux",
+        tangoflux_source_dir: str = str(model_path("tangoflux")),
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
         if self.task != "T2A":
             raise ValueError("TangoFlux supports only --task T2A")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/tangoflux"
+        self.model_path = self.model_path or str(model_path("tangoflux"))
         self.source_dir = tangoflux_source_dir
         self.model = None
 

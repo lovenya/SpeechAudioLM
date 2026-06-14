@@ -38,6 +38,7 @@ from evaluation.metrics.registry import MetricSpec
 from evaluation.metrics.text import normalize_text, word_error_rate
 from evaluation.result_validation import validate_final_result_completeness
 from project_conventions import eval_model_root
+from project_paths import model_path
 
 
 @dataclass(frozen=True)
@@ -749,7 +750,7 @@ def _dedicated_script_command(
             "--backend",
             str(config.get("script_backend", config.get("runtime_backend", "vllm"))),
             "--model",
-            str(config.get("model_name", config.get("model_path") or "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0")),
+            str(config.get("model_name", config.get("model_path") or str(model_path("prometheus_8x7b_v2")))),
             "--batch-size",
             str(config.get("batch_size", 8)),
             "--cache-dir",
@@ -780,7 +781,7 @@ def _dedicated_script_command(
             "--summary-output", str(summary_path), "--summary-csv-output", str(metric_work_dir / "summary.csv"),
             "--variant", variant,
             "--backend", str(config.get("script_backend", config.get("runtime_backend", "vllm"))),
-            "--model", str(config.get("model_name", config.get("model_path") or "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0")),
+            "--model", str(config.get("model_name", config.get("model_path") or str(model_path("prometheus_8x7b_v2")))),
             "--batch-size", str(config.get("batch_size", 8)),
             "--cache-dir", str(config.get("cache_dir") or metric_work_dir / "cache"),
             "--tensor-parallel-size", str(config.get("tensor_parallel_size", 4)),

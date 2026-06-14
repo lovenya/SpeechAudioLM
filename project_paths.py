@@ -81,12 +81,32 @@ def resolve_config_value(value: Any, config_path: str | Path = DEFAULT_CONFIG_PA
     if not isinstance(value, str):
         return value
 
-    roots = load_project_paths(config_path)["roots"]
+    config = load_project_paths(config_path)
     resolved = value
-    for name in roots:
+    for name in config["roots"]:
         token = "{" + name + "}"
         if token in resolved:
             resolved = resolved.replace(token, str(root_path(name, config_path)))
+
+    named_resolvers = {
+        "model": model_path,
+        "environment": environment_path,
+        "cache": cache_path,
+        "dataset": dataset_path,
+        "source": source_path,
+        "result": result_path,
+        "log": log_path,
+    }
+    for prefix, resolver in named_resolvers.items():
+        marker = "{" + prefix + ":"
+        while marker in resolved:
+            start = resolved.index(marker)
+            end = resolved.find("}", start)
+            if end < 0:
+                raise ValueError(f"Unclosed path placeholder: {value!r}")
+            name = resolved[start + len(marker) : end]
+            replacement = str(resolver(name, config_path))
+            resolved = resolved[:start] + replacement + resolved[end + 1 :]
     return resolved
 
 

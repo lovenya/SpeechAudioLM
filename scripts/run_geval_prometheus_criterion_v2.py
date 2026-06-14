@@ -10,13 +10,15 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from project_paths import model_path
 from statistics import mean, median, multimode, pstdev
 from typing import Any, Protocol
 
 
 EVALUATOR_VERSION = "geval_prometheus_criterion_v2"
 SCORING_POLICY_VERSION = "geval_weighted_mean_v1_no_caps"
-DEFAULT_MODEL_PATH = "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0"
+DEFAULT_MODEL_PATH = str(model_path("prometheus_8x7b_v2"))
 METRIC_IDS = {
     "plausibility": "g_eval_prometheus_criterion_v2_plausibility",
     "reference_grounded": "g_eval_prometheus_criterion_v2_reference_grounded",

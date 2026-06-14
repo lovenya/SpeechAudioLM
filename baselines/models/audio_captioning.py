@@ -5,6 +5,7 @@ from pathlib import Path
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
+from project_paths import model_path
 
 DEFAULT_CAPTION_PROMPT = (
     "Describe the environmental audio in this recording. Focus on sound events, setting, intensity, "
@@ -21,7 +22,7 @@ class Qwen3OmniCaptionerRunner(BaselineRunner):
         super().__init__(**kwargs)
         if self.task != "A2T":
             raise ValueError("Qwen3-Omni captioner supports only task A2T")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/cascaded/captioning/qwen3-omni-30b-a3b-captioner"
+        self.model_path = self.model_path or str(model_path("qwen3_omni_captioner"))
         self.processor = None
         self.model = None
 
@@ -109,7 +110,7 @@ class AudioFlamingoCaptionerRunner(BaselineRunner):
         super().__init__(**kwargs)
         if self.task != "A2T":
             raise ValueError("Audio Flamingo captioner supports only task A2T")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/cascaded/captioning/audio-flamingo-next-captioner-hf"
+        self.model_path = self.model_path or str(model_path("audio_flamingo_next"))
         self.processor = None
         self.model = None
 

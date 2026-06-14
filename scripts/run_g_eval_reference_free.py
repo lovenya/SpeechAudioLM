@@ -10,6 +10,8 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from project_paths import model_path
 from statistics import mean
 from typing import Any, Protocol
 
@@ -17,7 +19,7 @@ from typing import Any, Protocol
 PROMPT_VERSION = "g_eval_reference_free_v3_failure_modes"
 ALLOWED_FAILURE_MODES = frozenset({"clear_contradiction", "no_meaningful_connection", "situationally_implausible", "physically_incoherent", "too_vague", "unnatural_language"})
 AUTO_FLAG_FAILURE_MODES = frozenset({"clear_contradiction", "no_meaningful_connection", "situationally_implausible", "physically_incoherent"})
-DEFAULT_MODEL_PATH = "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0"
+DEFAULT_MODEL_PATH = str(model_path("prometheus_8x7b_v2"))
 CRITERIA = (
     "non_contradiction",
     "causal_situational_plausibility",

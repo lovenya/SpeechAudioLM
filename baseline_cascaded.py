@@ -25,6 +25,7 @@ from baselines.cascaded_manifest import (
     write_inspection_manifest,
 )
 from project_conventions import baseline_output_root, default_prompt_field
+from project_paths import log_path, model_path, result_path, source_path
 
 
 PIPELINES = ("T2A", "T2S", "A2T", "S2T", "T2T", "A2S", "S2A")
@@ -40,8 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-file", default=None)
     parser.add_argument("--num-samples", type=int, default=5)
     parser.add_argument("--start-index", type=int, default=0)
-    parser.add_argument("--output-dir", default="results/baselines")
-    parser.add_argument("--log-dir", default="logs/baselines")
+    parser.add_argument("--output-dir", default=str(result_path("baselines")))
+    parser.add_argument("--log-dir", default=str(log_path("baselines")))
     parser.add_argument("--run-name", default=None, help="Optional output variant name; defaults to selected stage backends.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--duration", type=float, default=10.0)
@@ -72,12 +73,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prompt-template", default=None)
     parser.add_argument("--qwen-speaker", default="Ethan")
     parser.add_argument("--qwen-template", default=None)
-    parser.add_argument("--tangoflux-source-dir", default="/scratch/l/lovenya/salm_migration_clean/models/tangoflux")
-    parser.add_argument("--audio-omni-config", default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/Audio-Omni.json")
-    parser.add_argument("--audio-omni-ckpt", default="/scratch/l/lovenya/salm_migration_clean/models/audio-omni/model.ckpt")
-    parser.add_argument("--audio-omni-source-dir", default="/scratch/l/lovenya/salm_migration_clean/code/Audio-Omni")
-    parser.add_argument("--f5-tts-source-dir", default="/scratch/l/lovenya/salm_migration_clean/code/cascaded/F5-TTS")
-    parser.add_argument("--f5-tts-vocoder-path", default="/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/vocos-mel-24khz")
+    parser.add_argument("--tangoflux-source-dir", default=str(model_path("tangoflux")))
+    parser.add_argument("--audio-omni-config", default=str(model_path("audio_omni_config")))
+    parser.add_argument("--audio-omni-ckpt", default=str(model_path("audio_omni_checkpoint")))
+    parser.add_argument("--audio-omni-source-dir", default=str(source_path("audio_omni")))
+    parser.add_argument("--f5-tts-source-dir", default=str(source_path("f5_tts")))
+    parser.add_argument("--f5-tts-vocoder-path", default=str(model_path("f5_tts_vocoder")))
     return parser.parse_args()
 
 

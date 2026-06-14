@@ -6,6 +6,7 @@ from typing import Callable
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
+from project_paths import model_path
 
 
 class WhisperASRRunner(BaselineRunner):
@@ -16,7 +17,7 @@ class WhisperASRRunner(BaselineRunner):
         super().__init__(**kwargs)
         if self.task != "S2T":
             raise ValueError("Whisper ASR supports only task S2T")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/cascaded/asr/whisper-large-v3"
+        self.model_path = self.model_path or str(model_path("whisper_large_v3_asr"))
         self.pipe = None
 
     def load(self) -> None:
@@ -73,7 +74,7 @@ class Qwen3ASRRunner(BaselineRunner):
         super().__init__(**kwargs)
         if self.task != "S2T":
             raise ValueError("Qwen3-ASR supports only task S2T")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/cascaded/asr/qwen3-asr-1.7b"
+        self.model_path = self.model_path or str(model_path("qwen3_asr"))
         self.model = None
 
     def load(self) -> None:

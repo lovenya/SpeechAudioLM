@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+from project_paths import resolve_config_value
+
 
 @dataclass(frozen=True)
 class ManifestRow:
@@ -16,7 +18,7 @@ class ManifestRow:
 
 def read_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        return resolve_config_value(json.load(f))
 
 
 def iter_jsonl(path: Path, max_samples: int | None = None, start_index: int = 0) -> Iterator[ManifestRow]:

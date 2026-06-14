@@ -4,6 +4,7 @@ from pathlib import Path
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
+from project_paths import model_path, source_path
 
 
 class F5TTSRunner(BaselineRunner):
@@ -12,14 +13,14 @@ class F5TTSRunner(BaselineRunner):
 
     def __init__(
         self,
-        f5_tts_source_dir: str = "/scratch/l/lovenya/salm_migration_clean/code/cascaded/F5-TTS",
-        f5_tts_vocoder_path: str = "/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/vocos-mel-24khz",
+        f5_tts_source_dir: str = str(source_path("f5_tts")),
+        f5_tts_vocoder_path: str = str(model_path("f5_tts_vocoder")),
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
         if self.task != "T2S":
             raise ValueError("F5-TTS supports only task T2S")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/f5-tts"
+        self.model_path = self.model_path or str(model_path("f5_tts"))
         self.source_dir = Path(f5_tts_source_dir)
         self.vocoder_path = Path(f5_tts_vocoder_path)
         self.model = None
@@ -39,7 +40,7 @@ class F5TTSRunner(BaselineRunner):
             vocab_file=str(root / "F5TTS_v1_Base" / "vocab.txt"),
             device=self.device,
             vocoder_local_path=str(self.vocoder_path),
-            hf_cache_dir="/scratch/l/lovenya/salm_migration_clean/models/hf_cache",
+            hf_cache_dir=str(model_path("hf_cache")),
         )
 
     def generate(self, row: PromptRow, output_path: Path) -> GenerationResult:
@@ -83,13 +84,13 @@ class CosyVoice3Runner(BaselineRunner):
 
     def __init__(
         self,
-        cosyvoice_source_dir: str = "/scratch/l/lovenya/salm_migration_clean/code/cascaded/CosyVoice",
+        cosyvoice_source_dir: str = str(source_path("cosyvoice")),
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
         if self.task != "T2S":
             raise ValueError("CosyVoice3 supports only task T2S")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/cascaded/tts/fun-cosyvoice3-0.5b-2512"
+        self.model_path = self.model_path or str(model_path("cosyvoice3"))
         self.source_dir = Path(cosyvoice_source_dir)
         self.model = None
 

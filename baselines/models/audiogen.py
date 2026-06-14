@@ -4,6 +4,7 @@ from pathlib import Path
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
+from project_paths import model_path
 
 
 class AudioGenRunner(BaselineRunner):
@@ -11,7 +12,7 @@ class AudioGenRunner(BaselineRunner):
         super().__init__(**kwargs)
         if self.task != "T2A":
             raise ValueError("AudioGen supports only --task T2A")
-        self.model_path = self.model_path or "/scratch/l/lovenya/salm_migration_clean/models/audiogen-medium"
+        self.model_path = self.model_path or str(model_path("audiogen"))
         self.model = None
 
     def load(self) -> None:

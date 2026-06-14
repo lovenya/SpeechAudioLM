@@ -7,6 +7,7 @@ from pathlib import Path
 
 from baselines.dataset import PromptRow
 from baselines.models.base import BaselineRunner, GenerationResult
+from project_paths import model_path, source_path
 
 S2A_SPEECH_UNDERSTANDING_PROMPT = (
     "Transcribe the speech in this audio. If exact transcription is hard, summarize what the speaker is saying. "
@@ -35,9 +36,9 @@ class AudioOmniRunner(BaselineRunner):
 
     def __init__(
         self,
-        audio_omni_config: str = "/scratch/l/lovenya/salm_migration_clean/models/audio-omni/Audio-Omni.json",
-        audio_omni_ckpt: str = "/scratch/l/lovenya/salm_migration_clean/models/audio-omni/model.ckpt",
-        audio_omni_source_dir: str = "/scratch/l/lovenya/salm_migration_clean/code/Audio-Omni",
+        audio_omni_config: str = str(model_path("audio_omni_config")),
+        audio_omni_ckpt: str = str(model_path("audio_omni_checkpoint")),
+        audio_omni_source_dir: str = str(source_path("audio_omni")),
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
@@ -59,7 +60,7 @@ class AudioOmniRunner(BaselineRunner):
         if self.task in {"A2T", "S2T", "S2A", "A2S"}:
             self._check_understanding_dependencies()
 
-        os.environ.setdefault("QWEN_OMNI_MODEL_PATH", "/scratch/l/lovenya/salm_migration_clean/models/qwen2.5-omni-3b")
+        os.environ.setdefault("QWEN_OMNI_MODEL_PATH", str(model_path("qwen2_5_omni")))
         os.environ.setdefault("SKIP_QWEN_WEIGHTS", "1")
         source = str(self.source_dir)
         if source not in sys.path:

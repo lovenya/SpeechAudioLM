@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from baselines.models.base import BaselineRunner
+from project_paths import model_path
 
 
 def get_runner(name: str, **kwargs) -> BaselineRunner:
@@ -32,13 +33,13 @@ def get_runner(name: str, **kwargs) -> BaselineRunner:
         from baselines.models.text_llm import TextLLMRunner
 
         if not kwargs.get("model_path"):
-            kwargs["model_path"] = "/scratch/l/lovenya/salm_migration_clean/models/cascaded/text/qwen3-32b"
+            kwargs["model_path"] = str(model_path("qwen3_32b"))
         return TextLLMRunner(**kwargs)
     if name == "llama3_3_70b_instruct":
         from baselines.models.text_llm import TextLLMRunner
 
         if not kwargs.get("model_path"):
-            kwargs["model_path"] = "/scratch/l/lovenya/salm_migration_clean/models/cascaded/text/llama-3.3-70b-instruct"
+            kwargs["model_path"] = str(model_path("llama3_3_70b_instruct"))
         return TextLLMRunner(**kwargs)
     if name == "qwen3_omni_captioner":
         from baselines.models.audio_captioning import Qwen3OmniCaptionerRunner
