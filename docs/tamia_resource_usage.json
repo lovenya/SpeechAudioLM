@@ -1,0 +1,712 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "cluster": "TamIA",
+    "gpu_allocation_note": "GPU jobs are by node: one allocated node exposes four H100 GPUs, but CPU and memory must still be requested explicitly.",
+    "recommendation_rule": "Use observed peaks plus about 25-30% headroom for CPU cores, memory, and wall time; round up to practical scheduler values.",
+    "caveat": "Failed-before-load jobs understate GPU memory and sometimes wall time; use them only to size retry attempts up to the next load/generation point.",
+    "tamia_packing_note": "TamIA charges/reserves the whole GPU node for H100 jobs. If a one-GPU process uses only a small fraction of H100 VRAM, prefer validating multiple independent processes per GPU or more shards per node before future production runs. Validate throughput and interference before assuming VRAM alone is sufficient.",
+    "post_completion_audit_note": "After every completed job, record Slurm elapsed/time limit, monitor GPU memory/utilization, CPU/RAM, row counts, and generated-audio duration/RMS checks. Empty monitor summaries mean accounting missed the active window, not true zero GPU usage."
+  },
+  "jobs": [
+    {
+      "job_id": 309282,
+      "date_utc": "2026-05-28",
+      "label": "tamia_cascaded_smokes_one_node",
+      "module": "packed_modular_reference_audio_smokes",
+      "pipeline": "S2A/A2S/T2S",
+      "job_kind": "packed_one_node_inference_smoke_passed",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 16,
+        "mem": "192G",
+        "time": "00:20:00"
+      },
+      "observed_peaks": {
+        "gpu_memory_accounting_mb_per_gpu": [
+          6710,
+          28856,
+          29138,
+          69484
+        ]
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "cpus_per_task": 4,
+        "mem": "64G",
+        "time": "00:15:00",
+        "reason": "GPU accounting shows the packed lanes fit; observed later smoke CPU/node-memory use is low. CPU-memory peak was not captured reliably because the 300s monitor interval was too coarse, so keep 64G until a shorter-interval rerun gives better evidence."
+      }
+    },
+    {
+      "job_id": 309393,
+      "date_utc": "2026-05-29",
+      "label": "tamia_cascaded_qwen3_caption_smoke_one_node",
+      "module": "qwen3_omni_captioner",
+      "pipeline": "A2T",
+      "job_kind": "one_sample_inference_smoke_passed",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 48,
+        "mem": "0",
+        "time": "00:30:00",
+        "cuda_visible_devices": "0,1,2,3"
+      },
+      "observed_peaks": {
+        "elapsed_seconds_model_log": 177.05,
+        "node_mem_used_gb_monitor": 14.94,
+        "gpu_memory_accounting_mb_per_gpu": [
+          16424,
+          18284,
+          18284,
+          17690
+        ]
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "cpus_per_task": 4,
+        "mem": "64G",
+        "time": "00:15:00",
+        "reason": "Smoke completed in about 3 minutes; CPU monitor showed very low use; GPU memory is distributed across four H100s while node memory stayed under 16G. Use 64G CPU memory for load headroom."
+      }
+    },
+    {
+      "job_id": 309394,
+      "date_utc": "2026-05-29",
+      "label": "tamia_cascaded_text_llm_smoke_one_node_qwen3_32b",
+      "module": "qwen3_32b",
+      "pipeline": "T2T",
+      "job_kind": "one_sample_inference_smoke_passed",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 48,
+        "mem": "0",
+        "time": "00:45:00",
+        "cuda_visible_devices": "0"
+      },
+      "observed_peaks": {
+        "elapsed_seconds_model_log": 62.4,
+        "node_mem_used_gb_monitor": 11.491,
+        "gpu_memory_accounting_mb_per_gpu": [
+          63246,
+          0,
+          0,
+          0
+        ]
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "cpus_per_task": 4,
+        "mem": "64G",
+        "time": "00:15:00",
+        "reason": "One-GPU smoke completed in about 1 minute and used about 63GB GPU memory; CPU memory monitor stayed under 12G. Keep 64G CPU memory for model-loading headroom."
+      }
+    },
+    {
+      "job_id": 309456,
+      "date_utc": "2026-05-29",
+      "label": "tamia_cascaded_qwen3_asr_smoke_one_node",
+      "module": "qwen3_asr",
+      "pipeline": "S2T",
+      "job_kind": "one_sample_inference_smoke_failed_before_weight_load",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 16,
+        "mem": "192G",
+        "time": "00:30:00",
+        "cuda_visible_devices": "0"
+      },
+      "observed_peaks": {
+        "elapsed_seconds": 300.337,
+        "cpu_percent_node": 12.5,
+        "mem_used_gb": 9.692,
+        "gpu_memory_used_mb": 0.0,
+        "gpu_util_percent": 0.0
+      },
+      "portal_notes": [
+        "Less than 1 core was used on average but 16 were requested.",
+        "Less than 10% of requested memory was used."
+      ],
+      "outcome": "failed_before_model_load_complete",
+      "failure": "Qwen3ASRThinkerConfig missing pad_token_id after RoPE compatibility patch",
+      "next_request_recommendation": {
+        "cpus_per_task": 4,
+        "mem": "32G",
+        "time": "00:15:00",
+        "reason": "Observed node memory was under 10G and CPU use was under one core; keep extra headroom for import/config/load retry but avoid 192G/16 CPU over-request."
+      }
+    },
+    {
+      "job_id": 309461,
+      "date_utc": "2026-05-29",
+      "label": "tamia_cascaded_asr_llama_smoke_one_node",
+      "module": "packed_qwen3_asr_and_llama3_3_70b",
+      "pipeline": "S2T/T2T",
+      "job_kind": "packed_one_node_inference_smoke_partial",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 4,
+        "mem": "128G",
+        "time": "00:45:00",
+        "cuda_visible_devices": "qwen3_asr=0,llama3_3_70b_instruct=1,2,3"
+      },
+      "observed_peaks": {
+        "elapsed_seconds": 120.814,
+        "cpu_percent_node": 20.0,
+        "mem_used_gb": 21.685,
+        "gpu_memory_used_mb_monitor": 46229.0,
+        "gpu_memory_accounting_mb_per_gpu": [
+          5022,
+          45204,
+          46444,
+          45184
+        ]
+      },
+      "outcome": "partial_pass_llama_t2t_passed_qwen3_asr_failed",
+      "failure": "Qwen3-ASR failed after weight loading because Qwen3ASRThinkerTextRotaryEmbedding lacked compute_default_rope_parameters; Llama 3.3 70B T2T passed.",
+      "next_request_recommendation": {
+        "cpus_per_task": 4,
+        "mem": "64G",
+        "time": "00:15:00",
+        "reason": "For a Llama 3.3 70B one-sample T2T smoke, observed node memory stayed under 22G and the model lane completed in about 2 minutes. Keep 64G CPU memory for load headroom. Do not rerun Qwen3-ASR without dependency alignment."
+      }
+    },
+    {
+      "job_id": 309471,
+      "date_utc": "2026-05-29",
+      "label": "tamia_cascaded_qwen3_asr_smoke_one_node",
+      "module": "qwen3_asr",
+      "pipeline": "S2T",
+      "job_kind": "one_sample_inference_smoke_failed_after_weight_load",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 4,
+        "mem": "32G",
+        "time": "00:15:00",
+        "cuda_visible_devices": "0"
+      },
+      "observed_peaks": {
+        "elapsed_seconds": 30.246,
+        "cpu_percent_node": 0.0,
+        "mem_used_gb": 20.953,
+        "gpu_memory_used_mb_monitor": 0.0,
+        "gpu_memory_accounting_mb_per_gpu": [
+          5022,
+          0,
+          0,
+          0
+        ]
+      },
+      "outcome": "failed_processor_tokenizer_compat",
+      "failure": "AutoProcessor.from_pretrained(..., fix_mistral_regex=True) collided with the installed Transformers tokenizer API and then raised a protobuf fallback import error.",
+      "next_request_recommendation": {
+        "cpus_per_task": 4,
+        "mem": "32G",
+        "time": "00:15:00",
+        "reason": "Do not spend more GPU jobs on this backend until qwen_asr, transformers, tokenizers, and protobuf versions are aligned. The latest failure is a dependency API mismatch, not a resource shortage."
+      }
+    },
+    {
+      "job_id": 312848,
+      "date_utc": "2026-06-04",
+      "label": "fullval_20260603T073533Z_s2a_whisper_qwen32_audiogen_h0",
+      "module": "audiogen",
+      "pipeline": "S2A final stage: whisper -> qwen3_32b -> AudioGen",
+      "job_kind": "full_validation_half_split_four_shards_completed",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 8,
+        "mem": "160G",
+        "time": "02:30:00",
+        "resource_interval_seconds": 300,
+        "packing": "four one-GPU AudioGen shards on one TamIA H100 node"
+      },
+      "observed_peaks": {
+        "elapsed_slurm": "01:05:07",
+        "elapsed_seconds_monitor": 3903.5,
+        "time_limit": "02:30:00",
+        "walltime_overrequest_ratio": 2.3,
+        "gpu_memory_used_mb_peak_per_gpu": 6815.0,
+        "gpu_util_percent_peak": 44.0,
+        "audio_duration_seconds": {
+          "min": 10.0,
+          "p50": 10.0,
+          "mean": 10.0,
+          "p95": 10.0,
+          "max": 10.0
+        },
+        "audio_sample_rates": {
+          "16000": 1139
+        },
+        "audio_channels": {
+          "1": 1139
+        },
+        "read_errors": 0,
+        "near_silent_rms_lt_1e-4": 0,
+        "low_rms_lt_1e-3": 0,
+        "log_note": "xFormers prints a traceback while probing optional triton; ModuleNotFoundError: triton is a fallback/performance warning, not a row failure.",
+        "monitor_started_utc": "2026-06-04T03:04:01Z",
+        "monitor_finished_utc": "2026-06-04T04:09:04Z",
+        "node": "tg10602.tamia.ecpia.ca",
+        "cpu_percent_peak": 8.622,
+        "gpu_util_percent_avg": 37.5,
+        "gpu_memory_used_mb_avg_per_gpu": 6288.5,
+        "node_mem_used_gb_peak": 29.949,
+        "slurm_batch_max_rss": "23248184K",
+        "rows_total": 1139,
+        "rows_success": 1139,
+        "rows_failed": 0,
+        "audio_rms": {
+          "min": 0.00167847,
+          "p05": 0.13545227,
+          "p50": 0.32540894,
+          "mean": 0.35330104,
+          "p95": 0.6613739,
+          "max": 0.9309082
+        },
+        "lowest_rms_files": [
+          "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/fullval_20260603T073533Z/cascaded/T2A/full_s2a_whisper_qwen32_audiogen_h0_shard1/ttas/val/audio/000545_hb4BRhly8Uk.wav",
+          "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/fullval_20260603T073533Z/cascaded/T2A/full_s2a_whisper_qwen32_audiogen_h0_shard1/ttas/val/audio/000297_8fijWM6Orxw.wav",
+          "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/fullval_20260603T073533Z/cascaded/T2A/full_s2a_whisper_qwen32_audiogen_h0_shard3/ttas/val/audio/000922_fOEg8aZvK9A.wav"
+        ]
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "time": "01:30:00",
+        "cpus_per_task": 8,
+        "mem": "64G-96G",
+        "packing": "Validate denser packing. Peak VRAM was only about 6.8GB/GPU and average GPU utilization about 37%, so try 2 AudioGen processes per GPU / 8 shards per H100 node on a short fit-throughput run before using the same packing for production.",
+        "reason": "The 2:30:00 request was about 2.3x the observed elapsed time, and each GPU used under 10% of 80GB VRAM. CPU and host RAM were not limiting."
+      }
+    },
+    {
+      "job_id": 312849,
+      "date_utc": "2026-06-04",
+      "label": "fullval_20260603T073533Z_s2a_qwen3_asr_qwen32_audiogen_h0",
+      "module": "audiogen",
+      "pipeline": "S2A final stage: qwen3_asr -> qwen3_32b -> AudioGen",
+      "job_kind": "full_validation_half_split_four_shards_completed",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 8,
+        "mem": "160G",
+        "time": "02:30:00",
+        "resource_interval_seconds": 300,
+        "packing": "four one-GPU AudioGen shards on one TamIA H100 node"
+      },
+      "observed_peaks": {
+        "elapsed_slurm": "01:05:07",
+        "elapsed_seconds_monitor": 3903.5,
+        "time_limit": "02:30:00",
+        "walltime_overrequest_ratio": 2.3,
+        "gpu_memory_used_mb_peak_per_gpu": 6815.0,
+        "gpu_util_percent_peak": 44.0,
+        "audio_duration_seconds": {
+          "min": 10.0,
+          "p50": 10.0,
+          "mean": 10.0,
+          "p95": 10.0,
+          "max": 10.0
+        },
+        "audio_sample_rates": {
+          "16000": 1139
+        },
+        "audio_channels": {
+          "1": 1139
+        },
+        "read_errors": 0,
+        "near_silent_rms_lt_1e-4": 0,
+        "low_rms_lt_1e-3": 0,
+        "log_note": "xFormers prints a traceback while probing optional triton; ModuleNotFoundError: triton is a fallback/performance warning, not a row failure.",
+        "monitor_started_utc": "2026-06-04T03:04:44Z",
+        "monitor_finished_utc": "2026-06-04T04:09:48Z",
+        "node": "tg10801.tamia.ecpia.ca",
+        "cpu_percent_peak": 25.0,
+        "gpu_util_percent_avg": 37.7,
+        "gpu_memory_used_mb_avg_per_gpu": 6288.8,
+        "node_mem_used_gb_peak": 29.088,
+        "slurm_batch_max_rss": "23233516K",
+        "rows_total": 1139,
+        "rows_success": 1139,
+        "rows_failed": 0,
+        "audio_rms": {
+          "min": 0.00167847,
+          "p05": 0.13764648,
+          "p50": 0.32977295,
+          "mean": 0.35344853,
+          "p95": 0.65583496,
+          "max": 0.84854126
+        },
+        "lowest_rms_files": [
+          "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/fullval_20260603T073533Z/cascaded/T2A/full_s2a_qwen3_asr_qwen32_audiogen_h0_shard1/ttas/val/audio/000545_hb4BRhly8Uk.wav",
+          "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/fullval_20260603T073533Z/cascaded/T2A/full_s2a_qwen3_asr_qwen32_audiogen_h0_shard3/ttas/val/audio/000922_fOEg8aZvK9A.wav",
+          "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/fullval_20260603T073533Z/cascaded/T2A/full_s2a_qwen3_asr_qwen32_audiogen_h0_shard1/ttas/val/audio/000419_PkC0OMmGSr8.wav"
+        ]
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "time": "01:30:00",
+        "cpus_per_task": 8,
+        "mem": "64G-96G",
+        "packing": "Validate denser packing. Peak VRAM was only about 6.8GB/GPU and average GPU utilization about 38%, so try 2 AudioGen processes per GPU / 8 shards per H100 node on a short fit-throughput run before using the same packing for production.",
+        "reason": "The 2:30:00 request was about 2.3x the observed elapsed time, and each GPU used under 10% of 80GB VRAM. CPU and host RAM were not limiting."
+      }
+    },
+    {
+      "job_id": 312846,
+      "date_utc": "2026-06-04",
+      "label": "fullval_20260603T073533Z_s2a_qwen3_asr_qwen32_audiogen_h1",
+      "module": "audiogen",
+      "pipeline": "S2A final stage: qwen3_asr -> qwen3_32b -> AudioGen",
+      "job_kind": "full_validation_half_split_four_shards_completed",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 8,
+        "mem": "160G",
+        "time": "02:30:00",
+        "resource_interval_seconds": 300,
+        "packing": "four one-GPU AudioGen shards on one TamIA H100 node"
+      },
+      "observed_peaks": {
+        "elapsed_slurm": "01:05:07",
+        "time_limit": "02:30:00",
+        "walltime_overrequest_ratio": 2.3,
+        "gpu_memory_used_mb_peak_per_gpu": 6815.0,
+        "gpu_memory_used_mb_avg_per_gpu": 6289.0,
+        "gpu_util_percent_peak": 44.0,
+        "audio_duration_seconds": {
+          "min": 10.0,
+          "p50": 10.0,
+          "mean": 10.0,
+          "max": 10.0
+        },
+        "audio_sample_rates": {
+          "16000": 1138
+        },
+        "audio_channels": {
+          "1": 1138
+        },
+        "read_errors": 0,
+        "near_silent_rms_lt_1e-4": 0,
+        "log_note": "xFormers optional triton probe prints ModuleNotFoundError traceback but generation completes successfully.",
+        "gpu_util_percent_avg": 36.7,
+        "cpu_percent_peak": 20.0,
+        "slurm_batch_max_rss": "23262956K",
+        "rows_total": 1138,
+        "rows_success": 1138,
+        "rows_failed": 0,
+        "audio_rms": {
+          "min": 0.00030518,
+          "p05": 0.1306366,
+          "p50": 0.32801819,
+          "mean": 0.35477572,
+          "p95": 0.67415314,
+          "max": 0.86917114
+        },
+        "low_rms_lt_1e-3": 1
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "time": "01:30:00",
+        "cpus_per_task": 8,
+        "mem": "64G-96G",
+        "packing": "Validate denser packing: likely 2 AudioGen processes per GPU / 8 shards per H100 node on a short fit-throughput run.",
+        "reason": "Observed elapsed was about 1:05 against 2:30 requested; peak VRAM was only about 6.8GB/GPU and GPU utilization was about 36-37%."
+      }
+    },
+    {
+      "job_id": 312847,
+      "date_utc": "2026-06-04",
+      "label": "fullval_20260603T073533Z_s2a_whisper_qwen32_audiogen_h1",
+      "module": "audiogen",
+      "pipeline": "S2A final stage: whisper -> qwen3_32b -> AudioGen",
+      "job_kind": "full_validation_half_split_four_shards_completed",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 8,
+        "mem": "160G",
+        "time": "02:30:00",
+        "resource_interval_seconds": 300,
+        "packing": "four one-GPU AudioGen shards on one TamIA H100 node"
+      },
+      "observed_peaks": {
+        "elapsed_slurm": "01:05:07",
+        "time_limit": "02:30:00",
+        "walltime_overrequest_ratio": 2.3,
+        "gpu_memory_used_mb_peak_per_gpu": 6815.0,
+        "gpu_memory_used_mb_avg_per_gpu": 6289.0,
+        "gpu_util_percent_peak": 44.0,
+        "audio_duration_seconds": {
+          "min": 10.0,
+          "p50": 10.0,
+          "mean": 10.0,
+          "max": 10.0
+        },
+        "audio_sample_rates": {
+          "16000": 1138
+        },
+        "audio_channels": {
+          "1": 1138
+        },
+        "read_errors": 0,
+        "near_silent_rms_lt_1e-4": 0,
+        "log_note": "xFormers optional triton probe prints ModuleNotFoundError traceback but generation completes successfully.",
+        "gpu_util_percent_avg": 36.2,
+        "cpu_percent_peak": 8.413,
+        "slurm_batch_max_rss": "23454748K",
+        "rows_total": 1138,
+        "rows_success": 1138,
+        "rows_failed": 0,
+        "audio_rms": {
+          "min": 0.00128174,
+          "p05": 0.13165741,
+          "p50": 0.32357788,
+          "mean": 0.35263375,
+          "p95": 0.6646286,
+          "max": 0.86917114
+        },
+        "low_rms_lt_1e-3": 0
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "time": "01:30:00",
+        "cpus_per_task": 8,
+        "mem": "64G-96G",
+        "packing": "Validate denser packing: likely 2 AudioGen processes per GPU / 8 shards per H100 node on a short fit-throughput run.",
+        "reason": "Observed elapsed was about 1:05 against 2:30 requested; peak VRAM was only about 6.8GB/GPU and GPU utilization was about 36-37%."
+      }
+    },
+    {
+      "job_id": 320475,
+      "date_utc": "2026-06-12",
+      "label": "geval-v2-plaus",
+      "module": "g_eval_prometheus_criterion_v2",
+      "pipeline": "T2T cascaded validation, both audio_to_speech and speech_to_audio lanes",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 8,
+        "mem": "128G",
+        "time": "02:00:00",
+        "resource_interval_seconds": 60,
+        "packing": "one Prometheus-8x7B vLLM process using tensor parallelism across four H100 GPUs",
+        "batch_size": 64
+      },
+      "environment": {
+        "modules": [
+          "StdEnv/2023",
+          "gcc",
+          "cuda/12.6",
+          "python/3.12.4",
+          "scipy-stack/2026a"
+        ],
+        "venv": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-prometheus-vllm-py312",
+        "judge_model": "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0",
+        "tensor_parallel_size": 4,
+        "offline_flags": {
+          "HF_HUB_OFFLINE": "1",
+          "TRANSFORMERS_OFFLINE": "1"
+        }
+      },
+      "artifacts": {
+        "script": "scripts/slurm/geval_v2_full_variant.sbatch",
+        "a2s_input_manifest": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/ttas_val/cascaded/T2T/full_a2s_afn_qwen32_t2t/ttas/val/manifest.jsonl",
+        "s2a_input_manifest": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/ttas_val/cascaded/T2T/full_s2a_whisper_qwen32_t2t/ttas/val/manifest.jsonl",
+        "run_root": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/plausibility/20260612T015304-0400_320475",
+        "output_jsonl": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/plausibility/20260612T015304-0400_320475/output.jsonl",
+        "summary_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/plausibility/20260612T015304-0400_320475/summary.json",
+        "job_report_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/plausibility/20260612T015304-0400_320475/job_report.json",
+        "resource_monitor_jsonl": "/scratch/l/lovenya/salm_migration_clean/logs/resources/geval_v2_full_plausibility_320475.jsonl"
+      },
+      "job_kind": "full_validation_both_lanes_prometheus_criterion_evaluation",
+      "variant": "plausibility",
+      "account": "aip-csubakan",
+      "observed_peaks": {
+        "slurm_state": "COMPLETED",
+        "exit_code": "0:0",
+        "elapsed_slurm": "00:54:24",
+        "time_limit": "02:00:00",
+        "walltime_overrequest_ratio": 2.21,
+        "slurm_batch_max_rss": "36880820K",
+        "monitor_records": 54,
+        "gpu_memory_used_mb_peak_per_gpu": [
+          71965,
+          71965,
+          71965,
+          71965
+        ],
+        "gpu_util_percent_peak_per_gpu": [
+          100,
+          100,
+          100,
+          100
+        ],
+        "gpu_util_percent_avg_all_samples": 90.01,
+        "gpu_util_percent_avg_model_loaded": 93.41,
+        "gpu_power_watts_peak_per_gpu": [
+          448.64,
+          554.73,
+          552.71,
+          553.39
+        ],
+        "monitor_covered_active_generation": true,
+        "rows_total": 4535,
+        "rows_complete": 4535,
+        "rows_incomplete": 0,
+        "directions": {
+          "audio_to_speech": 2258,
+          "speech_to_audio": 2277
+        },
+        "criterion_calls_total": 27210,
+        "criterion_scores_parsed": 27210,
+        "criterion_repairs_applied": 4,
+        "criterion_parse_failures": 0,
+        "incomplete_samples": [],
+        "mean_final_score": 4.44148842337376,
+        "prompt_version": "geval_prometheus_plausibility_direct_assessment_v2",
+        "scoring_policy_version": "geval_weighted_mean_v1_no_caps"
+      },
+      "outcome": "passed",
+      "next_request_recommendation": {
+        "time": "01:30:00",
+        "cpus_per_task": 8,
+        "mem": "64G",
+        "gpus": "h100:4",
+        "reason": "Both full 4,535-pair variants finished generation and output writing in 54-58 minutes. A 90-minute request retains more than the default 1.3x runtime margin plus a separate completion buffer; observed batch MaxRSS was below 37GB.",
+        "required_launcher_fix": "Use EVAL_TIMEOUT to set the workload deadline at least 5-10 minutes below the selected Slurm walltime; the current launcher hardcodes timeout 230m and therefore does not enforce its advertised completion buffer."
+      },
+      "posthoc_summary": {
+        "schema_version": 3,
+        "aggregation_policy_version": "geval_descriptive_statistics_v1_null_excluded",
+        "summary_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/plausibility/20260612T015304-0400_320475/summary.json",
+        "original_summary_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/plausibility/20260612T015304-0400_320475/summary_schema_v2.json"
+      }
+    },
+    {
+      "job_id": 320476,
+      "date_utc": "2026-06-12",
+      "label": "geval-v2-ref",
+      "module": "g_eval_prometheus_criterion_v2",
+      "pipeline": "T2T cascaded validation, both audio_to_speech and speech_to_audio lanes",
+      "requested": {
+        "nodes": 1,
+        "gpus": "h100:4",
+        "cpus_per_task": 8,
+        "mem": "128G",
+        "time": "02:00:00",
+        "resource_interval_seconds": 60,
+        "packing": "one Prometheus-8x7B vLLM process using tensor parallelism across four H100 GPUs",
+        "batch_size": 70
+      },
+      "environment": {
+        "modules": [
+          "StdEnv/2023",
+          "gcc",
+          "cuda/12.6",
+          "python/3.12.4",
+          "scipy-stack/2026a"
+        ],
+        "venv": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-prometheus-vllm-py312",
+        "judge_model": "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0",
+        "tensor_parallel_size": 4,
+        "offline_flags": {
+          "HF_HUB_OFFLINE": "1",
+          "TRANSFORMERS_OFFLINE": "1"
+        }
+      },
+      "artifacts": {
+        "script": "scripts/slurm/geval_v2_full_variant.sbatch",
+        "a2s_input_manifest": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/ttas_val/cascaded/T2T/full_a2s_afn_qwen32_t2t/ttas/val/manifest.jsonl",
+        "s2a_input_manifest": "/scratch/l/lovenya/salm_migration_clean/results/cascaded_full_validation/ttas_val/cascaded/T2T/full_s2a_whisper_qwen32_t2t/ttas/val/manifest.jsonl",
+        "run_root": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/reference_grounded/20260612T024924-0400_320476",
+        "output_jsonl": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/reference_grounded/20260612T024924-0400_320476/output.jsonl",
+        "summary_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/reference_grounded/20260612T024924-0400_320476/summary.json",
+        "job_report_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/reference_grounded/20260612T024924-0400_320476/job_report.json",
+        "resource_monitor_jsonl": "/scratch/l/lovenya/salm_migration_clean/logs/resources/geval_v2_full_reference_grounded_320476.jsonl"
+      },
+      "job_kind": "full_validation_both_lanes_prometheus_criterion_evaluation",
+      "variant": "reference_grounded",
+      "account": "aip-ravanelm",
+      "observed_peaks": {
+        "slurm_state": "FAILED",
+        "exit_code": "3:0",
+        "elapsed_slurm": "00:57:36",
+        "time_limit": "02:00:00",
+        "walltime_overrequest_ratio": 2.08,
+        "slurm_batch_max_rss": "9620748K",
+        "monitor_records": 58,
+        "gpu_memory_used_mb_peak_per_gpu": [
+          71965,
+          71965,
+          71965,
+          71965
+        ],
+        "gpu_util_percent_peak_per_gpu": [
+          100,
+          100,
+          100,
+          100
+        ],
+        "gpu_util_percent_avg_all_samples": 91.75,
+        "gpu_util_percent_avg_model_loaded": 93.36,
+        "gpu_power_watts_peak_per_gpu": [
+          568.55,
+          475.57,
+          552.56,
+          557.43
+        ],
+        "monitor_covered_active_generation": true,
+        "rows_total": 4535,
+        "rows_complete": 4534,
+        "rows_incomplete": 1,
+        "directions": {
+          "audio_to_speech": 2258,
+          "speech_to_audio": 2277
+        },
+        "criterion_calls_total": 31745,
+        "criterion_scores_parsed": 31744,
+        "criterion_repairs_applied": 5,
+        "criterion_parse_failures": 1,
+        "incomplete_samples": [
+          {
+            "row_index": 1650,
+            "sample_id": "xtcv8dDXUXU",
+            "direction": "audio_to_speech",
+            "incomplete_reason": "one_or_more_required_criteria_failed"
+          }
+        ],
+        "mean_final_score": 4.3573169386854875,
+        "prompt_version": "geval_prometheus_reference_grounded_direct_assessment_v2",
+        "scoring_policy_version": "geval_weighted_mean_v1_no_caps"
+      },
+      "outcome": "historical_strict_gate_exit_3_reclassified_as_valid_abstention",
+      "next_request_recommendation": {
+        "time": "01:30:00",
+        "cpus_per_task": 8,
+        "mem": "64G",
+        "gpus": "h100:4",
+        "reason": "Both full 4,535-pair variants finished generation and output writing in 54-58 minutes. A 90-minute request retains more than the default 1.3x runtime margin plus a separate completion buffer; observed batch MaxRSS was below 37GB.",
+        "required_launcher_fix": "Use EVAL_TIMEOUT to set the workload deadline at least 5-10 minutes below the selected Slurm walltime; the current launcher hardcodes timeout 230m and therefore does not enforce its advertised completion buffer."
+      },
+      "posthoc_summary": {
+        "schema_version": 3,
+        "aggregation_policy_version": "geval_descriptive_statistics_v1_null_excluded",
+        "summary_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/reference_grounded/20260612T024924-0400_320476/summary.json",
+        "original_summary_json": "/scratch/l/lovenya/salm_migration_clean/results/geval_v2_full/reference_grounded/20260612T024924-0400_320476/summary_schema_v2.json",
+        "scored_judgments": 4534,
+        "abstained_judgments": 1,
+        "failed_judgments": 0
+      }
+    }
+  ]
+}
