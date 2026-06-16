@@ -25,7 +25,7 @@ from baselines.cascaded_manifest import (
     write_inspection_manifest,
 )
 from project_conventions import baseline_output_root, default_prompt_field
-from project_paths import log_path, model_path, result_path, source_path
+from project_paths import log_path, model_path, result_path, root_path, source_path
 
 
 PIPELINES = ("T2A", "T2S", "A2T", "S2T", "T2T", "A2S", "S2A")
@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--output-dir", default=str(result_path("baselines")))
     parser.add_argument("--log-dir", default=str(log_path("baselines")))
+    parser.add_argument("--temporary", action="store_true", help="Write results and logs under configured temporary roots.")
     parser.add_argument("--run-name", default=None, help="Optional output variant name; defaults to selected stage backends.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--duration", type=float, default=10.0)
@@ -97,6 +98,9 @@ def main() -> None:
     )
     rows = _enrich_rows_with_audio_metadata(rows, args.split)
     total_rows = count_jsonl_rows(split_path, args.start_index, args.num_samples)
+    if args.temporary:
+        args.output_dir = str(_temporary_path(Path(args.output_dir), root_path("results_root"), root_path("temporary_results_root")))
+        args.log_dir = str(_temporary_path(Path(args.log_dir), root_path("logs_root"), root_path("temporary_logs_root")))
     output_root = _cascade_output_root(args)
     log_root = _cascade_output_root(args, root=Path(args.log_dir))
     run_config = _run_config(args, split_path, prompt_field)
@@ -965,6 +969,16 @@ def _pipeline_prompt_field(pipeline: str) -> str:
 def _cascade_output_root(args: argparse.Namespace, root: Path | None = None) -> Path:
     base = Path(args.output_dir) if root is None else root
     return baseline_output_root("cascaded", args.pipeline, _cascade_variant_name(args), args.dataset, base) / args.split
+
+
+def _temporary_path(path: Path, canonical_root: Path, temporary_root: Path) -> Path:
+    resolved_path = path.resolve()
+    resolved_root = canonical_root.resolve()
+    try:
+        relative = resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"--temporary can only redirect paths under {canonical_root}: {path}") from exc
+    return temporary_root / relative
 
 
 def _cascade_variant_name(args: argparse.Namespace) -> str:

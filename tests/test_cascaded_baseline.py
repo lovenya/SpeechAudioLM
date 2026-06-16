@@ -8,7 +8,14 @@ import types
 import unittest
 from pathlib import Path
 
-from baseline_cascaded import ModularCascade, _cascade_output_root, _cascade_variant_name, _pipeline_prompt_field, _planned_stages
+from baseline_cascaded import (
+    ModularCascade,
+    _cascade_output_root,
+    _cascade_variant_name,
+    _pipeline_prompt_field,
+    _planned_stages,
+    _temporary_path,
+)
 from baselines.models.audio_captioning import _patch_audio_flamingo_next_transformers_compat
 from baselines.models.speech_asr import _patch_qwen_asr_transformers_compat
 from baselines.dataset import PromptRow, iter_split_rows
@@ -93,6 +100,24 @@ class CascadedBaselineTest(unittest.TestCase):
             _cascade_output_root(args),
             Path("results/baselines/cascaded/S2A/asr-reference__text_to_text-template__text_to_audio-audiogen/ttas/test"),
         )
+
+    def test_temporary_path_redirects_canonical_root(self) -> None:
+        self.assertEqual(
+            _temporary_path(
+                Path("/repo/results/baselines"),
+                Path("/repo/results"),
+                Path("/repo/temporary/results"),
+            ),
+            Path("/repo/temporary/results/baselines"),
+        )
+
+    def test_temporary_path_rejects_noncanonical_root(self) -> None:
+        with self.assertRaisesRegex(ValueError, "can only redirect paths under"):
+            _temporary_path(
+                Path("/other/results/baselines"),
+                Path("/repo/results"),
+                Path("/repo/temporary/results"),
+            )
 
     def test_cascade_variant_distinguishes_backend_choices(self) -> None:
         audiogen = argparse.Namespace(pipeline="S2A", run_name=None, asr="reference", text_model="template", t2a="audiogen")
