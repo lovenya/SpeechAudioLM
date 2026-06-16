@@ -337,7 +337,7 @@ Example:
 }
 ```
 
-`output.type` is required so downstream scripts can route rows without guessing from the stage. Text stages use `"text"`; generated media stages use `"audio"` or `"speech"` as appropriate. Stage-specific output fields remain to be finalized next.
+`output.type` is required so downstream scripts can route rows without guessing from the stage. Text stages use `"text"`; generated media stages use `"audio"` or `"speech"` as appropriate.
 
 ### Stage-Specific Manifest Payloads
 
@@ -474,6 +474,177 @@ Inspection scope grows with the stage:
 - Stage 3 inspect: stages 1, 2, and 3.
 
 Stage-three T2A and T2S runs should provide an inspection JSON alongside their output manifest and generated media. Pipeline runs should also provide a final end-to-end inspection JSON. This pipeline view is intentionally retained even though some information overlaps with stage-three inspection data.
+
+#### Inspect Structure
+
+Top-level field order:
+
+```text
+schema_version
+run_id
+stage
+direction
+dataset
+split
+status
+lineage
+stage_configs
+summary
+samples
+```
+
+Example skeleton:
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "20260616_1437",
+  "stage": "t2t",
+  "direction": "a2s",
+  "dataset": "ttas",
+  "split": "val",
+  "status": "complete",
+  "lineage": {
+    "direction": "a2s",
+    "current_stage_index": 2,
+    "stages": []
+  },
+  "stage_configs": [],
+  "summary": {
+    "requested": 2277,
+    "successful": 2274,
+    "failed": 3
+  },
+  "samples": []
+}
+```
+
+`lineage` stores identity and file linkage, not hyperparameters:
+
+```json
+"lineage": {
+  "direction": "a2s",
+  "current_stage_index": 2,
+  "stages": [
+    {
+      "stage_index": 1,
+      "stage": "a2t",
+      "model": "af_next_aac",
+      "run_id": "20260616_1000",
+      "run_path": "results/cascaded/stages/a2t/af_next_aac/ttas/val/20260616_1000",
+      "manifest": "results/cascaded/stages/a2t/af_next_aac/ttas/val/20260616_1000/manifest.jsonl",
+      "config": "results/cascaded/stages/a2t/af_next_aac/ttas/val/20260616_1000/config.json"
+    },
+    {
+      "stage_index": 2,
+      "stage": "t2t",
+      "model": "llama3_3b_instruct",
+      "run_id": "20260616_1437",
+      "run_path": "results/cascaded/stages/t2t/a2s/llama3_3b_instruct/from-a2t/af_next_aac/ttas/val/20260616_1437",
+      "manifest": "results/cascaded/stages/t2t/a2s/llama3_3b_instruct/from-a2t/af_next_aac/ttas/val/20260616_1437/manifest.jsonl",
+      "config": "results/cascaded/stages/t2t/a2s/llama3_3b_instruct/from-a2t/af_next_aac/ttas/val/20260616_1437/config.json"
+    }
+  ]
+}
+```
+
+`stage_configs` stores a compact human-readable resolved config snapshot for each known stage. It should summarize the actual config without copying every full `config.json` verbatim:
+
+```json
+"stage_configs": [
+  {
+    "stage_index": 1,
+    "stage": "a2t",
+    "model": {
+      "name": "af_next_aac",
+      "path": "{model_root}/audio_flamingo_next",
+      "cache_dir": "{cache_root}/huggingface",
+      "device": "cuda",
+      "dtype": "bfloat16"
+    },
+    "input": {
+      "manifest": "data/manifests/ttas_val.jsonl",
+      "input_field": "audio_file"
+    },
+    "generation": {
+      "seed": 1337
+    }
+  },
+  {
+    "stage_index": 2,
+    "stage": "t2t",
+    "model": {
+      "name": "llama3_3b_instruct",
+      "path": "{model_root}/llama3_3b_instruct",
+      "cache_dir": "{cache_root}/huggingface",
+      "device": "cuda",
+      "dtype": "bfloat16"
+    },
+    "input": {
+      "manifest": "results/cascaded/stages/a2t/af_next_aac/ttas/val/20260616_1000/manifest.jsonl",
+      "input_field": "audio_caption"
+    },
+    "prompt": {
+      "mode": "audio_description_to_speech",
+      "template_name": "a2s_default"
+    },
+    "generation": {
+      "seed": 1337,
+      "temperature": 0.7,
+      "max_new_tokens": 512
+    }
+  }
+]
+```
+
+Each item in `samples` is a human-readable joined view for one sample. It includes reference data, stage-by-stage runtime inputs, runtime-captured prompts, outputs, timing, and errors:
+
+```json
+{
+  "sample_id": "ttas_123",
+  "status": "success",
+  "reference": {
+    "audio_file": "...",
+    "speech_file": "...",
+    "reference_audio_caption": "...",
+    "reference_speech_text": "...",
+    "audio_metadata": {}
+  },
+  "stages": [
+    {
+      "stage_index": 1,
+      "stage": "a2t",
+      "model": "af_next_aac",
+      "status": "success",
+      "input": {
+        "audio_file": "..."
+      },
+      "runtime_prompt": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "..."
+          }
+        ]
+      },
+      "output": {
+        "type": "text",
+        "audio_caption": "..."
+      },
+      "timing": {
+        "inference_seconds": 2.14
+      },
+      "error": null
+    }
+  ],
+  "final_output": {
+    "type": "speech",
+    "speech_file": "outputs/000012_ttas_123.wav"
+  }
+}
+```
+
+For non-prompt models, set `runtime_prompt` to `null` rather than reconstructing one later.
 
 ### `errors.json`
 
@@ -636,7 +807,24 @@ T2T configuration should be selected by direction and previous-stage model, not 
 
 The CLI/config layer must reject incompatible combinations, such as selecting `s2a` with an A2T captioner as the previous-stage model.
 
-The detailed A2T, S2T, T2A, and T2S model/dataset/split hierarchies will be finalized while defining their file schemas.
+The non-T2T stage hierarchy is:
+
+```text
+results/cascaded/stages/
+├── a2t/
+│   └── <a2t_model>/<dataset>/<split>/<run_id>/
+├── s2t/
+│   └── <s2t_model>/<dataset>/<split>/<run_id>/
+├── t2t/
+│   ├── a2s/<t2t_model>/from-a2t/<a2t_model>/<dataset>/<split>/<run_id>/
+│   └── s2a/<t2t_model>/from-s2t/<s2t_model>/<dataset>/<split>/<run_id>/
+├── t2a/
+│   └── <t2a_model>/from-t2t/<t2t_model>/<dataset>/<split>/<run_id>/
+└── t2s/
+    └── <t2s_model>/from-t2t/<t2t_model>/<dataset>/<split>/<run_id>/
+```
+
+`t2a` and `t2s` paths do not include direction because the direction is implied by the stage: `t2a` belongs to S2A and `t2s` belongs to A2S. Exact upstream run IDs still live in `run.json.lineage`.
 
 ### Lineage And Sample Matching
 
@@ -821,6 +1009,145 @@ Example:
 
 `final_output` is derivable from the last stage, but it is kept as the authoritative convenience entry point for evaluation.
 
+
+## Sharding And Merge
+
+Sharding applies to one stage run at a time. The new design does not use full per-sample cascaded inference shards that load all three models together. Instead, each stage is run and merged independently:
+
+```text
+A2T shards -> merged A2T manifest
+T2T shards -> merged T2T manifest
+T2S shards -> merged T2S manifest
+```
+
+A downstream stage must consume the previous stage's canonical merged manifest. Do not start a downstream full-stage run from an incomplete set of upstream shards.
+
+Shard-local outputs live under the stage run directory, while the canonical merged files live at that same run root.
+
+During execution:
+
+```text
+<run_id>/
+├── run.json
+├── config.json
+└── shards/
+    ├── shard_000/
+    │   ├── manifest.jsonl
+    │   ├── errors.json
+    │   ├── summary.json
+    │   └── outputs/
+    ├── shard_001/
+    └── ...
+```
+
+After a clean merge:
+
+```text
+<run_id>/
+├── run.json
+├── config.json
+├── manifest.jsonl
+├── inspect.json
+├── errors.json
+├── summary.json
+├── merge_report.json
+└── outputs/
+```
+
+The `shards/` directory should be deleted after a successful clean merge. Keep `merge_report.json` at the run root. If merge fails, keep `shards/` for debugging and set the run status accordingly.
+
+The merge step must be implemented as a dedicated stage-shard merge script or helper, not ad hoc shell commands. It should be deterministic and reusable across A2T, S2T, T2T, T2A, and T2S stage runs. Historical full-cascade shard merge scripts are legacy references, not the target design.
+
+Merge rules:
+
+- Sort rows by `row_index`.
+- Detect duplicate `sample_id`.
+- Detect duplicate `row_index`.
+- Preserve error rows.
+- Count missing expected rows.
+- Validate sample ID consistency.
+- Merge or copy media files into canonical `outputs/`.
+- Fail if a successful generated-media row references a missing media file.
+- Write `merge_report.json`.
+- Delete shard directories only after the merged manifest, errors, summary, inspect file, media files, and merge report have been written and validated.
+
+`merge_report.json` example:
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "20260616_1437",
+  "shards": [
+    {
+      "shard_id": "shard_000",
+      "manifest": "shards/shard_000/manifest.jsonl",
+      "requested": 500,
+      "successful": 498,
+      "failed": 2
+    }
+  ],
+  "merged": {
+    "requested": 2277,
+    "rows_written": 2277,
+    "successful": 2270,
+    "failed": 7,
+    "missing": 0,
+    "duplicate_sample_ids": [],
+    "duplicate_row_indices": []
+  },
+  "outputs": {
+    "media_files_copied": 2270,
+    "missing_media_files": []
+  },
+  "status": "complete"
+}
+```
+
+Temporary sharded runs use the same structure under `temporary/results/.../<run_id>/`.
+
+## Resume Behavior
+
+Resume means the same run continues after interruption, preemption, or partial completion. It uses the same `run_id` and identical `config.json`.
+
+Manual reruns are fresh runs with new run IDs and do not need special schema support.
+
+Resume rules:
+
+- Resume only if `config.json` matches exactly.
+- Skip already successful rows.
+- Keep existing error rows as errors; do not silently overwrite them.
+- Append missing rows.
+- Fail if an output file exists without a matching manifest row.
+- Fail if the manifest has duplicate `sample_id` or duplicate `row_index`.
+- Fail if a successful media row points to a missing media file.
+- Fail by default if the run is already `complete`.
+
+`run.json` records lifecycle events:
+
+```json
+"events": [
+  {
+    "type": "started",
+    "time": "2026-06-16T14:37:12-04:00",
+    "start_row_index": 0
+  },
+  {
+    "type": "resumed",
+    "time": "2026-06-16T16:20:00-04:00",
+    "start_row_index": 842,
+    "existing_successful_rows": 842,
+    "existing_error_rows": 3,
+    "reason": "manual_resume"
+  },
+  {
+    "type": "completed",
+    "time": "2026-06-16T18:45:00-04:00",
+    "successful_rows": 2274,
+    "error_rows": 3
+  }
+]
+```
+
 ## Omitted Legacy Fields
 
 The new schema intentionally omits or moves several legacy fields:
@@ -864,10 +1191,6 @@ Changing files after a Python process has imported them normally does not change
 
 The following must be discussed before implementing the full refactor:
 
-1. Detailed fields for stage and pipeline `inspect.json` sample payloads.
-3. Detailed A2T, S2T, T2A, and T2S directory hierarchies.
-4. Internal `evals/` hierarchy and how evaluations reference cascaded runs.
-5. Shard storage, merge reports, and cleanup rules.
-6. Retry, resume, and partial-run behavior.
+1. Internal `evals/` hierarchy and how evaluations reference cascaded runs.
 
 Existing results should not be moved into the new structure until these decisions are complete and the new path handling has been implemented and tested.

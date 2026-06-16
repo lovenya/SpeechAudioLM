@@ -2,6 +2,7 @@
 *.md
 !README.md
 !baselines/README.md
+!RESULTS_STRUCTURE_DESIGN.md
 docs/
 goal.txt
 goal_updated.txt
