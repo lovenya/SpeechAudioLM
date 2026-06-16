@@ -54,6 +54,8 @@ def _legacy_task_name(task: object) -> object:
     }.get(task, task)
 
 def _normalize_generation_record(record: dict) -> dict:
+    if _is_v1_cascaded_record(record):
+        return _normalize_v1_cascaded_record(record)
     sample = record.get("sample")
     if not isinstance(sample, dict):
         return record
@@ -86,6 +88,73 @@ def _normalize_generation_record(record: dict) -> dict:
         }
     )
     return normalized
+
+
+def _is_v1_cascaded_record(record: dict) -> bool:
+    return record.get("schema_version") == 1 and (
+        isinstance(record.get("output"), dict) or isinstance(record.get("final_output"), dict)
+    )
+
+
+def _normalize_v1_cascaded_record(record: dict) -> dict:
+    output = record.get("output") if isinstance(record.get("output"), dict) else record.get("final_output")
+    output = output if isinstance(output, dict) else {}
+    normalized = dict(record)
+    source = _v1_source(record)
+    normalized.update(
+        {
+            "task": _v1_task(record),
+            "model": record.get("model"),
+            "source": source,
+            "candidate_text": _v1_output_text(output),
+            "output_file": output.get("audio_file") or output.get("speech_file") or output.get("file"),
+            "sample_rate": output.get("sample_rate"),
+            "generation_seconds": _v1_generation_seconds(record),
+            "model_extra": {"v1_output": output, "stages": record.get("stages", [])},
+        }
+    )
+    return normalized
+
+
+def _v1_source(record: dict) -> dict:
+    input_value = record.get("input")
+    if isinstance(input_value, dict):
+        return dict(input_value)
+    return {}
+
+
+def _v1_task(record: dict) -> str | None:
+    stage = record.get("stage")
+    if isinstance(stage, str):
+        return {
+            "a2t": "A2T",
+            "s2t": "S2T",
+            "t2t": "T2T",
+            "t2s": "T2S",
+            "t2a": "T2A",
+        }.get(stage)
+    direction = record.get("direction")
+    if direction == "a2s":
+        return "A2S"
+    if direction == "s2a":
+        return "S2A"
+    return None
+
+
+def _v1_output_text(output: dict) -> str | None:
+    for key in ("audio_caption", "speech_transcription", "generated_speech_text", "generated_audio_caption", "text"):
+        value = output.get(key)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _v1_generation_seconds(record: dict) -> float | None:
+    timing = record.get("timing")
+    if not isinstance(timing, dict):
+        return None
+    seconds = timing.get("inference_seconds")
+    return seconds if isinstance(seconds, (int, float)) else None
 
 def write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

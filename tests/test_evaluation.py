@@ -649,3 +649,66 @@ class WrappedCascadedManifestTest(unittest.TestCase):
         self.assertEqual(row["generation_seconds"], 3.4)
         from evaluation.runner import _predictions
         self.assertEqual(_predictions(row, []), {"generated_speech": "audio/generated.wav"})
+
+    def test_evaluation_reader_normalizes_v1_stage_text_row(self) -> None:
+        from evaluation.io import _normalize_generation_record
+
+        row = _normalize_generation_record(
+            {
+                "schema_version": 1,
+                "row_index": 7,
+                "sample_id": "sample-a",
+                "stage": "t2t",
+                "model": "qwen3_32b",
+                "status": "success",
+                "input": {"source_stage_index": 1, "source_sample_id": "sample-a", "source_status": "success"},
+                "output": {"type": "text", "generated_speech_text": "Come on, start."},
+                "timing": {"inference_seconds": 2.4},
+                "error": None,
+            }
+        )
+
+        self.assertEqual(row["task"], "T2T")
+        self.assertEqual(row["candidate_text"], "Come on, start.")
+        self.assertIsNone(row["output_file"])
+        self.assertEqual(row["source"]["source_sample_id"], "sample-a")
+        self.assertEqual(row["generation_seconds"], 2.4)
+
+    def test_evaluation_reader_normalizes_v1_pipeline_media_row(self) -> None:
+        from evaluation.io import _normalize_generation_record
+
+        row = _normalize_generation_record(
+            {
+                "schema_version": 1,
+                "sample_id": "sample-a",
+                "status": "success",
+                "direction": "a2s",
+                "input": {"audio_file": "audio/source.wav"},
+                "stages": [
+                    {"stage_index": 1, "stage": "a2t", "model": "captioner", "run_id": "20260616_1000", "status": "success"},
+                    {"stage_index": 2, "stage": "t2t", "model": "qwen3_32b", "run_id": "20260616_1100", "status": "success"},
+                    {"stage_index": 3, "stage": "t2s", "model": "f5_tts", "run_id": "20260616_1200", "status": "success"},
+                ],
+                "final_output": {
+                    "type": "speech",
+                    "speech_file": "results/cascaded/stages/t2s/f5_tts/from-t2t/qwen3_32b/ttas/val/20260616_1200/outputs/sample-a.wav",
+                    "sample_rate": 24000,
+                    "duration_seconds": 3.5,
+                },
+                "error": None,
+            }
+        )
+
+        self.assertEqual(row["task"], "A2S")
+        self.assertEqual(
+            row["output_file"],
+            "results/cascaded/stages/t2s/f5_tts/from-t2t/qwen3_32b/ttas/val/20260616_1200/outputs/sample-a.wav",
+        )
+        self.assertEqual(row["source"], {"audio_file": "audio/source.wav"})
+        from evaluation.runner import _predictions
+        self.assertEqual(
+            _predictions(row, []),
+            {
+                "generated_speech": "results/cascaded/stages/t2s/f5_tts/from-t2t/qwen3_32b/ttas/val/20260616_1200/outputs/sample-a.wav"
+            },
+        )
