@@ -305,7 +305,22 @@ class CascadedBaselineTest(unittest.TestCase):
             row_index=0,
             sample_id="sample-a",
             prompt="spoken words",
-            record={"speech_text": "spoken words"},
+            record={
+                "speech_text": "spoken words",
+                "_cascaded_sample": _carried_sample(
+                    row_index=0,
+                    sample_id="sample-a",
+                    stages=[
+                        {
+                            "stage": 1,
+                            "task": "asr",
+                            "model": "reference",
+                            "input": {"type": "speech_audio", "file": "speech/source.wav"},
+                            "output": {"type": "speech_text", "text": "spoken words"},
+                        }
+                    ],
+                ),
+            },
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -321,6 +336,24 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(run_doc["lineage"]["direction"], "s2a")
         self.assertEqual(config["model"]["path"], "{model_root}/text-model")
 
+    def test_v1_t2t_requires_carried_stage1_sample(self) -> None:
+        args = _minimal_cascade_args(pipeline="T2T", text_model="template", results_schema="v1")
+        row = PromptRow(row_index=0, sample_id="sample-a", prompt="raw text", record={"audio_cap": "raw text"})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+
+            with self.assertRaisesRegex(ValueError, "requires rows with exactly 1 carried upstream stage"):
+                ModularCascade(args, dataset_root=None).run(
+                    [row],
+                    output_root,
+                    root / "logs" / "20260616_1437",
+                    _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap"),
+                    total_rows=1,
+                )
+
+            self.assertFalse(output_root.exists())
+
     def test_v1_t2a_writes_media_under_outputs(self) -> None:
         args = _minimal_cascade_args(pipeline="T2A", t2a="audiogen", results_schema="v1")
 
@@ -333,7 +366,35 @@ class CascadedBaselineTest(unittest.TestCase):
 
                 return GenerationResult(output_path=output_path, sample_rate=32000, extra={"shape": [320000]})
 
-        row = PromptRow(row_index=0, sample_id="sample-a", prompt="engine turning", record={"audio_cap": "engine turning"})
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="engine turning",
+            record={
+                "audio_cap": "engine turning",
+                "_cascaded_sample": _carried_sample(
+                    row_index=0,
+                    sample_id="sample-a",
+                    stages=[
+                        {
+                            "stage": 1,
+                            "task": "asr",
+                            "model": "reference",
+                            "input": {"type": "speech_audio", "file": "speech/source.wav"},
+                            "output": {"type": "speech_text", "text": "turn the engine"},
+                        },
+                        {
+                            "stage": 2,
+                            "task": "text_to_text",
+                            "model": "template",
+                            "mode": "speech_to_audio_description",
+                            "input": {"type": "speech_text", "text": "turn the engine"},
+                            "output": {"type": "audio_description", "text": "engine turning"},
+                        },
+                    ],
+                ),
+            },
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             output_root = root / "results" / "cascaded" / "stages" / "t2a" / "audiogen" / "from-t2t" / "template" / "ttas" / "val" / "20260616_1437"
@@ -349,6 +410,24 @@ class CascadedBaselineTest(unittest.TestCase):
 
         self.assertEqual(manifest[0]["output"]["audio_file"], "outputs/000000_sample-a.wav")
         self.assertEqual(media_bytes, b"RIFFfake")
+
+    def test_v1_t2a_requires_two_carried_stages(self) -> None:
+        args = _minimal_cascade_args(pipeline="T2A", t2a="audiogen", results_schema="v1")
+        row = PromptRow(row_index=0, sample_id="sample-a", prompt="engine turning", record={"audio_cap": "engine turning"})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+
+            with self.assertRaisesRegex(ValueError, "requires rows with exactly 2 carried upstream stage"):
+                ModularCascade(args, dataset_root=None).run(
+                    [row],
+                    output_root,
+                    root / "logs" / "20260616_1437",
+                    _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap"),
+                    total_rows=1,
+                )
+
+            self.assertFalse(output_root.exists())
 
     def test_v1_main_uses_design_stage_path_with_run_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -702,6 +781,38 @@ def _minimal_cascade_args(**overrides) -> argparse.Namespace:
     }
     values.update(overrides)
     return argparse.Namespace(**values)
+
+
+def _carried_sample(*, row_index: int, sample_id: str, stages: list[dict]) -> dict:
+    normalized_stages = []
+    for stage in stages:
+        item = {
+            "stage": stage["stage"],
+            "task": stage["task"],
+            "model": stage["model"],
+            "input": stage.get("input"),
+            "prompt": stage.get("prompt"),
+            "inference_seconds": stage.get("inference_seconds", 0.0),
+            "output": stage.get("output"),
+            "error": stage.get("error"),
+        }
+        if stage.get("mode") is not None:
+            item["mode"] = stage["mode"]
+        normalized_stages.append(item)
+    return {
+        "row_index": row_index,
+        "sample_id": sample_id,
+        "status": "success",
+        "reference": {
+            "audio_file": "audio/source.wav",
+            "audio_caption": "engine idling",
+            "speech_file": "speech/source.wav",
+            "speech_text": "turn the engine",
+        },
+        "stages": normalized_stages,
+        "final_output": None,
+        "error": None,
+    }
 
 
 def _read_jsonl(path: Path) -> list[dict]:

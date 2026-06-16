@@ -170,6 +170,9 @@ class ModularCascade:
             raise ValueError("results-schema v1 is only supported for individual stage runs; assemble pipelines separately")
         if schema_v1 and self.args.overwrite:
             raise ValueError("results-schema v1 runs are create-only and do not support --overwrite")
+        if schema_v1:
+            rows = list(rows)
+            _validate_v1_stage_inputs(self.args, rows)
         output_root.mkdir(parents=True, exist_ok=True)
         log_root.mkdir(parents=True, exist_ok=True)
         final_manifest = output_root / "manifest.jsonl"
@@ -1106,6 +1109,41 @@ def _v1_stage_paths(args: argparse.Namespace, run_config: dict, *, run_id: str):
             temporary=args.temporary,
         )
     raise ValueError(f"Unsupported v1 stage pipeline: {pipeline}")
+
+
+def _validate_v1_stage_inputs(args: argparse.Namespace, rows: list[PromptRow]) -> None:
+    expected = {
+        "T2T": 1,
+        "T2S": 2,
+        "T2A": 2,
+    }.get(args.pipeline)
+    if expected is None:
+        return
+    allowed_previous_tasks = _v1_allowed_previous_tasks(args)
+    for row in rows:
+        stages = carried_stages(row.record)
+        if len(stages) != expected:
+            raise ValueError(
+                f"results-schema v1 {args.pipeline} requires rows with exactly {expected} carried "
+                f"upstream stage(s); row {row.row_index} sample_id={row.sample_id!r} has {len(stages)}"
+            )
+        previous_task = stages[-1].get("task") if stages else None
+        if previous_task not in allowed_previous_tasks:
+            expected_tasks = ", ".join(sorted(allowed_previous_tasks))
+            raise ValueError(
+                f"results-schema v1 {args.pipeline} requires previous carried task in "
+                f"{{{expected_tasks}}}; row {row.row_index} sample_id={row.sample_id!r} has {previous_task!r}"
+            )
+
+
+def _v1_allowed_previous_tasks(args: argparse.Namespace) -> set[str]:
+    if args.pipeline == "T2T":
+        if args.text_mode == "audio_description_to_speech":
+            return {"audio_captioning", "audio_to_text"}
+        return {"asr", "speech_to_text"}
+    if args.pipeline in {"T2A", "T2S"}:
+        return {"text_to_text"}
+    return set()
 
 
 def _temporary_path(path: Path, canonical_root: Path, temporary_root: Path) -> Path:
