@@ -5,11 +5,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
 from baselines.dataset import PromptRow, count_jsonl_rows, iter_split_rows, load_dataset_config
+from baselines.cascaded_schema_v1 import (
+    TASK_TO_STAGE,
+    legacy_sample_to_inspect_sample,
+    legacy_sample_to_stage_manifest_row,
+)
 from baselines.models import get_runner
 from baselines.models.base import BaselineRunner, GenerationResult
 from baselines.cascaded_manifest import (
@@ -26,6 +33,12 @@ from baselines.cascaded_manifest import (
 )
 from project_conventions import baseline_output_root, default_prompt_field
 from project_paths import log_path, model_path, result_path, root_path, source_path
+from results_structure import (
+    cascaded_stage_run_paths,
+    create_run_directories,
+    generate_run_id,
+    relative_to_project_root,
+)
 
 
 PIPELINES = ("T2A", "T2S", "A2T", "S2T", "T2T", "A2S", "S2A")
@@ -44,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=str(result_path("baselines")))
     parser.add_argument("--log-dir", default=str(log_path("baselines")))
     parser.add_argument("--temporary", action="store_true", help="Write results and logs under configured temporary roots.")
+    parser.add_argument("--run-id", default=None, help="Optional run ID for results-schema v1 runs; defaults to Toronto local YYYYMMDD_HHMM.")
     parser.add_argument("--run-name", default=None, help="Optional output variant name; defaults to selected stage backends.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--duration", type=float, default=10.0)
@@ -52,6 +66,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--results-schema",
+        choices=["legacy", "v1"],
+        default="legacy",
+        help="Output artifact schema. v1 writes design-schema stage artifacts for single-stage runs.",
+    )
 
     parser.add_argument("--asr", default="audio_omni", choices=["audio_omni", "reference", "whisper", "qwen3_asr"])
     parser.add_argument("--captioner", default="audio_omni", choices=["audio_omni", "reference", "audio_flamingo_next", "qwen3_omni_captioner"])
@@ -98,19 +118,31 @@ def main() -> None:
     )
     rows = _enrich_rows_with_audio_metadata(rows, args.split)
     total_rows = count_jsonl_rows(split_path, args.start_index, args.num_samples)
-    if args.temporary:
-        args.output_dir = str(_temporary_path(Path(args.output_dir), root_path("results_root"), root_path("temporary_results_root")))
-        args.log_dir = str(_temporary_path(Path(args.log_dir), root_path("logs_root"), root_path("temporary_logs_root")))
-    output_root = _cascade_output_root(args)
-    log_root = _cascade_output_root(args, root=Path(args.log_dir))
     run_config = _run_config(args, split_path, prompt_field)
     if rows and isinstance(rows[0].record.get("_cascaded_pipeline"), str):
         run_config["pipeline"] = rows[0].record["_cascaded_pipeline"]
+    if args.results_schema == "v1" and run_config["pipeline"] in {"A2S", "S2A"}:
+        raise ValueError("results-schema v1 is only supported for individual stage runs; assemble pipelines separately")
+    if args.results_schema == "v1" and args.overwrite:
+        raise ValueError("results-schema v1 runs are create-only and do not support --overwrite")
+
+    if args.results_schema == "v1":
+        paths = _v1_stage_paths(args, run_config, run_id=args.run_id or generate_run_id())
+        output_root = paths.result
+        log_root = paths.logs
+    else:
+        if args.temporary:
+            args.output_dir = str(_temporary_path(Path(args.output_dir), root_path("results_root"), root_path("temporary_results_root")))
+            args.log_dir = str(_temporary_path(Path(args.log_dir), root_path("logs_root"), root_path("temporary_logs_root")))
+        output_root = _cascade_output_root(args)
+        log_root = _cascade_output_root(args, root=Path(args.log_dir))
 
     cascade = ModularCascade(args, dataset_root=config.get("dataset_root"))
     if args.dry_run:
         _dry_run(args, rows, output_root, run_config, total_rows)
         return
+    if args.results_schema == "v1":
+        create_run_directories(paths)
     cascade.run(rows, output_root, log_root, run_config, total_rows)
 
 
@@ -133,20 +165,39 @@ class ModularCascade:
         run_config: dict,
         total_rows: int,
     ) -> None:
+        schema_v1 = getattr(self.args, "results_schema", "legacy") == "v1"
+        if schema_v1 and self.args.pipeline in {"A2S", "S2A"}:
+            raise ValueError("results-schema v1 is only supported for individual stage runs; assemble pipelines separately")
+        if schema_v1 and self.args.overwrite:
+            raise ValueError("results-schema v1 runs are create-only and do not support --overwrite")
         output_root.mkdir(parents=True, exist_ok=True)
         log_root.mkdir(parents=True, exist_ok=True)
         final_manifest = output_root / "manifest.jsonl"
-        inspection_manifest = output_root / "manifest.inspect.json"
-        run_config_path = output_root / "run_config.json"
+        inspection_manifest = output_root / ("inspect.json" if schema_v1 else "manifest.inspect.json")
+        run_config_path = output_root / ("config.json" if schema_v1 else "run_config.json")
         self._run_config = run_config
         if self.args.overwrite:
             _unlink_if_exists(final_manifest)
             _unlink_if_exists(inspection_manifest)
+            _unlink_if_exists(run_config_path)
+            if schema_v1:
+                for artifact in (output_root / "run.json", output_root / "errors.json", output_root / "summary.json"):
+                    _unlink_if_exists(artifact)
             for component_manifest in (output_root / "components").glob("*/manifest.jsonl"):
                 _unlink_if_exists(component_manifest)
         else:
+            if schema_v1 and final_manifest.exists():
+                raise RuntimeError("results-schema v1 does not support appending to an existing manifest yet")
             _validate_existing_run_config(run_config_path, final_manifest, run_config)
-        run_config_path.write_text(json.dumps(run_config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if schema_v1:
+            _validate_v1_artifact_targets(output_root)
+        config_document = _design_config_document(run_config, total_rows) if schema_v1 else run_config
+        config_payload = json.dumps(config_document, indent=2, sort_keys=not schema_v1) + "\n"
+        if schema_v1:
+            _write_text_create_only(run_config_path, config_payload)
+        else:
+            run_config_path.write_text(config_payload, encoding="utf-8")
+        code_state = _git_state() if schema_v1 else None
 
         processed = 0
         skipped = 0
@@ -164,7 +215,8 @@ class ModularCascade:
         print(f"run_config={run_config_path}")
         print(f"total_rows={total_rows}")
 
-        with final_manifest.open("a", encoding="utf-8") as manifest:
+        manifest_mode = "x" if schema_v1 else "a"
+        with final_manifest.open(manifest_mode, encoding="utf-8") as manifest:
             for ordinal, row in enumerate(rows, start=1):
                 row_definitions = carried_stage_definitions(row.record)
                 if not prior_definitions:
@@ -203,26 +255,47 @@ class ModularCascade:
                     else:
                         failed += 1
                 samples[sample_key] = sample
-                manifest.write(json.dumps(wrap_sample(run_config, sample), ensure_ascii=False) + "\n")
+                output_row = (
+                    legacy_sample_to_stage_manifest_row(sample)
+                    if schema_v1
+                    else wrap_sample(run_config, sample)
+                )
+                manifest.write(json.dumps(output_row, ensure_ascii=False) + "\n")
                 manifest.flush()
 
         definitions = self._full_stage_definitions() if self.args.pipeline in {"A2S", "S2A"} else prior_definitions + [self._current_stage_definition(len(prior_definitions) + 1)]
         ordered_samples = [samples[key] for key in sorted(samples)]
         final_status = "completed" if all(sample.get("status") == "success" for sample in ordered_samples) else "completed_with_errors"
-        write_inspection_manifest(
-            inspection_manifest,
-            metadata=run_config,
-            stage_definitions=definitions,
-            samples=ordered_samples,
-            created_at=created_at,
-            started_at=started_at,
-            completed_at=eastern_now(),
-            status=final_status,
-        )
-        (output_root / "model_load_times.json").write_text(
-            json.dumps(self._load_times, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        completed_at = eastern_now()
+        if schema_v1:
+            _write_design_run_artifacts(
+                output_root=output_root,
+                log_root=log_root,
+                run_config=run_config,
+                samples=ordered_samples,
+                definitions=definitions,
+                load_times=self._load_times,
+                code_state=code_state,
+                started_at=started_at,
+                completed_at=completed_at,
+                processed=processed,
+                skipped=skipped,
+            )
+        else:
+            write_inspection_manifest(
+                inspection_manifest,
+                metadata=run_config,
+                stage_definitions=definitions,
+                samples=ordered_samples,
+                created_at=created_at,
+                started_at=started_at,
+                completed_at=completed_at,
+                status=final_status,
+            )
+            (output_root / "model_load_times.json").write_text(
+                json.dumps(self._load_times, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
         print(
             f"done processed={processed} skipped={skipped} failed={failed} "
             f"elapsed={time.time() - started:.2f}s"
@@ -784,6 +857,8 @@ class ModularCascade:
     def _final_output_path(self, output_root: Path, row: PromptRow) -> Path:
         if self.args.pipeline in {"A2T", "S2T"}:
             path = output_root / "text" / f"{row.row_index:06d}_{row.sample_id}.json"
+        elif getattr(self.args, "results_schema", "legacy") == "v1":
+            path = output_root / "outputs" / f"{row.row_index:06d}_{row.sample_id}.wav"
         else:
             path = output_root / "audio" / f"{row.row_index:06d}_{row.sample_id}.wav"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -971,6 +1046,68 @@ def _cascade_output_root(args: argparse.Namespace, root: Path | None = None) -> 
     return baseline_output_root("cascaded", args.pipeline, _cascade_variant_name(args), args.dataset, base) / args.split
 
 
+def _v1_stage_paths(args: argparse.Namespace, run_config: dict, *, run_id: str):
+    pipeline = run_config.get("pipeline")
+    if pipeline == "A2T":
+        return cascaded_stage_run_paths(
+            stage="a2t",
+            model=args.captioner,
+            dataset=args.dataset,
+            split=args.split,
+            run_id=run_id,
+            temporary=args.temporary,
+        )
+    if pipeline == "S2T":
+        return cascaded_stage_run_paths(
+            stage="s2t",
+            model=args.asr,
+            dataset=args.dataset,
+            split=args.split,
+            run_id=run_id,
+            temporary=args.temporary,
+        )
+    if pipeline == "T2T":
+        direction = "a2s" if args.text_mode == "audio_description_to_speech" else "s2a"
+        upstream_stage = "a2t" if direction == "a2s" else "s2t"
+        upstream_model = args.captioner if direction == "a2s" else args.asr
+        return cascaded_stage_run_paths(
+            stage="t2t",
+            direction=direction,
+            model=args.text_model,
+            upstream_stage=upstream_stage,
+            upstream_model=upstream_model,
+            dataset=args.dataset,
+            split=args.split,
+            run_id=run_id,
+            temporary=args.temporary,
+        )
+    if pipeline == "T2S":
+        return cascaded_stage_run_paths(
+            stage="t2s",
+            direction="a2s",
+            model=args.tts,
+            upstream_stage="t2t",
+            upstream_model=args.text_model,
+            dataset=args.dataset,
+            split=args.split,
+            run_id=run_id,
+            temporary=args.temporary,
+        )
+    if pipeline == "T2A":
+        return cascaded_stage_run_paths(
+            stage="t2a",
+            direction="s2a",
+            model=args.t2a,
+            upstream_stage="t2t",
+            upstream_model=args.text_model,
+            dataset=args.dataset,
+            split=args.split,
+            run_id=run_id,
+            temporary=args.temporary,
+        )
+    raise ValueError(f"Unsupported v1 stage pipeline: {pipeline}")
+
+
 def _temporary_path(path: Path, canonical_root: Path, temporary_root: Path) -> Path:
     resolved_path = path.resolve()
     resolved_root = canonical_root.resolve()
@@ -1023,6 +1160,7 @@ def _run_config(args: argparse.Namespace, split_path: Path, prompt_field: str) -
         "steps": args.steps,
         "seed": args.seed,
         "device": args.device,
+        "continue_on_error": args.continue_on_error,
         "prompt_template": args.prompt_template,
         "qwen_speaker": args.qwen_speaker,
         "qwen_template": args.qwen_template,
@@ -1101,6 +1239,363 @@ def _required_text(row: PromptRow, field: str) -> str:
 
 def _with_prompt(row: PromptRow, prompt: str) -> PromptRow:
     return PromptRow(row_index=row.row_index, sample_id=row.sample_id, prompt=prompt, record=row.record)
+
+
+def _write_design_run_artifacts(
+    *,
+    output_root: Path,
+    log_root: Path,
+    run_config: dict,
+    samples: list[dict],
+    definitions: list[dict],
+    load_times: dict[str, float],
+    code_state: dict | None,
+    started_at: str,
+    completed_at: str,
+    processed: int,
+    skipped: int,
+) -> None:
+    status = "complete" if all(sample.get("status") == "success" for sample in samples) else "complete_with_errors"
+    current_stage_index = max((len(sample.get("stages", [])) for sample in samples), default=len(definitions))
+    stage_name = _design_stage_name(definitions[-1].get("task") if definitions else run_config.get("pipeline"))
+    run_id = output_root.name
+    inspect_samples = [legacy_sample_to_inspect_sample(sample) for sample in samples]
+    summary = _design_summary_document(
+        run_id=run_id,
+        status=status,
+        samples=samples,
+        load_times=load_times,
+        processed=processed,
+        skipped=skipped,
+    )
+    lineage = _design_lineage(
+        run_config=run_config,
+        definitions=definitions,
+        output_root=output_root,
+        current_stage_index=current_stage_index,
+    )
+    artifacts = {
+        "run.json": {
+            "schema_version": 1,
+            "run_id": run_id,
+            "temporary": _is_temporary_path(output_root),
+            "stage": stage_name,
+            "direction": _direction_for_run_config(run_config),
+            "status": status,
+            "dataset": run_config.get("dataset"),
+            "split": run_config.get("split"),
+            "model": definitions[-1].get("model") if definitions else run_config.get("model"),
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "code": code_state,
+            "slurm": {"job_id": None, "array_task_id": None},
+            "paths": {
+                "result": _path_reference(output_root),
+                "logs": _path_reference(log_root),
+            },
+            "lineage": lineage,
+        },
+        "inspect.json": {
+            "schema_version": 1,
+            "run_id": run_id,
+            "stage": stage_name,
+            "direction": _direction_for_run_config(run_config),
+            "dataset": run_config.get("dataset"),
+            "split": run_config.get("split"),
+            "status": status,
+            "lineage": lineage,
+            "stage_configs": [_stage_config_summary(index, definition) for index, definition in enumerate(definitions, start=1)],
+            "summary": {
+                "requested": len(samples),
+                "successful": sum(sample.get("status") == "success" for sample in samples),
+                "failed": sum(sample.get("status") != "success" for sample in samples),
+            },
+            "samples": inspect_samples,
+        },
+        "errors.json": _design_errors_document(run_id, samples),
+        "summary.json": summary,
+    }
+    for name, document in artifacts.items():
+        _write_json_create_only(output_root / name, document)
+
+
+def _design_config_document(run_config: dict, total_rows: int) -> dict:
+    pipeline = run_config.get("pipeline")
+    return {
+        "schema_version": 1,
+        "input": {
+            "manifest": run_config.get("split_file"),
+            "input_field": run_config.get("prompt_field"),
+            "start_index": None,
+            "num_samples": total_rows,
+        },
+        "model": _design_model_config(run_config),
+        "prompt": _design_prompt_config(run_config),
+        "generation": {
+            "seed": run_config.get("seed"),
+            "steps": run_config.get("steps"),
+            "duration_seconds": run_config.get("duration"),
+        },
+        "execution": {
+            "continue_on_error": run_config.get("continue_on_error"),
+            "shard_index": None,
+            "num_shards": None,
+            "legacy_pipeline": pipeline,
+        },
+    }
+
+
+def _design_model_config(run_config: dict) -> dict:
+    pipeline = run_config.get("pipeline")
+    model_key = {
+        "A2T": "captioner",
+        "S2T": "asr",
+        "T2T": "text_model",
+        "T2S": "tts",
+        "T2A": "t2a",
+    }.get(pipeline)
+    model_name = run_config.get(model_key) if model_key else run_config.get("model")
+    model_paths = run_config.get("model_paths") if isinstance(run_config.get("model_paths"), dict) else {}
+    path_key = {"text_model": "text"}.get(model_key, model_key)
+    return {
+        "name": model_name,
+        "path": model_paths.get(path_key or "fallback") or model_paths.get("fallback"),
+        "cache_dir": None,
+        "dtype": None,
+        "device": run_config.get("device"),
+    }
+
+
+def _design_prompt_config(run_config: dict) -> dict | None:
+    if run_config.get("pipeline") not in {"A2T", "S2T", "T2T"} and not run_config.get("prompt_template"):
+        return None
+    return {
+        "mode": run_config.get("text_mode") if run_config.get("pipeline") == "T2T" else run_config.get("pipeline"),
+        "template": run_config.get("prompt_template"),
+        "system_prompt": None,
+    }
+
+
+def _design_summary_document(
+    *,
+    run_id: str,
+    status: str,
+    samples: list[dict],
+    load_times: dict[str, float],
+    processed: int,
+    skipped: int,
+) -> dict:
+    timings = [
+        stage.get("inference_seconds")
+        for sample in samples
+        for stage in sample.get("stages", [])
+        if isinstance(stage, dict) and isinstance(stage.get("inference_seconds"), (int, float))
+    ]
+    failed = sum(sample.get("status") != "success" for sample in samples)
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "status": status,
+        "samples": {
+            "requested": len(samples),
+            "processed": processed + failed,
+            "successful": sum(sample.get("status") == "success" for sample in samples),
+            "failed": failed,
+            "skipped": skipped,
+        },
+        "timing": {
+            "model_load_seconds": round(sum(load_times.values()), 6) if load_times else None,
+            "total_inference_seconds": round(sum(timings), 6) if timings else None,
+            "total_seconds": None,
+            "mean_inference_seconds_per_sample": round(sum(timings) / len(timings), 6) if timings else None,
+            "median_inference_seconds_per_sample": _median(timings),
+            "min_inference_seconds_per_sample": min(timings) if timings else None,
+            "max_inference_seconds_per_sample": max(timings) if timings else None,
+        },
+        "outputs": {
+            "manifest": "manifest.jsonl",
+            "inspect": "inspect.json",
+            "generated_media_files": _generated_media_count(samples),
+        },
+        "errors": {
+            "count": failed,
+            "by_type": dict(Counter(_sample_error_type(sample) for sample in samples if sample.get("status") != "success")),
+        },
+    }
+
+
+def _design_errors_document(run_id: str, samples: list[dict]) -> dict:
+    errors = []
+    for sample in samples:
+        if sample.get("status") == "success":
+            continue
+        error = sample.get("error") if isinstance(sample.get("error"), dict) else {}
+        stage = (sample.get("stages") or [{}])[-1]
+        errors.append(
+            {
+                "sample_id": sample.get("sample_id"),
+                "row_index": sample.get("row_index"),
+                "stage": _design_stage_name(stage.get("task")) if isinstance(stage, dict) else None,
+                "error_type": error.get("type"),
+                "message": error.get("message"),
+                "log_ref": None,
+            }
+        )
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "error_count": len(errors),
+        "errors": errors,
+    }
+
+
+def _design_lineage(
+    *,
+    run_config: dict,
+    definitions: list[dict],
+    output_root: Path,
+    current_stage_index: int,
+) -> dict:
+    return {
+        "direction": _direction_for_run_config(run_config),
+        "current_stage_index": current_stage_index,
+        "stages": [
+            {
+                "stage_index": index,
+                "stage": _design_stage_name(definition.get("task")),
+                "model": definition.get("model"),
+                "run_id": output_root.name,
+                "run_path": _path_reference(output_root),
+                "manifest": _path_reference(output_root / "manifest.jsonl"),
+                "config": _path_reference(output_root / "config.json"),
+            }
+            for index, definition in enumerate(definitions, start=1)
+        ],
+    }
+
+
+def _stage_config_summary(index: int, definition: dict) -> dict:
+    model = {
+        "name": definition.get("model"),
+        "path": definition.get("checkpoint"),
+        "cache_dir": None,
+        "device": (definition.get("runtime") or {}).get("device"),
+        "dtype": definition.get("dtype"),
+    }
+    summary = {
+        "stage_index": index,
+        "stage": _design_stage_name(definition.get("task")),
+        "model": model,
+        "input": {},
+        "generation": definition.get("generation") or {},
+    }
+    if definition.get("prompt_template") is not None or definition.get("system_prompt") is not None:
+        summary["prompt"] = {
+            "mode": definition.get("mode"),
+            "template_name": None,
+            "template": definition.get("prompt_template"),
+            "system_prompt": definition.get("system_prompt"),
+        }
+    return summary
+
+
+def _design_stage_name(task: object) -> str | None:
+    return TASK_TO_STAGE.get(task) if isinstance(task, str) else None
+
+
+def _direction_for_run_config(run_config: dict) -> str | None:
+    pipeline = run_config.get("pipeline")
+    if pipeline == "T2T":
+        if run_config.get("text_mode") == "audio_description_to_speech":
+            return "a2s"
+        if run_config.get("text_mode") == "speech_to_audio_description":
+            return "s2a"
+    return _direction_for_pipeline(pipeline)
+
+
+def _direction_for_pipeline(pipeline: object) -> str | None:
+    if pipeline in {"A2T", "T2S", "A2S"}:
+        return "a2s"
+    if pipeline in {"S2T", "T2A", "S2A"}:
+        return "s2a"
+    if pipeline == "T2T":
+        return None
+    return None
+
+
+def _is_temporary_path(path: Path) -> bool:
+    return "temporary" in path.parts
+
+
+def _generated_media_count(samples: list[dict]) -> int | None:
+    count = sum(
+        1
+        for sample in samples
+        if isinstance(sample.get("final_output"), dict)
+        and (sample["final_output"].get("file") or sample["final_output"].get("audio_file") or sample["final_output"].get("speech_file"))
+    )
+    return count or None
+
+
+def _sample_error_type(sample: dict) -> str:
+    error = sample.get("error")
+    if isinstance(error, dict) and isinstance(error.get("type"), str):
+        return error["type"]
+    return "StageError"
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2
+
+
+def _validate_v1_artifact_targets(output_root: Path) -> None:
+    for name in ("manifest.jsonl", "config.json", "run.json", "inspect.json", "errors.json", "summary.json"):
+        path = output_root / name
+        if path.exists():
+            raise FileExistsError(f"v1 artifact already exists: {path}")
+
+
+def _write_json_create_only(path: Path, document: dict) -> None:
+    _write_text_create_only(
+        path,
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
+def _write_text_create_only(path: Path, payload: str) -> None:
+    with path.open("x", encoding="utf-8") as handle:
+        handle.write(payload)
+
+
+def _path_reference(path: Path) -> str:
+    return relative_to_project_root(path)
+
+
+def _git_state() -> dict[str, object]:
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = bool(
+            subprocess.run(
+                ["git", "status", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return {"git_commit": None, "git_dirty": None, "error": str(exc)}
+    return {"git_commit": commit, "git_dirty": dirty}
 
 
 def _validate_existing_run_config(path: Path, manifest_path: Path, run_config: dict) -> None:
