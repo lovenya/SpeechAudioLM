@@ -110,6 +110,7 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
             assemble_pipeline_record(pipeline_dir, direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
             row = _read_jsonl(pipeline_dir / "manifest.jsonl")[0]
             summary = json.loads((pipeline_dir / "summary.json").read_text(encoding="utf-8"))
+            errors = json.loads((pipeline_dir / "errors.json").read_text(encoding="utf-8"))
 
         self.assertEqual(row["status"], "incomplete")
         self.assertIsNone(row["final_output"])
@@ -119,6 +120,24 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
         )
         self.assertEqual(row["stages"][2]["status"], "missing")
         self.assertEqual(summary["errors"]["by_type"], {"RuntimeError": 1})
+        self.assertEqual(summary["outputs"]["errors"], "errors.json")
+        self.assertEqual(
+            errors,
+            {
+                "schema_version": 1,
+                "run_id": "20260616_1530",
+                "error_count": 1,
+                "errors": [
+                    {
+                        "sample_id": "sample-a",
+                        "stage_index": 2,
+                        "stage": "t2t",
+                        "type": "RuntimeError",
+                        "message": "text model failed",
+                    }
+                ],
+            },
+        )
 
     def test_s2a_uses_speech_input_and_t2a_final_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -183,6 +202,52 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
             self.assertFalse((pipeline_dir / "run.json").exists())
 
+    def test_pipeline_references_repo_owned_stage_paths_relative_to_project_root(self) -> None:
+        repo_root = Path.cwd()
+        with tempfile.TemporaryDirectory(dir=repo_root) as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "results" / "cascaded" / "stages" / "a2t" / "captioner" / "ttas" / "val" / "20260616_1000",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "results" / "cascaded" / "stages" / "t2t" / "a2s" / "text" / "from-a2t" / "captioner" / "ttas" / "val" / "20260616_1100",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2t", model="text")],
+            )
+            t2s = _write_stage_run(
+                root / "results" / "cascaded" / "stages" / "t2s" / "tts" / "from-t2t" / "text" / "ttas" / "val" / "20260616_1200",
+                stage="t2s",
+                model="tts",
+                direction="a2s",
+                rows=[
+                    _row(
+                        0,
+                        "sample-a",
+                        stage="t2s",
+                        model="tts",
+                        output={"type": "speech", "speech_file": "outputs/sample-a.wav"},
+                    )
+                ],
+            )
+
+            pipeline_dir = root / "results" / "cascaded" / "pipelines" / "a2s" / "caption_text_tts" / "ttas" / "val" / "20260616_1300"
+            assemble_pipeline_record(pipeline_dir, direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+            run = json.loads((pipeline_dir / "run.json").read_text(encoding="utf-8"))
+            pipeline = json.loads((pipeline_dir / "pipeline.json").read_text(encoding="utf-8"))
+            row = _read_jsonl(pipeline_dir / "manifest.jsonl")[0]
+
+        self.assertFalse(run["paths"]["result"].startswith("/"))
+        self.assertFalse(pipeline["stages"][0]["run_path"].startswith("/"))
+        self.assertFalse(pipeline["stages"][0]["manifest"].startswith("/"))
+        self.assertFalse(run["lineage"]["stages"][0]["config"].startswith("/"))
+        self.assertFalse(row["final_output"]["speech_file"].startswith("/"))
+
 
 def _write_stage_run(
     run_dir: Path,
@@ -211,6 +276,18 @@ def _write_stage_run(
     )
     (run_dir / "manifest.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    (run_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "input": {"manifest": "input.jsonl"},
+                "model": {"name": model},
+                "generation": {"seed": 1337},
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
     return run_dir

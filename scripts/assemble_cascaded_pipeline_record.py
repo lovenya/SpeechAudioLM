@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from results_structure import relative_to_project_root
+
 
 Direction = Literal["a2s", "s2a"]
 
@@ -20,7 +22,7 @@ STAGES_BY_DIRECTION: dict[str, tuple[str, str, str]] = {
 }
 INPUT_FIELD_BY_DIRECTION = {"a2s": "audio_file", "s2a": "speech_file"}
 FINAL_OUTPUT_FIELDS = {"audio_file", "speech_file"}
-PIPELINE_ARTIFACTS = ("run.json", "pipeline.json", "manifest.jsonl", "inspect.json", "summary.json")
+PIPELINE_ARTIFACTS = ("run.json", "pipeline.json", "manifest.jsonl", "inspect.json", "errors.json", "summary.json")
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,6 +89,7 @@ def assemble_pipeline_record(
     _validate_stage_directions(stage_runs, direction)
 
     rows = _assemble_manifest_rows(direction, stage_runs)
+    errors = _errors_document(pipeline_dir, rows)
     summary = _summary_document(pipeline_dir, rows, direction)
     status = summary["status"]
     run_id = pipeline_dir.name
@@ -128,6 +131,7 @@ def assemble_pipeline_record(
         _write_json_create_only(staging / "pipeline.json", pipeline_doc)
         _write_jsonl_create_only(staging / "manifest.jsonl", rows)
         _write_json_create_only(staging / "inspect.json", inspect_doc)
+        _write_json_create_only(staging / "errors.json", errors)
         _write_json_create_only(staging / "summary.json", summary)
         _publish_staging(pipeline_dir, staging)
     except Exception:
@@ -156,8 +160,10 @@ def _load_stage_run(run_dir: Path, *, expected_stage: str, position: int) -> dic
         "stage": stage,
         "model": _stage_model(run_json, rows),
         "run_id": _string_or_default(run_json.get("run_id"), run_dir.name),
-        "run_path": run_dir.as_posix(),
-        "manifest": manifest_path.as_posix(),
+        "run_path": _path_reference(run_dir),
+        "manifest": _path_reference(manifest_path),
+        "config": _path_reference(run_dir / "config.json"),
+        "_run_dir": run_dir,
         "run": run_json,
         "summary": _read_optional_json(run_dir / "summary.json"),
         "inspect": _read_optional_json(run_dir / "inspect.json"),
@@ -278,8 +284,8 @@ def _final_output(final_stage: dict[str, Any], final_row: dict[str, Any]) -> dic
         if isinstance(value, str) and value:
             path = Path(value)
             if not path.is_absolute():
-                path = Path(final_stage["run_path"]) / path
-            rewritten[field] = path.as_posix()
+                path = Path(final_stage["_run_dir"]) / path
+            rewritten[field] = _path_reference(path)
     return rewritten
 
 
@@ -337,8 +343,8 @@ def _run_document(
         "code": None,
         "slurm": None,
         "paths": {
-            "result": pipeline_dir.as_posix(),
-            "logs": logs_dir.as_posix() if logs_dir else None,
+            "result": _path_reference(pipeline_dir),
+            "logs": _path_reference(logs_dir) if logs_dir else None,
         },
         "lineage": {
             "direction": direction,
@@ -351,7 +357,7 @@ def _run_document(
                     "run_id": stage["run_id"],
                     "run_path": stage["run_path"],
                     "manifest": stage["manifest"],
-                    "config": (Path(stage["run_path"]) / "config.json").as_posix(),
+                    "config": stage["config"],
                 }
                 for stage in stage_runs
             ],
@@ -461,7 +467,7 @@ def _runtime_prompt_from_inspect(stage_run: dict[str, Any], sample_id: str) -> A
 def _stage_configs(stage_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     configs = []
     for stage in stage_runs:
-        config = _read_optional_json(Path(stage["run_path"]) / "config.json")
+        config = _read_optional_json(Path(stage["_run_dir"]) / "config.json")
         if not config:
             continue
         compact = {
@@ -478,11 +484,8 @@ def _stage_configs(stage_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _summary_document(pipeline_dir: Path, rows: list[dict[str, Any]], direction: str) -> dict[str, Any]:
     successful = sum(row["status"] == "success" for row in rows)
     incomplete = len(rows) - successful
-    errors_by_type = Counter(
-        row["error"]["type"]
-        for row in rows
-        if isinstance(row.get("error"), dict) and isinstance(row["error"].get("type"), str)
-    )
+    errors = _pipeline_errors(rows)
+    errors_by_type = Counter(error["type"] for error in errors if isinstance(error.get("type"), str))
     status = "complete" if incomplete == 0 else "complete_with_errors"
     return {
         "schema_version": 1,
@@ -499,6 +502,7 @@ def _summary_document(pipeline_dir: Path, rows: list[dict[str, Any]], direction:
             "pipeline": "pipeline.json",
             "manifest": "manifest.jsonl",
             "inspect": "inspect.json",
+            "errors": "errors.json",
             "generated_media_files": None,
         },
         "errors": {
@@ -506,6 +510,34 @@ def _summary_document(pipeline_dir: Path, rows: list[dict[str, Any]], direction:
             "by_type": dict(errors_by_type),
         },
     }
+
+
+def _errors_document(pipeline_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    errors = _pipeline_errors(rows)
+    return {
+        "schema_version": 1,
+        "run_id": pipeline_dir.name,
+        "error_count": len(errors),
+        "errors": errors,
+    }
+
+
+def _pipeline_errors(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    errors = []
+    for row in rows:
+        if row.get("status") == "success":
+            continue
+        error = row.get("error") if isinstance(row.get("error"), dict) else {}
+        errors.append(
+            {
+                "sample_id": row.get("sample_id"),
+                "stage_index": error.get("stage_index"),
+                "stage": error.get("stage"),
+                "type": error.get("type"),
+                "message": error.get("message"),
+            }
+        )
+    return errors
 
 
 def _read_manifest(path: Path) -> list[dict[str, Any]]:
@@ -620,6 +652,10 @@ def _fail_if_outputs_exist(pipeline_dir: Path) -> None:
         target = pipeline_dir / name
         if target.exists():
             raise FileExistsError(f"pipeline artifact already exists: {target}")
+
+
+def _path_reference(path: Path) -> str:
+    return relative_to_project_root(path)
 
 
 def _publish_staging(pipeline_dir: Path, staging: Path) -> None:
