@@ -73,6 +73,36 @@ class MergeCascadedStageShardsTest(unittest.TestCase):
         self.assertEqual(promoted_audio, b"RIFFfake")
         self.assertEqual(report["outputs"]["media_files_copied"], 1)
 
+    def test_allows_subset_runs_with_nonzero_row_indices(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1600"
+            _write_shard(
+                run_dir,
+                "shard_000",
+                [
+                    _row(6, "sample-b", output={"type": "text", "generated_speech_text": "second"}),
+                    _row(5, "sample-a", output={"type": "text", "generated_speech_text": "first"}),
+                ],
+            )
+
+            report = merge_stage_shards(run_dir, expected_count=2)
+            rows = [json.loads(line) for line in (run_dir / "manifest.jsonl").read_text().splitlines()]
+
+        self.assertEqual([row["row_index"] for row in rows], [5, 6])
+        self.assertEqual(report["merged"]["rows_written"], 2)
+        self.assertEqual(report["merged"]["requested"], 2)
+
+    def test_fails_when_merged_row_count_does_not_match_expected_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1600"
+            _write_shard(run_dir, "shard_000", [_row(5, "sample-a")])
+
+            with self.assertRaisesRegex(ValueError, "merged rows=1; expected=2"):
+                merge_stage_shards(run_dir, expected_count=2)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
     def test_fails_for_duplicate_sample_id_without_publishing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "20260616_1437"

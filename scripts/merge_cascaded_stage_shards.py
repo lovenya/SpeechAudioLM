@@ -237,10 +237,6 @@ def _fail_on_stray_media(shard_dir: Path, referenced_media: dict[Path, str]) -> 
 
 
 def _validate_expected_rows(rows: dict[int, dict[str, Any]], expected_count: int) -> None:
-    missing = [index for index in range(expected_count) if index not in rows]
-    if missing:
-        preview = ", ".join(str(index) for index in missing[:10])
-        raise ValueError(f"missing expected row_index values: {preview}")
     if len(rows) != expected_count:
         raise ValueError(f"merged rows={len(rows)}; expected={expected_count}")
 
