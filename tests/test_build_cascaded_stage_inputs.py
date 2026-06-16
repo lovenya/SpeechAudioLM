@@ -198,6 +198,31 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
+            (root / "run.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "20260616_1000",
+                        "lineage": {
+                            "direction": "a2s",
+                            "current_stage_index": 1,
+                            "stages": [
+                                {
+                                    "stage_index": 1,
+                                    "stage": "a2t",
+                                    "model": "captioner",
+                                    "run_id": "20260616_1000",
+                                    "run_path": "results/cascaded/stages/a2t/captioner/ttas/val/20260616_1000",
+                                    "manifest": "results/cascaded/stages/a2t/captioner/ttas/val/20260616_1000/manifest.jsonl",
+                                    "config": "results/cascaded/stages/a2t/captioner/ttas/val/20260616_1000/config.json",
+                                }
+                            ],
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
             rows = _stage1_to_t2t(
                 argparse.Namespace(
@@ -221,6 +246,7 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(sample["reference"]["audio_caption"], "reference caption")
         self.assertEqual(sample["stages"][0]["task"], "audio_to_text")
         self.assertEqual(sample["stages"][0]["output"], {"type": "audio_caption", "text": "generated caption"})
+        self.assertEqual(row["_cascaded_stage_lineage"][0]["run_id"], "20260616_1000")
 
     def test_v1_stage1_to_t2t_supports_s2a_s2t_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -360,6 +386,40 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
+            (root / "run.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "20260616_1100",
+                        "lineage": {
+                            "direction": "a2s",
+                            "current_stage_index": 2,
+                            "stages": [
+                                {
+                                    "stage_index": 1,
+                                    "stage": "a2t",
+                                    "model": "captioner",
+                                    "run_id": "20260616_1000",
+                                    "run_path": "results/cascaded/stages/a2t/captioner/ttas/val/20260616_1000",
+                                    "manifest": "results/cascaded/stages/a2t/captioner/ttas/val/20260616_1000/manifest.jsonl",
+                                    "config": "results/cascaded/stages/a2t/captioner/ttas/val/20260616_1000/config.json",
+                                },
+                                {
+                                    "stage_index": 2,
+                                    "stage": "t2t",
+                                    "model": "qwen3_32b",
+                                    "run_id": "20260616_1100",
+                                    "run_path": "results/cascaded/stages/t2t/a2s/qwen3_32b/from-a2t/captioner/ttas/val/20260616_1100",
+                                    "manifest": "results/cascaded/stages/t2t/a2s/qwen3_32b/from-a2t/captioner/ttas/val/20260616_1100/manifest.jsonl",
+                                    "config": "results/cascaded/stages/t2t/a2s/qwen3_32b/from-a2t/captioner/ttas/val/20260616_1100/config.json",
+                                },
+                            ],
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
             rows = _t2t_to_final(
                 argparse.Namespace(
@@ -382,6 +442,7 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(sample["stages"][0]["output"], {"type": "audio_caption", "text": "generated caption"})
         self.assertEqual(sample["stages"][1]["mode"], "audio_description_to_speech")
         self.assertEqual(sample["stages"][1]["output"], {"type": "speech_text", "text": "generated speech text"})
+        self.assertEqual([stage["run_id"] for stage in row["_cascaded_stage_lineage"]], ["20260616_1000", "20260616_1100"])
 
     def test_v1_t2t_to_final_requires_inspect_for_cumulative_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

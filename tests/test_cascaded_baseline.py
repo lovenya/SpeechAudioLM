@@ -320,6 +320,17 @@ class CascadedBaselineTest(unittest.TestCase):
                         }
                     ],
                 ),
+                "_cascaded_stage_lineage": [
+                    {
+                        "stage_index": 1,
+                        "stage": "s2t",
+                        "model": "reference",
+                        "run_id": "20260616_1200",
+                        "run_path": "results/cascaded/stages/s2t/reference/ttas/val/20260616_1200",
+                        "manifest": "results/cascaded/stages/s2t/reference/ttas/val/20260616_1200/manifest.jsonl",
+                        "config": "results/cascaded/stages/s2t/reference/ttas/val/20260616_1200/config.json",
+                    }
+                ],
             },
         )
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -331,9 +342,18 @@ class CascadedBaselineTest(unittest.TestCase):
             ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
             run_doc = json.loads((output_root / "run.json").read_text(encoding="utf-8"))
             config = json.loads((output_root / "config.json").read_text(encoding="utf-8"))
+            inspect = json.loads((output_root / "inspect.json").read_text(encoding="utf-8"))
 
         self.assertEqual(run_doc["direction"], "s2a")
         self.assertEqual(run_doc["lineage"]["direction"], "s2a")
+        self.assertEqual(run_doc["lineage"]["stages"][0]["run_id"], "20260616_1200")
+        self.assertEqual(
+            run_doc["lineage"]["stages"][0]["run_path"],
+            "results/cascaded/stages/s2t/reference/ttas/val/20260616_1200",
+        )
+        self.assertEqual(run_doc["lineage"]["stages"][1]["run_id"], "20260616_1437")
+        self.assertEqual(run_doc["lineage"]["stages"][1]["run_path"], output_root.as_posix())
+        self.assertEqual([stage["stage"] for stage in inspect["stage_configs"]], ["s2t", "t2t"])
         self.assertEqual(config["model"]["path"], "{model_root}/text-model")
 
     def test_v1_t2t_requires_carried_stage1_sample(self) -> None:

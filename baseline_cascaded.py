@@ -212,6 +212,7 @@ class ModularCascade:
         samples: dict[tuple[int, str], dict] = dict(existing_samples)
         existing_definitions = read_inspection_definitions(final_manifest) if existing_samples else []
         prior_definitions = existing_definitions[:-1] if existing_definitions else []
+        prior_lineage: list[dict] = []
         print(f"output_root={output_root}")
         print(f"manifest={final_manifest}")
         print(f"inspection_manifest={inspection_manifest}")
@@ -221,11 +222,18 @@ class ModularCascade:
         manifest_mode = "x" if schema_v1 else "a"
         with final_manifest.open(manifest_mode, encoding="utf-8") as manifest:
             for ordinal, row in enumerate(rows, start=1):
-                row_definitions = carried_stage_definitions(row.record)
+                row_definitions = carried_stage_definitions(row.record) or [
+                    _stage_definition_from_carried_stage(stage) for stage in carried_stages(row.record)
+                ]
                 if not prior_definitions:
                     prior_definitions = row_definitions
                 elif row_definitions != prior_definitions:
                     raise ValueError(f"Row {row.row_index} carries different stage definitions")
+                row_lineage = _carried_stage_lineage(row.record)
+                if not prior_lineage:
+                    prior_lineage = row_lineage
+                elif row_lineage != prior_lineage:
+                    raise ValueError(f"Row {row.row_index} carries different stage lineage")
                 output_path = self._final_output_path(output_root, row)
                 sample_key = (row.row_index, row.sample_id)
                 if not self.args.overwrite and sample_key in existing_samples:
@@ -283,6 +291,7 @@ class ModularCascade:
                 completed_at=completed_at,
                 processed=processed,
                 skipped=skipped,
+                upstream_lineage=prior_lineage,
             )
         else:
             write_inspection_manifest(
@@ -1136,6 +1145,28 @@ def _validate_v1_stage_inputs(args: argparse.Namespace, rows: list[PromptRow]) -
             )
 
 
+def _carried_stage_lineage(record: dict) -> list[dict]:
+    lineage = record.get("_cascaded_stage_lineage")
+    if not isinstance(lineage, list):
+        return []
+    return [dict(item) for item in lineage if isinstance(item, dict)]
+
+
+def _stage_definition_from_carried_stage(stage: dict) -> dict:
+    return {
+        "stage": stage.get("stage"),
+        "task": stage.get("task"),
+        "model": stage.get("model"),
+        "checkpoint": None,
+        "dtype": None,
+        "prompt_template": None,
+        "generation": {},
+        "runtime": {},
+        "mode": stage.get("mode"),
+        "system_prompt": None,
+    }
+
+
 def _v1_allowed_previous_tasks(args: argparse.Namespace) -> set[str]:
     if args.pipeline == "T2T":
         if args.text_mode == "audio_description_to_speech":
@@ -1292,6 +1323,7 @@ def _write_design_run_artifacts(
     completed_at: str,
     processed: int,
     skipped: int,
+    upstream_lineage: list[dict] | None = None,
 ) -> None:
     status = "complete" if all(sample.get("status") == "success" for sample in samples) else "complete_with_errors"
     current_stage_index = max((len(sample.get("stages", [])) for sample in samples), default=len(definitions))
@@ -1311,6 +1343,7 @@ def _write_design_run_artifacts(
         definitions=definitions,
         output_root=output_root,
         current_stage_index=current_stage_index,
+        upstream_lineage=upstream_lineage or [],
     )
     artifacts = {
         "run.json": {
@@ -1493,22 +1526,45 @@ def _design_lineage(
     definitions: list[dict],
     output_root: Path,
     current_stage_index: int,
+    upstream_lineage: list[dict] | None = None,
 ) -> dict:
+    upstream_entries = upstream_lineage or []
     return {
         "direction": _direction_for_run_config(run_config),
         "current_stage_index": current_stage_index,
         "stages": [
-            {
-                "stage_index": index,
-                "stage": _design_stage_name(definition.get("task")),
-                "model": definition.get("model"),
-                "run_id": output_root.name,
-                "run_path": _path_reference(output_root),
-                "manifest": _path_reference(output_root / "manifest.jsonl"),
-                "config": _path_reference(output_root / "config.json"),
-            }
+            _design_lineage_entry(
+                index=index,
+                definition=definition,
+                output_root=output_root,
+                upstream_entries=upstream_entries,
+            )
             for index, definition in enumerate(definitions, start=1)
         ],
+    }
+
+
+def _design_lineage_entry(
+    *,
+    index: int,
+    definition: dict,
+    output_root: Path,
+    upstream_entries: list[dict],
+) -> dict:
+    if index <= len(upstream_entries):
+        entry = dict(upstream_entries[index - 1])
+        entry.setdefault("stage_index", index)
+        entry.setdefault("stage", _design_stage_name(definition.get("task")))
+        entry.setdefault("model", definition.get("model"))
+        return entry
+    return {
+        "stage_index": index,
+        "stage": _design_stage_name(definition.get("task")),
+        "model": definition.get("model"),
+        "run_id": output_root.name,
+        "run_path": _path_reference(output_root),
+        "manifest": _path_reference(output_root / "manifest.jsonl"),
+        "config": _path_reference(output_root / "config.json"),
     }
 
 

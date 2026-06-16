@@ -65,6 +65,7 @@ def _stage1_to_t2t(args: argparse.Namespace) -> list[dict]:
     manifest = Path(args.manifest)
     definitions = read_inspection_definitions(manifest)
     inspect_samples = _read_v1_inspect_samples(manifest)
+    upstream_lineage = _read_v1_lineage(manifest)
     rows = []
     for index, record in enumerate(_successful_records(manifest, allow_partial=args.allow_partial)):
         sample = _cumulative_sample(
@@ -86,6 +87,7 @@ def _stage1_to_t2t(args: argparse.Namespace) -> list[dict]:
                 "_cascaded_pipeline": args.pipeline,
                 "_cascaded_sample": sample,
                 "_cascaded_stage_definitions": definitions or [_legacy_stage_definition(sample["stages"][-1])],
+                "_cascaded_stage_lineage": upstream_lineage,
             }
         )
     return rows
@@ -95,6 +97,7 @@ def _t2t_to_final(args: argparse.Namespace) -> list[dict]:
     manifest = Path(args.manifest)
     definitions = read_inspection_definitions(manifest)
     inspect_samples = _read_v1_inspect_samples(manifest)
+    upstream_lineage = _read_v1_lineage(manifest)
     rows = []
     for index, record in enumerate(_successful_records(manifest, allow_partial=args.allow_partial)):
         sample = _cumulative_sample(
@@ -115,6 +118,7 @@ def _t2t_to_final(args: argparse.Namespace) -> list[dict]:
             "_cascaded_pipeline": args.pipeline,
             "_cascaded_sample": sample,
             "_cascaded_stage_definitions": definitions or [_legacy_stage_definition(stage) for stage in sample["stages"]],
+            "_cascaded_stage_lineage": upstream_lineage,
         }
         if args.pipeline == "A2S":
             if reference.get("speech_file"):
@@ -390,6 +394,18 @@ def _read_v1_inspect_samples(manifest: Path) -> dict[str, dict]:
         if isinstance(sample, dict) and isinstance(sample.get("sample_id"), str):
             indexed[sample["sample_id"]] = sample
     return indexed
+
+
+def _read_v1_lineage(manifest: Path) -> list[dict]:
+    run_path = manifest.with_name("run.json")
+    if not run_path.is_file():
+        return []
+    document = json.loads(run_path.read_text(encoding="utf-8"))
+    lineage = document.get("lineage") if isinstance(document, dict) else None
+    stages = lineage.get("stages") if isinstance(lineage, dict) else None
+    if not isinstance(stages, list):
+        return []
+    return [dict(stage) for stage in stages if isinstance(stage, dict)]
 
 
 def _record_sample_id(record: dict) -> str | None:
