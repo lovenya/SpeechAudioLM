@@ -156,6 +156,301 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(sample["stages"][1]["output"]["text"], "generated speech text")
         self.assertFalse(any(key.startswith("_de" + "mo") for key in row))
 
+    def test_v1_stage1_to_t2t_uses_stage_output_and_inspect_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 4,
+                        "sample_id": "sample_a",
+                        "stage": "a2t",
+                        "model": "captioner",
+                        "status": "success",
+                        "input": {"audio_file": "audio/a.wav"},
+                        "output": {"type": "text", "audio_caption": "generated caption"},
+                        "timing": {"inference_seconds": 1.5},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "samples": [
+                            {
+                                "sample_id": "sample_a",
+                                "reference": {
+                                    "audio_file": "audio/a.wav",
+                                    "speech_file": "speech/a.wav",
+                                    "reference_audio_caption": "reference caption",
+                                    "reference_speech_text": "reference speech",
+                                },
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows = _stage1_to_t2t(
+                argparse.Namespace(
+                    manifest=str(manifest),
+                    pipeline="A2S",
+                    upstream_backend="captioner",
+                    text_model="qwen3_32b",
+                    allow_partial=False,
+                )
+            )
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["audio_file"], "audio/a.wav")
+        self.assertEqual(row["speech_file"], "speech/a.wav")
+        self.assertEqual(row["speech_text"], "generated caption")
+        self.assertEqual(row["audio_cap"], "generated caption")
+        sample = row["_cascaded_sample"]
+        self.assertEqual(sample["row_index"], 4)
+        self.assertEqual(sample["reference"]["speech_text"], "reference speech")
+        self.assertEqual(sample["reference"]["audio_caption"], "reference caption")
+        self.assertEqual(sample["stages"][0]["task"], "audio_to_text")
+        self.assertEqual(sample["stages"][0]["output"], {"type": "audio_caption", "text": "generated caption"})
+
+    def test_v1_stage1_to_t2t_supports_s2a_s2t_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = Path(tmpdir) / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 3,
+                        "sample_id": "sample_s",
+                        "stage": "s2t",
+                        "model": "asr",
+                        "status": "success",
+                        "input": {"speech_file": "speech/s.wav"},
+                        "output": {"type": "text", "speech_transcription": "spoken words"},
+                        "timing": {"inference_seconds": 0.5},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows = _stage1_to_t2t(
+                argparse.Namespace(
+                    manifest=str(manifest),
+                    pipeline="S2A",
+                    upstream_backend="asr",
+                    text_model="qwen3_32b",
+                    allow_partial=False,
+                )
+            )
+
+        self.assertEqual(rows[0]["speech_text"], "spoken words")
+        self.assertEqual(rows[0]["audio_cap"], "spoken words")
+        sample = rows[0]["_cascaded_sample"]
+        self.assertEqual(sample["stages"][0]["task"], "speech_to_text")
+        self.assertEqual(sample["stages"][0]["input"], {"type": "speech_audio", "file": "speech/s.wav"})
+        self.assertEqual(sample["stages"][0]["output"], {"type": "speech_text", "text": "spoken words"})
+
+    def test_v1_stage1_to_t2t_rejects_stage_direction_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = Path(tmpdir) / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 3,
+                        "sample_id": "sample_s",
+                        "stage": "s2t",
+                        "model": "asr",
+                        "status": "success",
+                        "input": {"speech_file": "speech/s.wav"},
+                        "output": {"type": "text", "speech_transcription": "spoken words"},
+                        "timing": {"inference_seconds": 0.5},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Expected v1 stage 'a2t'"):
+                _stage1_to_t2t(
+                    argparse.Namespace(
+                        manifest=str(manifest),
+                        pipeline="A2S",
+                        upstream_backend="asr",
+                        text_model="qwen3_32b",
+                        allow_partial=False,
+                    )
+                )
+
+    def test_v1_t2t_to_final_uses_inspect_cumulative_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 4,
+                        "sample_id": "sample_a",
+                        "stage": "t2t",
+                        "model": "qwen3_32b",
+                        "status": "success",
+                        "input": {"source_stage_index": 1, "source_sample_id": "sample_a", "source_status": "success"},
+                        "output": {"type": "text", "generated_speech_text": "generated speech text"},
+                        "timing": {"inference_seconds": 2.5},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "samples": [
+                            {
+                                "sample_id": "sample_a",
+                                "reference": {
+                                    "audio_file": "audio/a.wav",
+                                    "speech_file": "speech/a.wav",
+                                    "reference_audio_caption": "reference caption",
+                                    "reference_speech_text": "reference speech",
+                                },
+                                "stages": [
+                                    {
+                                        "stage_index": 1,
+                                        "stage": "a2t",
+                                        "model": "captioner",
+                                        "status": "success",
+                                        "input": {"audio_file": "audio/a.wav"},
+                                        "runtime_prompt": None,
+                                        "output": {"type": "text", "audio_caption": "generated caption"},
+                                        "timing": {"inference_seconds": 1.5},
+                                        "error": None,
+                                    },
+                                    {
+                                        "stage_index": 2,
+                                        "stage": "t2t",
+                                        "model": "qwen3_32b",
+                                        "status": "success",
+                                        "input": {"audio_caption": "generated caption"},
+                                        "runtime_prompt": {"messages": [{"role": "user", "content": "convert"}]},
+                                        "output": {"type": "text", "generated_speech_text": "generated speech text"},
+                                        "timing": {"inference_seconds": 2.5},
+                                        "error": None,
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows = _t2t_to_final(
+                argparse.Namespace(
+                    manifest=str(manifest),
+                    pipeline="A2S",
+                    upstream_backend="captioner",
+                    text_model="qwen3_32b",
+                    final_backend="f5_tts",
+                    allow_partial=False,
+                )
+            )
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["speech_text"], "generated speech text")
+        self.assertEqual(row["reference_speech_file"], "speech/a.wav")
+        self.assertEqual(row["reference_speech_text"], "reference speech")
+        sample = row["_cascaded_sample"]
+        self.assertEqual(len(sample["stages"]), 2)
+        self.assertEqual(sample["stages"][0]["output"], {"type": "audio_caption", "text": "generated caption"})
+        self.assertEqual(sample["stages"][1]["mode"], "audio_description_to_speech")
+        self.assertEqual(sample["stages"][1]["output"], {"type": "speech_text", "text": "generated speech text"})
+
+    def test_v1_t2t_to_final_requires_inspect_for_cumulative_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = Path(tmpdir) / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 4,
+                        "sample_id": "sample_a",
+                        "stage": "t2t",
+                        "model": "qwen3_32b",
+                        "status": "success",
+                        "input": {"source_stage_index": 1, "source_sample_id": "sample_a", "source_status": "success"},
+                        "output": {"type": "text", "generated_speech_text": "generated speech text"},
+                        "timing": {"inference_seconds": 2.5},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "requires sibling inspect.json"):
+                _t2t_to_final(
+                    argparse.Namespace(
+                        manifest=str(manifest),
+                        pipeline="A2S",
+                        upstream_backend="captioner",
+                        text_model="qwen3_32b",
+                        final_backend="f5_tts",
+                        allow_partial=False,
+                    )
+                )
+
+    def test_v1_t2t_to_final_rejects_non_t2t_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = Path(tmpdir) / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 4,
+                        "sample_id": "sample_a",
+                        "stage": "a2t",
+                        "model": "captioner",
+                        "status": "success",
+                        "input": {"audio_file": "audio/a.wav"},
+                        "output": {"type": "text", "audio_caption": "generated caption"},
+                        "timing": {"inference_seconds": 1.5},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Expected v1 stage 't2t'"):
+                _t2t_to_final(
+                    argparse.Namespace(
+                        manifest=str(manifest),
+                        pipeline="A2S",
+                        upstream_backend="captioner",
+                        text_model="qwen3_32b",
+                        final_backend="f5_tts",
+                        allow_partial=False,
+                    )
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

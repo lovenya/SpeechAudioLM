@@ -64,9 +64,16 @@ def main() -> None:
 def _stage1_to_t2t(args: argparse.Namespace) -> list[dict]:
     manifest = Path(args.manifest)
     definitions = read_inspection_definitions(manifest)
+    inspect_samples = _read_v1_inspect_samples(manifest)
     rows = []
     for index, record in enumerate(_successful_records(manifest, allow_partial=args.allow_partial)):
-        sample = _cumulative_sample(record, pipeline=args.pipeline, model=args.upstream_backend, stage_number=1)
+        sample = _cumulative_sample(
+            record,
+            pipeline=args.pipeline,
+            model=args.upstream_backend,
+            stage_number=1,
+            inspect_sample=inspect_samples.get(_record_sample_id(record)),
+        )
         text = _sample_output_text(sample)
         sample_id = str(sample.get("sample_id") or f"row_{index}")
         reference = sample["reference"]
@@ -87,9 +94,16 @@ def _stage1_to_t2t(args: argparse.Namespace) -> list[dict]:
 def _t2t_to_final(args: argparse.Namespace) -> list[dict]:
     manifest = Path(args.manifest)
     definitions = read_inspection_definitions(manifest)
+    inspect_samples = _read_v1_inspect_samples(manifest)
     rows = []
     for index, record in enumerate(_successful_records(manifest, allow_partial=args.allow_partial)):
-        sample = _cumulative_sample(record, pipeline=args.pipeline, model=args.text_model, stage_number=2)
+        sample = _cumulative_sample(
+            record,
+            pipeline=args.pipeline,
+            model=args.text_model,
+            stage_number=2,
+            inspect_sample=inspect_samples.get(_record_sample_id(record)),
+        )
         text = _sample_output_text(sample)
         sample_id = str(sample.get("sample_id") or f"row_{index}")
         reference = sample["reference"]
@@ -111,7 +125,22 @@ def _t2t_to_final(args: argparse.Namespace) -> list[dict]:
     return rows
 
 
-def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number: int) -> dict:
+def _cumulative_sample(
+    record: dict,
+    *,
+    pipeline: str,
+    model: str,
+    stage_number: int,
+    inspect_sample: dict | None = None,
+) -> dict:
+    if _is_v1_manifest_row(record):
+        return _v1_cumulative_sample(
+            record,
+            pipeline=pipeline,
+            model=model,
+            stage_number=stage_number,
+            inspect_sample=inspect_sample,
+        )
     sample = unwrap_sample(record)
     if isinstance(record.get("sample"), dict):
         return sample
@@ -180,6 +209,247 @@ def _cumulative_sample(record: dict, *, pipeline: str, model: str, stage_number:
         stage=stage,
         status="success",
     )
+
+
+def _v1_cumulative_sample(
+    record: dict,
+    *,
+    pipeline: str,
+    model: str,
+    stage_number: int,
+    inspect_sample: dict | None,
+) -> dict:
+    _validate_v1_stage_for_command(record, pipeline=pipeline, stage_number=stage_number)
+    if inspect_sample and isinstance(inspect_sample.get("stages"), list):
+        return _legacy_sample_from_v1_inspect(record, inspect_sample, stage_number=stage_number)
+    if stage_number != 1:
+        raise ValueError(
+            f"v1 {record.get('stage')} manifest row for sample {record.get('sample_id')} requires sibling inspect.json"
+        )
+    stage = record.get("stage")
+    expected_stage = "a2t" if pipeline == "A2S" else "s2t"
+    if stage != expected_stage:
+        raise ValueError(f"Expected v1 stage {expected_stage!r}; got {stage!r}")
+    task = "audio_to_text" if pipeline == "A2S" else "speech_to_text"
+    reference = _v1_reference(record, inspect_sample)
+    output_text = _v1_output_text(record)
+    output_type = "audio_caption" if pipeline == "A2S" else "speech_text"
+    input_file = record.get("input", {}).get("audio_file" if pipeline == "A2S" else "speech_file")
+    stage_doc = {
+        "stage": 1,
+        "task": task,
+        "model": record.get("model") or model,
+        "input": {"type": "audio" if pipeline == "A2S" else "speech_audio", "file": input_file},
+        "prompt": None,
+        "inference_seconds": _v1_inference_seconds(record),
+        "output": {"type": output_type, "text": output_text},
+        "error": None,
+    }
+    return build_sample(
+        row_index=int(record.get("row_index", 0)),
+        sample_id=str(record.get("sample_id") or "unknown"),
+        record=reference,
+        stage=stage_doc,
+        status="success",
+    )
+
+
+def _validate_v1_stage_for_command(record: dict, *, pipeline: str, stage_number: int) -> None:
+    expected = None
+    if stage_number == 1:
+        expected = "a2t" if pipeline == "A2S" else "s2t"
+    elif stage_number == 2:
+        expected = "t2t"
+    actual = record.get("stage")
+    if expected is not None and actual != expected:
+        raise ValueError(f"Expected v1 stage {expected!r} for {pipeline} stage {stage_number}; got {actual!r}")
+
+
+def _legacy_sample_from_v1_inspect(record: dict, inspect_sample: dict, *, stage_number: int) -> dict:
+    stages = inspect_sample.get("stages")
+    if not isinstance(stages, list) or len(stages) < stage_number:
+        raise ValueError(f"inspect sample {record.get('sample_id')} does not contain stage {stage_number}")
+    reference = _reference_from_v1_inspect(inspect_sample)
+    sample: dict | None = None
+    carried_record = reference
+    for stage in stages[:stage_number]:
+        legacy_stage = _legacy_stage_from_v1(stage)
+        sample = build_sample(
+            row_index=int(record.get("row_index", inspect_sample.get("row_index", 0) or 0)),
+            sample_id=str(record.get("sample_id") or inspect_sample.get("sample_id") or "unknown"),
+            record=carried_record,
+            stage=legacy_stage,
+            status="success",
+        )
+        carried_record = {"_cascaded_sample": sample}
+    if sample is None:
+        raise ValueError(f"inspect sample {record.get('sample_id')} has no usable stages")
+    return sample
+
+
+def _legacy_stage_from_v1(stage: dict) -> dict:
+    design_stage = stage.get("stage")
+    task = {
+        "a2t": "audio_to_text",
+        "s2t": "speech_to_text",
+        "t2t": "text_to_text",
+        "t2a": "text_to_audio",
+        "t2s": "text_to_speech",
+    }.get(design_stage)
+    if task is None:
+        raise ValueError(f"unsupported v1 inspect stage: {design_stage!r}")
+    legacy = {
+        "stage": stage.get("stage_index"),
+        "task": task,
+        "model": stage.get("model"),
+        "input": _legacy_input_from_v1(stage),
+        "prompt": stage.get("runtime_prompt"),
+        "inference_seconds": (stage.get("timing") or {}).get("inference_seconds")
+        if isinstance(stage.get("timing"), dict)
+        else None,
+        "output": _legacy_output_from_v1(stage),
+        "error": stage.get("error"),
+    }
+    mode = _legacy_mode_from_v1(stage)
+    if mode:
+        legacy["mode"] = mode
+    return legacy
+
+
+def _legacy_input_from_v1(stage: dict) -> dict | None:
+    value = stage.get("input")
+    if not isinstance(value, dict):
+        return None
+    design_stage = stage.get("stage")
+    if design_stage == "a2t":
+        return {"type": "audio", "file": value.get("audio_file")}
+    if design_stage == "s2t":
+        return {"type": "speech_audio", "file": value.get("speech_file")}
+    if design_stage == "t2t":
+        if value.get("audio_caption") is not None:
+            return {"type": "audio_caption", "text": value.get("audio_caption")}
+        if value.get("speech_transcription") is not None:
+            return {"type": "speech_text", "text": value.get("speech_transcription")}
+    if design_stage == "t2s":
+        return {"type": "speech_text", "text": value.get("generated_speech_text")}
+    if design_stage == "t2a":
+        return {"type": "audio_description", "text": value.get("generated_audio_caption")}
+    return dict(value)
+
+
+def _legacy_output_from_v1(stage: dict) -> dict | None:
+    output = stage.get("output")
+    if not isinstance(output, dict):
+        return None
+    text = _v1_text_from_output(output)
+    if text is not None:
+        key = _v1_text_key(output)
+        output_type = {
+            "audio_caption": "audio_caption",
+            "speech_transcription": "speech_text",
+            "generated_speech_text": "speech_text",
+            "generated_audio_caption": "audio_description",
+            "text": "text",
+        }[key]
+        return {"type": output_type, "text": text}
+    if output.get("audio_file") or output.get("speech_file"):
+        return {
+            "type": "environmental_audio" if output.get("audio_file") else "speech_audio",
+            "file": output.get("audio_file") or output.get("speech_file"),
+            "sample_rate": output.get("sample_rate"),
+            "duration_seconds": output.get("duration_seconds"),
+        }
+    return dict(output)
+
+
+def _legacy_mode_from_v1(stage: dict) -> str | None:
+    output = stage.get("output")
+    if not isinstance(output, dict):
+        return None
+    if output.get("generated_speech_text") is not None:
+        return "audio_description_to_speech"
+    if output.get("generated_audio_caption") is not None:
+        return "speech_to_audio_description"
+    return None
+
+
+def _is_v1_manifest_row(record: dict) -> bool:
+    return record.get("schema_version") == 1 and isinstance(record.get("output"), dict) and isinstance(record.get("stage"), str)
+
+
+def _read_v1_inspect_samples(manifest: Path) -> dict[str, dict]:
+    inspect_path = manifest.with_name("inspect.json")
+    if not inspect_path.is_file():
+        return {}
+    document = json.loads(inspect_path.read_text(encoding="utf-8"))
+    samples = document.get("samples")
+    if not isinstance(samples, list):
+        return {}
+    indexed = {}
+    for sample in samples:
+        if isinstance(sample, dict) and isinstance(sample.get("sample_id"), str):
+            indexed[sample["sample_id"]] = sample
+    return indexed
+
+
+def _record_sample_id(record: dict) -> str | None:
+    value = record.get("sample_id")
+    return value if isinstance(value, str) and value else None
+
+
+def _v1_reference(record: dict, inspect_sample: dict | None) -> dict:
+    if inspect_sample:
+        reference = _reference_from_v1_inspect(inspect_sample)
+        if reference:
+            return reference
+    input_value = record.get("input") if isinstance(record.get("input"), dict) else {}
+    return {
+        "audio_file": input_value.get("audio_file"),
+        "speech_file": input_value.get("speech_file"),
+    }
+
+
+def _reference_from_v1_inspect(inspect_sample: dict) -> dict:
+    reference = inspect_sample.get("reference")
+    if not isinstance(reference, dict):
+        return {}
+    return {
+        "audio_file": reference.get("audio_file"),
+        "speech_file": reference.get("speech_file"),
+        "audio_cap": reference.get("reference_audio_caption") or reference.get("audio_caption") or reference.get("audio_cap"),
+        "speech_text": reference.get("reference_speech_text") or reference.get("speech_text"),
+        "audio_metadata": reference.get("audio_metadata"),
+    }
+
+
+def _v1_output_text(record: dict) -> str:
+    output = record.get("output")
+    if not isinstance(output, dict):
+        raise ValueError(f"v1 row {record.get('sample_id')} has no output object")
+    text = _v1_text_from_output(output)
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"v1 row {record.get('sample_id')} has no usable text output")
+    return text.strip()
+
+
+def _v1_text_from_output(output: dict) -> str | None:
+    key = _v1_text_key(output)
+    return output.get(key) if key else None
+
+
+def _v1_text_key(output: dict) -> str | None:
+    for key in ("audio_caption", "speech_transcription", "generated_speech_text", "generated_audio_caption", "text"):
+        if isinstance(output.get(key), str):
+            return key
+    return None
+
+
+def _v1_inference_seconds(record: dict) -> float | None:
+    timing = record.get("timing")
+    if not isinstance(timing, dict):
+        return None
+    seconds = timing.get("inference_seconds")
+    return seconds if isinstance(seconds, (int, float)) else None
 
 
 def _legacy_prompt(task: str, model: str, source: dict, extra: dict) -> dict | None:
