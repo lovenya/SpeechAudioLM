@@ -52,6 +52,7 @@ def merge_stage_shards(
     shard_dirs = sorted(path for path in shards_dir.glob("shard_*") if path.is_dir())
     if not shard_dirs:
         raise FileNotFoundError(f"no shard directories under {shards_dir}")
+    _require_root_artifacts(run_dir)
     _fail_if_published_outputs_exist(run_dir, media_output)
 
     rows: dict[int, dict[str, Any]] = {}
@@ -165,6 +166,12 @@ def _read_optional_json(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
     return _read_json(path)
+
+
+def _require_root_artifacts(run_dir: Path) -> None:
+    missing = [name for name in ("run.json", "config.json") if not (run_dir / name).is_file()]
+    if missing:
+        raise FileNotFoundError(f"{run_dir}: missing required stage root artifact(s): {', '.join(missing)}")
 
 
 def _row_index(row: dict[str, Any], shard_dir: Path) -> int:

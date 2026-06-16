@@ -125,8 +125,26 @@ class MergeCascadedStageShardsTest(unittest.TestCase):
             with self.assertRaisesRegex(FileExistsError, "canonical artifact already exists"):
                 merge_stage_shards(run_dir, expected_count=1)
 
+    def test_fails_if_root_run_artifacts_are_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(run_dir, "shard_000", [_row(0, "sample-a")], write_root_artifacts=False)
 
-def _write_shard(run_dir: Path, shard_id: str, rows: list[dict]) -> None:
+            with self.assertRaisesRegex(FileNotFoundError, "missing required stage root artifact"):
+                merge_stage_shards(run_dir, expected_count=1)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+
+
+def _write_shard(
+    run_dir: Path,
+    shard_id: str,
+    rows: list[dict],
+    *,
+    write_root_artifacts: bool = True,
+) -> None:
+    if write_root_artifacts:
+        _write_root_artifacts(run_dir, rows)
     shard = run_dir / "shards" / shard_id
     shard.mkdir(parents=True, exist_ok=True)
     (shard / "manifest.jsonl").write_text(
@@ -152,6 +170,42 @@ def _write_shard(run_dir: Path, shard_id: str, rows: list[dict]) -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def _write_root_artifacts(run_dir: Path, rows: list[dict]) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    stage = rows[0].get("stage", "t2t")
+    model = rows[0].get("model", "llama3_3b_instruct")
+    if not (run_dir / "run.json").exists():
+        (run_dir / "run.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "run_id": run_dir.name,
+                    "stage": stage,
+                    "direction": "a2s",
+                    "status": "running",
+                    "dataset": "ttas",
+                    "split": "val",
+                    "model": model,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    if not (run_dir / "config.json").exists():
+        (run_dir / "config.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "input": {"manifest": "input.jsonl"},
+                    "model": {"name": model},
+                    "execution": {"shard_index": None, "num_shards": None},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
 
 def _row(
