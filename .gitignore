@@ -39,6 +39,8 @@ checkpoints/
 outputs/
 results/
 logs/
+temporary/
+exports/
 resource_usage*.json
 resource_accounting*.json
 wandb/

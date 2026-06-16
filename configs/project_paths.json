@@ -4,12 +4,17 @@
   "roots": {
     "repo_root": ".",
     "results_root": "results",
+    "temporary_results_root": "temporary/results",
+    "logs_root": "logs",
+    "temporary_logs_root": "temporary/logs",
+    "exports_root": "exports",
+    "environment_root": ".venvs",
+    "model_root": "models",
     "environments_root": ".venvs",
     "models_root": "models",
     "cache_root": "cache",
     "datasets_root": "../salm_migration_clean/datasets",
-    "sources_root": "../salm_migration_clean/code",
-    "logs_root": "logs"
+    "sources_root": "../salm_migration_clean/code"
   },
   "dataset": {
     "name": "ttas",

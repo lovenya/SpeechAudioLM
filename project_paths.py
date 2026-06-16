@@ -13,12 +13,22 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "project_paths.json"
 _ROOT_ENV_VARS = {
     "repo_root": "SALM_REPO_ROOT",
     "results_root": "SALM_RESULTS_ROOT",
+    "temporary_results_root": "SALM_TEMPORARY_RESULTS_ROOT",
     "environments_root": "SALM_ENVIRONMENTS_ROOT",
+    "environment_root": "SALM_ENVIRONMENT_ROOT",
     "models_root": "SALM_MODELS_ROOT",
+    "model_root": "SALM_MODEL_ROOT",
     "cache_root": "SALM_CACHE_ROOT",
     "datasets_root": "SALM_DATASETS_ROOT",
     "sources_root": "SALM_SOURCES_ROOT",
     "logs_root": "SALM_LOGS_ROOT",
+    "temporary_logs_root": "SALM_TEMPORARY_LOGS_ROOT",
+    "exports_root": "SALM_EXPORTS_ROOT",
+}
+
+_ROOT_ENV_FALLBACKS = {
+    "environment_root": ("SALM_ENVIRONMENTS_ROOT",),
+    "model_root": ("SALM_MODELS_ROOT",),
 }
 
 
@@ -37,7 +47,7 @@ def root_path(name: str, config_path: str | Path = DEFAULT_CONFIG_PATH) -> Path:
     roots = config["roots"]
     if name not in roots:
         raise KeyError(f"Unknown project root: {name}")
-    override = os.environ.get(_ROOT_ENV_VARS.get(name, ""))
+    override = _root_override(name)
     value = override if override else roots[name]
     if name == "repo_root":
         return _absolute(Path(value), REPO_ROOT)
@@ -46,11 +56,11 @@ def root_path(name: str, config_path: str | Path = DEFAULT_CONFIG_PATH) -> Path:
 
 
 def model_path(name: str, config_path: str | Path = DEFAULT_CONFIG_PATH) -> Path:
-    return _mapped_path("models", name, "models_root", config_path)
+    return _mapped_path("models", name, "model_root", config_path)
 
 
 def environment_path(name: str, config_path: str | Path = DEFAULT_CONFIG_PATH) -> Path:
-    return _mapped_path("environments", name, "environments_root", config_path)
+    return _mapped_path("environments", name, "environment_root", config_path)
 
 
 def cache_path(name: str, config_path: str | Path = DEFAULT_CONFIG_PATH) -> Path:
@@ -121,6 +131,16 @@ def _mapped_path(
         raise KeyError(f"Unknown {section} path: {name}")
     value = resolve_config_value(mappings[name], config_path)
     return _absolute(Path(value), root_path(root_name, config_path))
+
+
+def _root_override(name: str) -> str | None:
+    candidates = [_ROOT_ENV_VARS.get(name, ""), *_ROOT_ENV_FALLBACKS.get(name, ())]
+    for variable in candidates:
+        if variable:
+            value = os.environ.get(variable)
+            if value:
+                return value
+    return None
 
 
 def _absolute(path: Path, base: Path) -> Path:
