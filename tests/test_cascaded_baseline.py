@@ -374,6 +374,82 @@ class CascadedBaselineTest(unittest.TestCase):
 
             self.assertFalse(output_root.exists())
 
+    def test_v1_t2t_rejects_mismatched_carried_sample_id(self) -> None:
+        args = _minimal_cascade_args(pipeline="T2T", text_model="template", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="raw text",
+            record={
+                "audio_cap": "raw text",
+                "_cascaded_sample": _carried_sample(
+                    row_index=0,
+                    sample_id="other-sample",
+                    stages=[
+                        {
+                            "stage": 1,
+                            "task": "audio_to_text",
+                            "model": "reference",
+                            "input": {"type": "audio", "file": "audio/source.wav"},
+                            "output": {"type": "audio_caption", "text": "raw text"},
+                        }
+                    ],
+                ),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+
+            with self.assertRaisesRegex(ValueError, "carried sample_id to match"):
+                ModularCascade(args, dataset_root=None).run(
+                    [row],
+                    output_root,
+                    root / "logs" / "20260616_1437",
+                    _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap"),
+                    total_rows=1,
+                )
+
+            self.assertFalse(output_root.exists())
+
+    def test_v1_t2t_rejects_unexpected_upstream_model(self) -> None:
+        args = _minimal_cascade_args(pipeline="T2T", captioner="reference", text_model="template", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="raw text",
+            record={
+                "audio_cap": "raw text",
+                "_cascaded_sample": _carried_sample(
+                    row_index=0,
+                    sample_id="sample-a",
+                    stages=[
+                        {
+                            "stage": 1,
+                            "task": "audio_to_text",
+                            "model": "other-captioner",
+                            "input": {"type": "audio", "file": "audio/source.wav"},
+                            "output": {"type": "audio_caption", "text": "raw text"},
+                        }
+                    ],
+                ),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+
+            with self.assertRaisesRegex(ValueError, "requires previous carried model 'reference'"):
+                ModularCascade(args, dataset_root=None).run(
+                    [row],
+                    output_root,
+                    root / "logs" / "20260616_1437",
+                    _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap"),
+                    total_rows=1,
+                )
+
+            self.assertFalse(output_root.exists())
+
     def test_v1_t2a_writes_media_under_outputs(self) -> None:
         args = _minimal_cascade_args(pipeline="T2A", t2a="audiogen", results_schema="v1")
 

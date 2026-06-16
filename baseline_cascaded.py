@@ -1129,12 +1129,19 @@ def _validate_v1_stage_inputs(args: argparse.Namespace, rows: list[PromptRow]) -
     if expected is None:
         return
     allowed_previous_tasks = _v1_allowed_previous_tasks(args)
+    expected_previous_model = _v1_expected_previous_model(args)
     for row in rows:
         stages = carried_stages(row.record)
         if len(stages) != expected:
             raise ValueError(
                 f"results-schema v1 {args.pipeline} requires rows with exactly {expected} carried "
                 f"upstream stage(s); row {row.row_index} sample_id={row.sample_id!r} has {len(stages)}"
+            )
+        carried_sample_id = _carried_sample_id(row.record)
+        if carried_sample_id != row.sample_id:
+            raise ValueError(
+                f"results-schema v1 {args.pipeline} requires carried sample_id to match row sample_id; "
+                f"row {row.row_index} has row sample_id={row.sample_id!r} carried sample_id={carried_sample_id!r}"
             )
         previous_task = stages[-1].get("task") if stages else None
         if previous_task not in allowed_previous_tasks:
@@ -1143,6 +1150,12 @@ def _validate_v1_stage_inputs(args: argparse.Namespace, rows: list[PromptRow]) -
                 f"results-schema v1 {args.pipeline} requires previous carried task in "
                 f"{{{expected_tasks}}}; row {row.row_index} sample_id={row.sample_id!r} has {previous_task!r}"
             )
+        previous_model = stages[-1].get("model") if stages else None
+        if expected_previous_model is not None and previous_model != expected_previous_model:
+            raise ValueError(
+                f"results-schema v1 {args.pipeline} requires previous carried model "
+                f"{expected_previous_model!r}; row {row.row_index} sample_id={row.sample_id!r} has {previous_model!r}"
+            )
 
 
 def _carried_stage_lineage(record: dict) -> list[dict]:
@@ -1150,6 +1163,12 @@ def _carried_stage_lineage(record: dict) -> list[dict]:
     if not isinstance(lineage, list):
         return []
     return [dict(item) for item in lineage if isinstance(item, dict)]
+
+
+def _carried_sample_id(record: dict) -> str | None:
+    sample = record.get("_cascaded_sample")
+    value = sample.get("sample_id") if isinstance(sample, dict) else None
+    return value if isinstance(value, str) and value else None
 
 
 def _stage_definition_from_carried_stage(stage: dict) -> dict:
@@ -1175,6 +1194,16 @@ def _v1_allowed_previous_tasks(args: argparse.Namespace) -> set[str]:
     if args.pipeline in {"T2A", "T2S"}:
         return {"text_to_text"}
     return set()
+
+
+def _v1_expected_previous_model(args: argparse.Namespace) -> str | None:
+    if args.pipeline == "T2T":
+        if args.text_mode == "audio_description_to_speech":
+            return args.captioner
+        return args.asr
+    if args.pipeline in {"T2A", "T2S"}:
+        return args.text_model
+    return None
 
 
 def _temporary_path(path: Path, canonical_root: Path, temporary_root: Path) -> Path:
