@@ -248,6 +248,119 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
         self.assertFalse(run["lineage"]["stages"][0]["config"].startswith("/"))
         self.assertFalse(row["final_output"]["speech_file"].startswith("/"))
 
+    def test_rejects_downstream_source_sample_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "t2t",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[
+                    _row(
+                        0,
+                        "sample-a",
+                        stage="t2t",
+                        model="text",
+                        input_value={"source_stage_index": 1, "source_sample_id": "other", "source_status": "success"},
+                    )
+                ],
+            )
+            t2s = _write_stage_run(root / "t2s", stage="t2s", model="tts", direction="a2s", rows=[])
+
+            with self.assertRaisesRegex(ValueError, "source_sample_id must match"):
+                assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+
+    def test_rejects_downstream_source_stage_index_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "t2t",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2t", model="text")],
+            )
+            t2s = _write_stage_run(
+                root / "t2s",
+                stage="t2s",
+                model="tts",
+                direction="a2s",
+                rows=[
+                    _row(
+                        0,
+                        "sample-a",
+                        stage="t2s",
+                        model="tts",
+                        input_value={"source_stage_index": 1, "source_sample_id": "sample-a", "source_status": "success"},
+                        output={"type": "speech", "speech_file": "outputs/sample-a.wav"},
+                    )
+                ],
+            )
+
+            with self.assertRaisesRegex(ValueError, "source_stage_index must be 2"):
+                assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+
+    def test_rejects_successful_downstream_row_after_failed_upstream(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "t2t",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[
+                    _row(
+                        0,
+                        "sample-a",
+                        stage="t2t",
+                        model="text",
+                        status="error",
+                        error={"type": "RuntimeError", "message": "text model failed"},
+                    )
+                ],
+            )
+            t2s = _write_stage_run(
+                root / "t2s",
+                stage="t2s",
+                model="tts",
+                direction="a2s",
+                rows=[
+                    _row(
+                        0,
+                        "sample-a",
+                        stage="t2s",
+                        model="tts",
+                        input_value={"source_stage_index": 2, "source_sample_id": "sample-a", "source_status": "error"},
+                        output={"type": "speech", "speech_file": "outputs/sample-a.wav"},
+                    )
+                ],
+            )
+
+            with self.assertRaisesRegex(ValueError, "cannot be successful"):
+                assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+
 
 def _write_stage_run(
     run_dir: Path,
@@ -304,6 +417,13 @@ def _row(
     output: dict | None = None,
     error: dict | None = None,
 ) -> dict:
+    if input_value is None:
+        source_stage_index = 2 if stage in {"t2a", "t2s"} else 1
+        input_value = {
+            "source_stage_index": source_stage_index,
+            "source_sample_id": sample_id,
+            "source_status": "success",
+        }
     return {
         "schema_version": 1,
         "row_index": row_index,
@@ -311,8 +431,7 @@ def _row(
         "stage": stage,
         "model": model,
         "status": status,
-        "input": input_value
-        or {"source_stage_index": 1, "source_sample_id": sample_id, "source_status": "success"},
+        "input": input_value,
         "output": output if status == "success" else None,
         "timing": {"inference_seconds": 1.0},
         "error": error,

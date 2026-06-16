@@ -186,14 +186,29 @@ def _assemble_manifest_rows(direction: str, stage_runs: list[dict[str, Any]]) ->
     rows = []
     for stage1_row in ordered_stage1_rows:
         sample_id = _sample_id(stage1_row, Path(stage1["manifest"]))
+        stage2_row = stage2["rows_by_sample_id"].get(sample_id)
+        final_row = final_stage["rows_by_sample_id"].get(sample_id)
+        _validate_downstream_row(
+            stage2_row,
+            stage_run=stage2,
+            sample_id=sample_id,
+            expected_source_stage_index=1,
+            upstream_status=_row_status(stage1_row),
+        )
+        _validate_downstream_row(
+            final_row,
+            stage_run=final_stage,
+            sample_id=sample_id,
+            expected_source_stage_index=2,
+            upstream_status=_row_status(stage2_row) if stage2_row is not None else "missing",
+        )
         joined = [
             _stage_entry(stage1, stage1_row),
-            _stage_entry(stage2, stage2["rows_by_sample_id"].get(sample_id)),
-            _stage_entry(final_stage, final_stage["rows_by_sample_id"].get(sample_id)),
+            _stage_entry(stage2, stage2_row),
+            _stage_entry(final_stage, final_row),
         ]
         failed_stage = _first_failed_stage(joined)
         success = failed_stage is None and all(entry["status"] == "success" for entry in joined)
-        final_row = final_stage["rows_by_sample_id"].get(sample_id)
         rows.append(
             {
                 "schema_version": 1,
@@ -207,6 +222,49 @@ def _assemble_manifest_rows(direction: str, stage_runs: list[dict[str, Any]]) ->
             }
         )
     return rows
+
+
+def _validate_downstream_row(
+    row: dict[str, Any] | None,
+    *,
+    stage_run: dict[str, Any],
+    sample_id: str,
+    expected_source_stage_index: int,
+    upstream_status: str,
+) -> None:
+    if row is None:
+        return
+    input_value = row.get("input")
+    if not isinstance(input_value, dict):
+        raise ValueError(f"{stage_run['manifest']}: sample_id={sample_id!r} input must be an object")
+    source_stage_index = input_value.get("source_stage_index")
+    if source_stage_index != expected_source_stage_index:
+        raise ValueError(
+            f"{stage_run['manifest']}: sample_id={sample_id!r} source_stage_index must be "
+            f"{expected_source_stage_index}; got {source_stage_index!r}"
+        )
+    source_sample_id = input_value.get("source_sample_id")
+    if source_sample_id != sample_id:
+        raise ValueError(
+            f"{stage_run['manifest']}: sample_id={sample_id!r} source_sample_id must match; "
+            f"got {source_sample_id!r}"
+        )
+    source_status = input_value.get("source_status")
+    if source_status is not None and source_status != upstream_status:
+        raise ValueError(
+            f"{stage_run['manifest']}: sample_id={sample_id!r} source_status={source_status!r} "
+            f"does not match upstream status {upstream_status!r}"
+        )
+    if row.get("status") == "success" and upstream_status != "success":
+        raise ValueError(
+            f"{stage_run['manifest']}: sample_id={sample_id!r} cannot be successful when "
+            f"upstream status is {upstream_status!r}"
+        )
+
+
+def _row_status(row: dict[str, Any]) -> str:
+    status = row.get("status")
+    return status if isinstance(status, str) and status else "missing"
 
 
 def _stage_entry(stage_run: dict[str, Any], row: dict[str, Any] | None) -> dict[str, Any]:
