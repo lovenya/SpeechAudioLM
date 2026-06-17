@@ -56,8 +56,8 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
                     ),
                 ],
             )
-            _update_run_json(a2t, started_at="2026-06-16T19:00:00+00:00", code={"git_commit": "a2t"})
-            _update_run_json(t2t, started_at="2026-06-16T19:05:00+00:00", code={"git_commit": "t2t"})
+            _update_run_json(a2t, started_at="2026-06-16T23:00:00+02:00", code={"git_commit": "a2t"})
+            _update_run_json(t2t, started_at="2026-06-16T18:30:00-04:00", code={"git_commit": "t2t"})
             _update_run_json(t2s, started_at="2026-06-16T19:10:00+00:00", code={"git_commit": "t2s"})
             pipeline_dir = root / "pipeline" / "20260616_1530"
 
@@ -81,7 +81,7 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
         self.assertEqual(rows[0]["final_output"]["speech_file"], (t2s / "outputs" / "sample-b.wav").as_posix())
         self.assertEqual([stage["stage"] for stage in rows[0]["stages"]], ["a2t", "t2t", "t2s"])
         self.assertEqual(pipeline["final_output"]["stage"], "t2s")
-        self.assertEqual(run["started_at"], "2026-06-16T19:00:00+00:00")
+        self.assertEqual(run["started_at"], "2026-06-16T19:10:00+00:00")
         self.assertEqual(run["completed_at"], "2026-06-16T15:30:00-04:00")
         self.assertEqual(run["code"]["stage_runs"][0]["code"], {"git_commit": "a2t"})
         self.assertEqual(run["code"]["stage_runs"][2]["code"], {"git_commit": "t2s"})

@@ -428,12 +428,21 @@ def _run_document(
 
 
 def _pipeline_started_at(stage_runs: list[dict[str, Any]]) -> str | None:
-    values = [
-        stage["run"].get("started_at")
-        for stage in stage_runs
-        if isinstance(stage.get("run"), dict) and isinstance(stage["run"].get("started_at"), str)
-    ]
-    return min(values) if values else None
+    parsed: list[tuple[datetime, str]] = []
+    for stage in stage_runs:
+        value = stage["run"].get("started_at") if isinstance(stage.get("run"), dict) else None
+        if not isinstance(value, str):
+            continue
+        try:
+            timestamp = datetime.fromisoformat(value)
+        except ValueError:
+            continue
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        parsed.append((timestamp.astimezone(timezone.utc), value))
+    if not parsed:
+        return None
+    return min(parsed, key=lambda item: item[0])[1]
 
 
 def _pipeline_code_state(stage_runs: list[dict[str, Any]]) -> dict[str, Any]:
