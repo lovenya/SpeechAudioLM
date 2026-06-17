@@ -650,6 +650,9 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(run_doc["lineage"]["stages"][1]["run_id"], "20260616_1437")
         self.assertEqual(run_doc["lineage"]["stages"][1]["run_path"], output_root.as_posix())
         self.assertEqual([stage["stage"] for stage in inspect["stage_configs"]], ["s2t", "t2t"])
+        runtime_prompt = inspect["samples"][0]["stages"][1]["runtime_prompt"]
+        self.assertEqual(runtime_prompt["messages"][0]["role"], "user")
+        self.assertIn("Speech content:\nspoken words", runtime_prompt["messages"][0]["content"])
         self.assertEqual(config["model"]["path"], "{model_root}/text-model")
 
     def test_v1_t2t_requires_carried_stage1_sample(self) -> None:

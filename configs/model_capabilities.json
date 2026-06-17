@@ -18,9 +18,6 @@
     "template": {
       "tasks": ["T2T"]
     },
-    "identity": {
-      "tasks": ["T2T"]
-    },
     "qwen3_32b": {
       "tasks": ["T2T"]
     },

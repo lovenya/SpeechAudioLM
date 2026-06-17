@@ -76,7 +76,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--asr", default="audio_omni", choices=["audio_omni", "reference", "whisper", "qwen3_asr"])
     parser.add_argument("--captioner", default="audio_omni", choices=["audio_omni", "reference", "audio_flamingo_next", "qwen3_omni_captioner"])
-    parser.add_argument("--text-model", default="template", choices=["template", "identity", "qwen3_32b", "llama3_3_70b_instruct"])
+    parser.add_argument("--text-model", default="template", choices=["template", "qwen3_32b", "llama3_3_70b_instruct"])
     parser.add_argument(
         "--text-mode",
         default="speech_to_audio_description",
@@ -419,8 +419,6 @@ class ModularCascade:
         return text
 
     def _audio_description_to_speech(self, audio_description: str) -> str:
-        if self.args.text_model == "identity":
-            return audio_description
         if self.args.text_model != "template":
             raise ValueError(f"Text model backend is not wired yet: {self.args.text_model}")
         return (
@@ -430,26 +428,23 @@ class ModularCascade:
         ).strip()
 
     def _speech_to_audio_description(self, transcript: str) -> str:
-        if self.args.text_model == "identity":
-            return transcript
         if self.args.text_model != "template":
             raise ValueError(f"Text model backend is not wired yet: {self.args.text_model}")
         return f"Environmental audio matching this spoken situation: {transcript.strip()}"
 
     def _convert_text(self, input_text: str, mode: str, output_root: Path, row: PromptRow) -> str:
         self._last_stage_extra = {}
-        if self.args.text_model == "identity":
-            text = input_text
-            self._write_component_text(output_root, "text_to_text", row, text, {"input_text": input_text, "mode": mode})
-            return text
         if self.args.text_model == "template":
+            rendered_prompt = _text_conversion_prompt(input_text, mode)
             if mode == "audio_description_to_speech":
                 text = self._audio_description_to_speech(input_text)
             elif mode == "speech_to_audio_description":
                 text = self._speech_to_audio_description(input_text)
             else:
                 raise ValueError(f"Unsupported text conversion mode: {mode}")
-            self._write_component_text(output_root, "text_to_text", row, text, {"input_text": input_text, "mode": mode})
+            extra = {"input_text": input_text, "mode": mode, "generation_prompt": rendered_prompt}
+            self._last_stage_extra = extra
+            self._write_component_text(output_root, "text_to_text", row, text, extra)
             return text
         if self.args.text_model not in {"qwen3_32b", "llama3_3_70b_instruct"}:
             raise ValueError(f"Text model backend is not wired yet: {self.args.text_model}")
@@ -931,7 +926,7 @@ class ModularCascade:
         runner_task = {"audio_to_text": "A2T", "speech_to_text": "S2T", "text_to_text": "text_to_text", "text_to_speech": "T2S", "text_to_audio": "T2A"}[task]
         runner = self._runners.get((model, runner_task))
         checkpoint = getattr(runner, "model_path", None) or self._model_path_for(model, runner_task)
-        is_rule_based = model in {"reference", "template", "identity"}
+        is_rule_based = model in {"reference", "template"}
         definition = {
             "stage": stage_number,
             "task": task,
@@ -959,7 +954,7 @@ class ModularCascade:
             return self.args.tts_model_path or self.args.model_path
         if task == "T2A":
             return self.args.t2a_model_path or self.args.model_path
-        if model in {"qwen3_32b", "llama3_3_70b_instruct", "template", "identity"}:
+        if model in {"qwen3_32b", "llama3_3_70b_instruct", "template"}:
             return self.args.text_model_path or self.args.model_path
         return self.args.model_path
 
