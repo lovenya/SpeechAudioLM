@@ -259,6 +259,83 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
         self.assertFalse(run["lineage"]["stages"][0]["config"].startswith("/"))
         self.assertFalse(row["final_output"]["speech_file"].startswith("/"))
 
+
+    def test_rejects_non_terminal_stage_run_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a.wav"})],
+            )
+            t2t = _write_stage_run(root / "t2t", stage="t2t", model="text", direction="a2s", rows=[])
+            t2s = _write_stage_run(root / "t2s", stage="t2s", model="tts", direction="a2s", rows=[])
+            _update_run_json(t2t, status="running")
+
+            with self.assertRaisesRegex(ValueError, "stage run status must be terminal"):
+                assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+
+    def test_rejects_unsupported_stage_manifest_row_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "t2t",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2t", model="text", status="skipped")],
+            )
+            t2s = _write_stage_run(root / "t2s", stage="t2s", model="tts", direction="a2s", rows=[])
+
+            with self.assertRaisesRegex(ValueError, "unsupported row status"):
+                assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+
+    def test_rejects_successful_final_row_with_missing_media_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "t2t",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2t", model="text")],
+            )
+            t2s = _write_stage_run(
+                root / "t2s",
+                stage="t2s",
+                model="tts",
+                direction="a2s",
+                rows=[
+                    _row(
+                        0,
+                        "sample-a",
+                        stage="t2s",
+                        model="tts",
+                        output={"type": "speech", "speech_file": "outputs/sample-a.wav"},
+                    )
+                ],
+            )
+            (t2s / "outputs" / "sample-a.wav").unlink()
+
+            with self.assertRaisesRegex(FileNotFoundError, "missing final output file"):
+                assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+
     def test_rejects_downstream_source_sample_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -398,6 +475,7 @@ def _write_stage_run(
         + "\n",
         encoding="utf-8",
     )
+    _write_referenced_media(run_dir, rows)
     (run_dir / "manifest.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in rows),
         encoding="utf-8",
@@ -415,6 +493,24 @@ def _write_stage_run(
         encoding="utf-8",
     )
     return run_dir
+
+
+def _write_referenced_media(run_dir: Path, rows: list[dict]) -> None:
+    for row in rows:
+        if row.get("status") != "success":
+            continue
+        output = row.get("output")
+        if not isinstance(output, dict):
+            continue
+        for key in ("audio_file", "speech_file"):
+            value = output.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            path = Path(value)
+            if not path.is_absolute():
+                path = run_dir / path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"RIFFfake")
 
 
 def _update_run_json(run_dir: Path, **updates: object) -> None:

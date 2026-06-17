@@ -31,6 +31,7 @@ class MergeCascadedStageShardsTest(unittest.TestCase):
             rows = [json.loads(line) for line in (run_dir / "manifest.jsonl").read_text().splitlines()]
             errors = json.loads((run_dir / "errors.json").read_text())
             summary = json.loads((run_dir / "summary.json").read_text())
+            run_doc = json.loads((run_dir / "run.json").read_text())
 
         self.assertEqual([row["row_index"] for row in rows], [0, 1, 2])
         self.assertFalse((run_dir / "shards").exists())
@@ -38,6 +39,8 @@ class MergeCascadedStageShardsTest(unittest.TestCase):
         self.assertEqual(report["merged"]["failed"], 1)
         self.assertEqual(errors["error_count"], 1)
         self.assertEqual(summary["outputs"]["generated_media_files"], None)
+        self.assertEqual(run_doc["status"], "complete_with_errors")
+        self.assertIsInstance(run_doc.get("completed_at"), str)
 
     def test_merges_generated_media_into_outputs_and_rewrites_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

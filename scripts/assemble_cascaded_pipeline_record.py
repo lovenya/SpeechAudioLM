@@ -24,6 +24,8 @@ STAGES_BY_DIRECTION: dict[str, tuple[str, str, str]] = {
 INPUT_FIELD_BY_DIRECTION = {"a2s": "audio_file", "s2a": "speech_file"}
 FINAL_OUTPUT_FIELDS = {"audio_file", "speech_file"}
 PIPELINE_ARTIFACTS = ("run.json", "pipeline.json", "manifest.jsonl", "inspect.json", "errors.json", "summary.json")
+TERMINAL_STAGE_STATUSES = {"complete", "complete_with_errors"}
+ROW_STATUSES = {"success", "error"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -158,6 +160,8 @@ def _load_stage_run(run_dir: Path, *, expected_stage: str, position: int) -> dic
     stage = _stage_name(run_json, rows, run_dir)
     if stage != expected_stage:
         raise ValueError(f"{run_dir}: expected stage {expected_stage!r}; got {stage!r}")
+    _validate_stage_run_status(run_json, run_dir)
+    _validate_stage_row_statuses(rows, manifest_path)
     return {
         "position": position,
         "stage": stage,
@@ -212,6 +216,7 @@ def _assemble_manifest_rows(direction: str, stage_runs: list[dict[str, Any]]) ->
         ]
         failed_stage = _first_failed_stage(joined)
         success = failed_stage is None and all(entry["status"] == "success" for entry in joined)
+        final_output = _final_output(final_stage, final_row) if success and final_row is not None else None
         rows.append(
             {
                 "schema_version": 1,
@@ -220,7 +225,7 @@ def _assemble_manifest_rows(direction: str, stage_runs: list[dict[str, Any]]) ->
                 "direction": direction,
                 "input": _pipeline_input(direction, stage1_row),
                 "stages": [_public_stage_entry(stage) for stage in joined],
-                "final_output": _final_output(final_stage, final_row) if success and final_row is not None else None,
+                "final_output": final_output,
                 "error": None if success else _pipeline_error(failed_stage),
             }
         )
@@ -336,16 +341,21 @@ def _pipeline_input(direction: str, stage1_row: dict[str, Any]) -> dict[str, Any
 def _final_output(final_stage: dict[str, Any], final_row: dict[str, Any]) -> dict[str, Any] | None:
     output = final_row.get("output")
     if output is None:
-        return None
+        raise ValueError(f"sample_id={final_row.get('sample_id')!r}: successful final stage row has no output")
     if not isinstance(output, dict):
         raise ValueError(f"sample_id={final_row.get('sample_id')!r}: final output must be an object")
     rewritten = dict(output)
+    media_field = "speech_file" if final_stage["stage"] == "t2s" else "audio_file"
+    if not isinstance(rewritten.get(media_field), str) or not rewritten.get(media_field):
+        raise ValueError(f"sample_id={final_row.get('sample_id')!r}: final output missing {media_field}")
     for field in FINAL_OUTPUT_FIELDS:
         value = rewritten.get(field)
         if isinstance(value, str) and value:
             path = Path(value)
             if not path.is_absolute():
                 path = Path(final_stage["_run_dir"]) / path
+            if field == media_field and not path.is_file():
+                raise FileNotFoundError(f"sample_id={final_row.get('sample_id')!r}: missing final output file: {path}")
             rewritten[field] = _path_reference(path)
     return rewritten
 
@@ -716,6 +726,22 @@ def _validate_stage_directions(stage_runs: list[dict[str, Any]], direction: str)
         if isinstance(stage_direction, str) and stage_direction and stage_direction != direction:
             raise ValueError(
                 f"{stage['run_path']}: direction {stage_direction!r} does not match pipeline direction {direction!r}"
+            )
+
+
+def _validate_stage_run_status(run_json: dict[str, Any], run_dir: Path) -> None:
+    status = run_json.get("status")
+    if status not in TERMINAL_STAGE_STATUSES:
+        expected = ", ".join(sorted(TERMINAL_STAGE_STATUSES))
+        raise ValueError(f"{run_dir}: stage run status must be terminal ({expected}); got {status!r}")
+
+
+def _validate_stage_row_statuses(rows: list[dict[str, Any]], manifest_path: Path) -> None:
+    for row in rows:
+        status = row.get("status")
+        if status not in ROW_STATUSES:
+            raise ValueError(
+                f"{manifest_path}: sample_id={row.get('sample_id')!r} has unsupported row status {status!r}"
             )
 
 

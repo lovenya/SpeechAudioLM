@@ -7,6 +7,7 @@ import argparse
 import json
 import shutil
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -129,6 +130,7 @@ def merge_stage_shards(
         _write_json_create_only(staging / "inspect.json", _inspect_document(run_dir, first_inspect, inspect_by_sample_id, ordered_rows))
         _write_json_create_only(staging / "merge_report.json", report)
         _publish_staging(run_dir, staging, media_output)
+        _update_root_run_after_merge(run_dir, report["status"])
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -435,6 +437,14 @@ def _publish_staging(run_dir: Path, staging: Path, media_output: MediaOutput) ->
     if media_output != "none":
         (staging / "outputs").rename(run_dir / "outputs")
     staging.rmdir()
+
+
+def _update_root_run_after_merge(run_dir: Path, status: str) -> None:
+    run_path = run_dir / "run.json"
+    document = _read_json(run_path)
+    document["status"] = status
+    document.setdefault("completed_at", datetime.now(timezone.utc).astimezone().isoformat())
+    run_path.write_text(json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
 def _fail_if_published_outputs_exist(run_dir: Path, media_output: MediaOutput) -> None:

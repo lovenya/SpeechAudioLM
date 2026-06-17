@@ -114,9 +114,9 @@ Example:
 
 Generate them using the `America/Toronto` timezone rather than a fixed `EDT` offset so daylight-saving changes are handled correctly.
 
-If the selected run directory already exists, the program must fail immediately before model loading, GPU work, or other expensive initialization. It must never overwrite an existing run.
+If the selected run directory already exists, the program must fail immediately before model loading, GPU work, or other expensive initialization unless it is an explicit resume of the same run. Resume is allowed only under the rules in [Resume Behavior](#resume-behavior): identical `config.json`, non-terminal run status, no orphan outputs, and no duplicate manifest identity. The program must never overwrite an existing run.
 
-Interactive use may ask the user to wait for the next minute or provide another run ID. Non-interactive Slurm jobs must print a clear error and exit.
+For a non-resumable collision, interactive use may ask the user to wait for the next minute or provide another run ID. Non-interactive Slurm jobs must print a clear error and exit.
 
 ## Run Directory
 
