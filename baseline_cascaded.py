@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
-from baselines.dataset import PromptRow, count_jsonl_rows, iter_split_rows, load_dataset_config
+from baselines.dataset import PromptRow, count_jsonl_rows, iter_jsonl, iter_split_rows, load_dataset_config
 from baselines.cascaded_schema_v1 import (
     TASK_TO_STAGE,
     legacy_sample_to_inspect_sample,
@@ -124,17 +124,16 @@ def main() -> None:
         shard_offset, shard_count = _shard_window(selected_total_rows, args.shard_index, args.num_shards)
         row_start_index = args.start_index + shard_offset
         row_num_samples = shard_count
-    rows = list(
-        iter_split_rows(
-            split_path,
-            prompt_field=prompt_field,
-            start_index=row_start_index,
-            num_samples=row_num_samples,
-        )
+    rows, effective_prompt_field = _load_stage_rows(
+        args,
+        split_path,
+        prompt_field=prompt_field,
+        start_index=row_start_index,
+        num_samples=row_num_samples,
     )
     rows = _enrich_rows_with_audio_metadata(rows, args.split)
     total_rows = count_jsonl_rows(split_path, row_start_index, row_num_samples)
-    run_config = _run_config(args, split_path, prompt_field)
+    run_config = _run_config(args, split_path, effective_prompt_field)
     if args.results_schema == "v1" and args.shard_index is not None:
         run_config["input_start_index"] = args.start_index
         run_config["input_num_samples"] = selected_total_rows
@@ -1193,6 +1192,311 @@ def _pipeline_prompt_field(pipeline: str) -> str:
     if pipeline == "T2T":
         return default_prompt_field("S2T")
     raise ValueError(f"Unsupported pipeline: {pipeline}")
+
+
+def _load_stage_rows(
+    args: argparse.Namespace,
+    split_path: Path,
+    *,
+    prompt_field: str,
+    start_index: int,
+    num_samples: int,
+) -> tuple[list[PromptRow], str]:
+    if _should_load_v1_stage_manifest(args, split_path):
+        rows = list(_iter_v1_stage_manifest_rows(args, split_path, start_index=start_index, num_samples=num_samples))
+        return rows, _v1_stage_manifest_input_field(args)
+    return (
+        list(
+            iter_split_rows(
+                split_path,
+                prompt_field=prompt_field,
+                start_index=start_index,
+                num_samples=num_samples,
+            )
+        ),
+        prompt_field,
+    )
+
+
+def _should_load_v1_stage_manifest(args: argparse.Namespace, split_path: Path) -> bool:
+    if getattr(args, "results_schema", "legacy") != "v1" or args.pipeline not in {"T2T", "T2S", "T2A"}:
+        return False
+    first = _first_jsonl_record(split_path)
+    return isinstance(first, dict) and first.get("schema_version") == 1 and isinstance(first.get("stage"), str)
+
+
+def _first_jsonl_record(path: Path) -> dict | None:
+    for record in iter_jsonl(path):
+        return record
+    return None
+
+
+def _iter_v1_stage_manifest_rows(
+    args: argparse.Namespace,
+    split_path: Path,
+    *,
+    start_index: int,
+    num_samples: int,
+) -> Iterable[PromptRow]:
+    inspect_samples = _v1_inspect_samples_by_id(split_path)
+    definitions = read_inspection_definitions(split_path)
+    lineage = _v1_manifest_lineage(split_path)
+    emitted = 0
+    for ordinal, record in enumerate(iter_jsonl(split_path)):
+        if ordinal < start_index:
+            continue
+        if record.get("status") != "success":
+            raise ValueError(
+                f"results-schema v1 {args.pipeline} direct manifest input only supports successful upstream rows; "
+                f"row {ordinal} sample_id={record.get('sample_id')!r} has status={record.get('status')!r}"
+            )
+        row = _prompt_row_from_v1_stage_record(
+            args,
+            record,
+            split_path=split_path,
+            inspect_sample=inspect_samples.get(str(record.get("sample_id"))),
+            definitions=definitions,
+            lineage=lineage,
+            fallback_row_index=ordinal,
+        )
+        yield row
+        emitted += 1
+        if num_samples != -1 and emitted >= num_samples:
+            break
+
+
+def _prompt_row_from_v1_stage_record(
+    args: argparse.Namespace,
+    record: dict,
+    *,
+    split_path: Path,
+    inspect_sample: dict | None,
+    definitions: list[dict],
+    lineage: list[dict],
+    fallback_row_index: int,
+) -> PromptRow:
+    _validate_direct_v1_stage_for_pipeline(args, record, inspect_sample)
+    prompt = _v1_prompt_text_for_pipeline(args, record)
+    sample = _carried_sample_from_v1_stage_record(
+        args,
+        record,
+        split_path=split_path,
+        inspect_sample=inspect_sample,
+        fallback_row_index=fallback_row_index,
+    )
+    row_index = int(record.get("row_index", fallback_row_index))
+    sample_id = str(record.get("sample_id") or f"row_{row_index}")
+    carried_record = {
+        **_reference_record_from_v1(record, inspect_sample),
+        _v1_legacy_prompt_field(args): prompt,
+        "_cascaded_sample": sample,
+        "_cascaded_stage_definitions": definitions or [_stage_definition_from_carried_stage(stage) for stage in sample.get("stages", [])],
+        "_cascaded_stage_lineage": lineage,
+    }
+    if args.pipeline in {"T2S", "T2A"}:
+        carried_record["_cascaded_pipeline"] = "A2S" if args.pipeline == "T2S" else "S2A"
+    elif args.pipeline == "T2T":
+        carried_record["_cascaded_pipeline"] = "A2S" if args.text_mode == "audio_description_to_speech" else "S2A"
+    return PromptRow(row_index=row_index, sample_id=sample_id, prompt=prompt, record=carried_record)
+
+
+def _validate_direct_v1_stage_for_pipeline(args: argparse.Namespace, record: dict, inspect_sample: dict | None) -> None:
+    stage = record.get("stage")
+    if args.pipeline == "T2T":
+        expected = "a2t" if args.text_mode == "audio_description_to_speech" else "s2t"
+    elif args.pipeline == "T2S":
+        expected = "t2t"
+        _validate_v1_t2t_inspect_for_final_stage(args, record, inspect_sample, direction="a2s")
+    elif args.pipeline == "T2A":
+        expected = "t2t"
+        _validate_v1_t2t_inspect_for_final_stage(args, record, inspect_sample, direction="s2a")
+    else:
+        return
+    if stage != expected:
+        raise ValueError(f"results-schema v1 {args.pipeline} expected upstream stage {expected!r}; got {stage!r}")
+
+
+def _validate_v1_t2t_inspect_for_final_stage(args: argparse.Namespace, record: dict, inspect_sample: dict | None, *, direction: str) -> None:
+    if not isinstance(inspect_sample, dict):
+        raise ValueError(
+            f"results-schema v1 {args.pipeline} direct T2T manifest input requires sibling inspect.json; "
+            f"sample_id={record.get('sample_id')!r}"
+        )
+    stages = inspect_sample.get("stages")
+    if not isinstance(stages, list) or len(stages) < 2:
+        raise ValueError(f"results-schema v1 {args.pipeline} inspect sample lacks two-stage T2T context")
+    if direction == "a2s":
+        expected_output = "generated_speech_text"
+    else:
+        expected_output = "generated_audio_caption"
+    output = record.get("output") if isinstance(record.get("output"), dict) else {}
+    if not isinstance(output.get(expected_output), str):
+        raise ValueError(f"results-schema v1 {args.pipeline} expected T2T output field {expected_output!r}")
+
+
+def _v1_prompt_text_for_pipeline(args: argparse.Namespace, record: dict) -> str:
+    output = record.get("output")
+    if not isinstance(output, dict):
+        raise ValueError(f"v1 upstream row {record.get('sample_id')!r} has no output object")
+    key = _v1_stage_manifest_input_field(args)
+    value = output.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"v1 upstream row {record.get('sample_id')!r} has no usable output.{key}")
+    return value.strip()
+
+
+def _v1_stage_manifest_input_field(args: argparse.Namespace) -> str:
+    if args.pipeline == "T2T":
+        return "audio_caption" if args.text_mode == "audio_description_to_speech" else "speech_transcription"
+    if args.pipeline == "T2S":
+        return "generated_speech_text"
+    if args.pipeline == "T2A":
+        return "generated_audio_caption"
+    return _pipeline_prompt_field(args.pipeline)
+
+
+def _v1_legacy_prompt_field(args: argparse.Namespace) -> str:
+    if args.pipeline == "T2T":
+        return "audio_cap" if args.text_mode == "audio_description_to_speech" else "speech_text"
+    if args.pipeline == "T2S":
+        return "speech_text"
+    if args.pipeline == "T2A":
+        return "audio_description"
+    return _pipeline_prompt_field(args.pipeline)
+
+
+def _carried_sample_from_v1_stage_record(
+    args: argparse.Namespace,
+    record: dict,
+    *,
+    split_path: Path,
+    inspect_sample: dict | None,
+    fallback_row_index: int,
+) -> dict:
+    if args.pipeline in {"T2S", "T2A"}:
+        if not isinstance(inspect_sample, dict):
+            raise ValueError(f"v1 final-stage input requires inspect sample for {record.get('sample_id')!r}")
+        return _legacy_sample_from_v1_inspect_sample(inspect_sample, fallback_row_index=fallback_row_index)
+    task = "audio_to_text" if record.get("stage") == "a2t" else "speech_to_text"
+    output_type = "audio_caption" if task == "audio_to_text" else "speech_text"
+    input_key = "audio_file" if task == "audio_to_text" else "speech_file"
+    input_type = "audio" if task == "audio_to_text" else "speech_audio"
+    row_index = int(record.get("row_index", fallback_row_index))
+    sample_id = str(record.get("sample_id") or f"row_{row_index}")
+    stage_doc = {
+        "stage": 1,
+        "task": task,
+        "model": record.get("model"),
+        "input": {"type": input_type, "file": (record.get("input") or {}).get(input_key)},
+        "prompt": None,
+        "inference_seconds": _v1_manifest_inference_seconds(record),
+        "output": {"type": output_type, "text": _v1_prompt_text_for_pipeline(args, record)},
+        "error": None,
+    }
+    return build_sample(
+        row_index=row_index,
+        sample_id=sample_id,
+        record=_reference_record_from_v1(record, inspect_sample),
+        stage=stage_doc,
+        status="success",
+    )
+
+
+def _legacy_sample_from_v1_inspect_sample(inspect_sample: dict, *, fallback_row_index: int) -> dict:
+    stages = []
+    for index, stage in enumerate(inspect_sample.get("stages") or [], start=1):
+        if not isinstance(stage, dict):
+            continue
+        stages.append(
+            {
+                "stage": int(stage.get("stage_index") or index),
+                "task": _legacy_task_from_inspect_stage(stage.get("stage")),
+                "model": stage.get("model"),
+                "mode": stage.get("mode"),
+                "input": stage.get("input"),
+                "prompt": stage.get("runtime_prompt"),
+                "inference_seconds": (stage.get("timing") or {}).get("inference_seconds") if isinstance(stage.get("timing"), dict) else None,
+                "output": _legacy_output_from_inspect_stage(stage.get("output")),
+                "error": stage.get("error"),
+            }
+        )
+    if not stages:
+        raise ValueError(f"inspect sample {inspect_sample.get('sample_id')!r} has no stages")
+    status = inspect_sample.get("status") if isinstance(inspect_sample.get("status"), str) else "success"
+    return {
+        "row_index": int(inspect_sample.get("row_index", fallback_row_index)),
+        "sample_id": str(inspect_sample.get("sample_id") or f"row_{fallback_row_index}"),
+        "status": status,
+        "reference": dict(inspect_sample.get("reference") or {}),
+        "stages": stages,
+        "final_output": inspect_sample.get("final_output"),
+        "error": inspect_sample.get("error"),
+    }
+
+
+def _legacy_task_from_inspect_stage(stage: object) -> str | None:
+    return {
+        "a2t": "audio_to_text",
+        "s2t": "speech_to_text",
+        "t2t": "text_to_text",
+        "t2a": "text_to_audio",
+        "t2s": "text_to_speech",
+    }.get(stage)
+
+
+def _legacy_output_from_inspect_stage(output: object) -> dict | None:
+    if not isinstance(output, dict):
+        return None
+    text = _v1_text_output(output)
+    if text is not None:
+        key, value = text
+        output_type = {
+            "audio_caption": "audio_caption",
+            "speech_transcription": "speech_text",
+            "generated_speech_text": "speech_text",
+            "generated_audio_caption": "audio_description",
+            "text": "text",
+        }[key]
+        return {"type": output_type, "text": value}
+    if output.get("type") in {"text", "audio", "speech"}:
+        return dict(output)
+    return dict(output)
+
+
+def _reference_record_from_v1(record: dict, inspect_sample: dict | None) -> dict:
+    reference = inspect_sample.get("reference") if isinstance(inspect_sample, dict) and isinstance(inspect_sample.get("reference"), dict) else {}
+    source_input = record.get("input") if isinstance(record.get("input"), dict) else {}
+    audio_caption = reference.get("reference_audio_caption") or reference.get("audio_caption") or reference.get("audio_cap")
+    speech_text = reference.get("reference_speech_text") or reference.get("speech_text") or reference.get("speech_transcription")
+    result = {
+        "audio_file": reference.get("audio_file") or source_input.get("audio_file"),
+        "speech_file": reference.get("speech_file") or source_input.get("speech_file"),
+        "audio_cap": audio_caption,
+        "speech_text": speech_text,
+        "audio_metadata": reference.get("audio_metadata"),
+    }
+    return {key: value for key, value in result.items() if value is not None}
+
+
+def _v1_inspect_samples_by_id(manifest_path: Path) -> dict[str, dict]:
+    inspect_path = manifest_path.with_name("inspect.json")
+    if not inspect_path.is_file():
+        return {}
+    document = json.loads(inspect_path.read_text(encoding="utf-8"))
+    samples = document.get("samples")
+    if not isinstance(samples, list):
+        return {}
+    return {str(sample.get("sample_id")): sample for sample in samples if isinstance(sample, dict) and sample.get("sample_id") is not None}
+
+
+def _v1_manifest_lineage(manifest_path: Path) -> list[dict]:
+    run_path = manifest_path.with_name("run.json")
+    if not run_path.is_file():
+        return []
+    document = json.loads(run_path.read_text(encoding="utf-8"))
+    lineage = document.get("lineage") if isinstance(document.get("lineage"), dict) else {}
+    stages = lineage.get("stages") if isinstance(lineage, dict) else None
+    return [dict(stage) for stage in stages] if isinstance(stages, list) else []
 
 
 def _cascade_output_root(args: argparse.Namespace, root: Path | None = None) -> Path:

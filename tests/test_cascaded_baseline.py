@@ -1038,6 +1038,237 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(run_doc["run_id"], "20260616_1437")
         self.assertEqual(run_doc["paths"]["result"], design_root.as_posix())
 
+    def test_v1_t2t_consumes_direct_a2t_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            split = root / "ttas_val.jsonl"
+            split.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "sample-a",
+                        "audio_file": "audio/source.wav",
+                        "audio_cap": "reference caption",
+                        "speech_file": "speech/source.wav",
+                        "speech_text": "reference speech",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            config = root / "dataset.json"
+            config.write_text(
+                json.dumps({"dataset_root": str(root), "splits": {"val": str(split), "train": str(split), "test": str(split)}}) + "\n",
+                encoding="utf-8",
+            )
+            env = {"SALM_RESULTS_ROOT": str(root / "results"), "SALM_LOGS_ROOT": str(root / "logs")}
+            with patch.dict("os.environ", env):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "baseline_cascaded.py",
+                        "--pipeline",
+                        "A2T",
+                        "--captioner",
+                        "reference",
+                        "--dataset-config",
+                        str(config),
+                        "--split",
+                        "val",
+                        "--num-samples",
+                        "1",
+                        "--results-schema",
+                        "v1",
+                        "--run-id",
+                        "20260616_1200",
+                        "--device",
+                        "cpu",
+                    ],
+                ):
+                    main()
+                a2t_manifest = (
+                    root
+                    / "results"
+                    / "cascaded"
+                    / "stages"
+                    / "a2t"
+                    / "reference"
+                    / "ttas"
+                    / "val"
+                    / "20260616_1200"
+                    / "manifest.jsonl"
+                )
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "baseline_cascaded.py",
+                        "--pipeline",
+                        "T2T",
+                        "--text-model",
+                        "template",
+                        "--text-mode",
+                        "audio_description_to_speech",
+                        "--captioner",
+                        "reference",
+                        "--dataset-config",
+                        str(config),
+                        "--split",
+                        "val",
+                        "--split-file",
+                        str(a2t_manifest),
+                        "--num-samples",
+                        "1",
+                        "--results-schema",
+                        "v1",
+                        "--run-id",
+                        "20260616_1300",
+                        "--device",
+                        "cpu",
+                    ],
+                ):
+                    main()
+
+            t2t_root = (
+                root
+                / "results"
+                / "cascaded"
+                / "stages"
+                / "t2t"
+                / "a2s"
+                / "template"
+                / "from-a2t"
+                / "reference"
+                / "ttas"
+                / "val"
+                / "20260616_1300"
+            )
+            manifest_row = json.loads((t2t_root / "manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            config_doc = json.loads((t2t_root / "config.json").read_text(encoding="utf-8"))
+            inspect_doc = json.loads((t2t_root / "inspect.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(config_doc["input"]["input_field"], "audio_caption")
+        self.assertEqual(manifest_row["input"]["source_sample_id"], "source")
+        self.assertEqual(manifest_row["output"]["type"], "text")
+        self.assertEqual(manifest_row["output"]["generated_speech_text"], "I can hear it clearly. reference caption We should respond to what is happening there.")
+        self.assertEqual([stage["stage"] for stage in inspect_doc["stage_configs"]], ["a2t", "t2t"])
+        self.assertEqual(len(inspect_doc["samples"][0]["stages"]), 2)
+
+    def test_v1_t2t_consumes_direct_s2t_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            split = root / "ttas_val.jsonl"
+            split.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "sample-a",
+                        "audio_file": "audio/source.wav",
+                        "audio_cap": "reference caption",
+                        "speech_file": "speech/source.wav",
+                        "speech_text": "start the engine",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            config = root / "dataset.json"
+            config.write_text(
+                json.dumps({"dataset_root": str(root), "splits": {"val": str(split), "train": str(split), "test": str(split)}}) + "\n",
+                encoding="utf-8",
+            )
+            env = {"SALM_RESULTS_ROOT": str(root / "results"), "SALM_LOGS_ROOT": str(root / "logs")}
+            with patch.dict("os.environ", env):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "baseline_cascaded.py",
+                        "--pipeline",
+                        "S2T",
+                        "--asr",
+                        "reference",
+                        "--dataset-config",
+                        str(config),
+                        "--split",
+                        "val",
+                        "--num-samples",
+                        "1",
+                        "--results-schema",
+                        "v1",
+                        "--run-id",
+                        "20260616_1200",
+                        "--device",
+                        "cpu",
+                    ],
+                ):
+                    main()
+                s2t_manifest = (
+                    root
+                    / "results"
+                    / "cascaded"
+                    / "stages"
+                    / "s2t"
+                    / "reference"
+                    / "ttas"
+                    / "val"
+                    / "20260616_1200"
+                    / "manifest.jsonl"
+                )
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "baseline_cascaded.py",
+                        "--pipeline",
+                        "T2T",
+                        "--text-model",
+                        "template",
+                        "--text-mode",
+                        "speech_to_audio_description",
+                        "--asr",
+                        "reference",
+                        "--dataset-config",
+                        str(config),
+                        "--split",
+                        "val",
+                        "--split-file",
+                        str(s2t_manifest),
+                        "--num-samples",
+                        "1",
+                        "--results-schema",
+                        "v1",
+                        "--run-id",
+                        "20260616_1300",
+                        "--device",
+                        "cpu",
+                    ],
+                ):
+                    main()
+
+            t2t_root = (
+                root
+                / "results"
+                / "cascaded"
+                / "stages"
+                / "t2t"
+                / "s2a"
+                / "template"
+                / "from-s2t"
+                / "reference"
+                / "ttas"
+                / "val"
+                / "20260616_1300"
+            )
+            manifest_row = json.loads((t2t_root / "manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            config_doc = json.loads((t2t_root / "config.json").read_text(encoding="utf-8"))
+            inspect_doc = json.loads((t2t_root / "inspect.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(config_doc["input"]["input_field"], "speech_transcription")
+        self.assertEqual(manifest_row["input"]["source_sample_id"], "source")
+        self.assertEqual(manifest_row["output"]["generated_audio_caption"], "Environmental audio matching this spoken situation: start the engine")
+        self.assertEqual([stage["stage"] for stage in inspect_doc["stage_configs"]], ["s2t", "t2t"])
+        self.assertEqual(len(inspect_doc["samples"][0]["stages"]), 2)
+
     def test_v1_main_stage_input_keeps_cli_stage_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
