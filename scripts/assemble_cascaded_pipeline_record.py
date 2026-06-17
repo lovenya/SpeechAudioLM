@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from collections import Counter
 from datetime import datetime, timezone
@@ -94,6 +95,7 @@ def assemble_pipeline_record(
     status = summary["status"]
     run_id = pipeline_dir.name
     completed_at = (now or datetime.now(timezone.utc)).astimezone().isoformat()
+    started_at = _pipeline_started_at(stage_runs) or completed_at
 
     pipeline_doc = _pipeline_document(run_id, direction, stage_runs)
     run_doc = _run_document(
@@ -106,6 +108,7 @@ def assemble_pipeline_record(
         temporary=temporary,
         pipeline_dir=pipeline_dir,
         logs_dir=logs_dir,
+        started_at=started_at,
         completed_at=completed_at,
         stage_runs=stage_runs,
     )
@@ -383,6 +386,7 @@ def _run_document(
     temporary: bool,
     pipeline_dir: Path,
     logs_dir: Path | None,
+    started_at: str,
     completed_at: str,
     stage_runs: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -396,10 +400,10 @@ def _run_document(
         "dataset": dataset,
         "split": split,
         "model": pipeline_name,
-        "started_at": None,
+        "started_at": started_at,
         "completed_at": completed_at,
-        "code": None,
-        "slurm": None,
+        "code": _pipeline_code_state(stage_runs),
+        "slurm": _slurm_state(),
         "paths": {
             "result": _path_reference(pipeline_dir),
             "logs": _path_reference(logs_dir) if logs_dir else None,
@@ -420,6 +424,36 @@ def _run_document(
                 for stage in stage_runs
             ],
         },
+    }
+
+
+def _pipeline_started_at(stage_runs: list[dict[str, Any]]) -> str | None:
+    values = [
+        stage["run"].get("started_at")
+        for stage in stage_runs
+        if isinstance(stage.get("run"), dict) and isinstance(stage["run"].get("started_at"), str)
+    ]
+    return min(values) if values else None
+
+
+def _pipeline_code_state(stage_runs: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "stage_runs": [
+            {
+                "stage_index": stage["position"],
+                "stage": stage["stage"],
+                "run_id": stage["run_id"],
+                "code": stage["run"].get("code") if isinstance(stage.get("run"), dict) else None,
+            }
+            for stage in stage_runs
+        ]
+    }
+
+
+def _slurm_state() -> dict[str, str | None]:
+    return {
+        "job_id": os.environ.get("SLURM_JOB_ID"),
+        "array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
     }
 
 

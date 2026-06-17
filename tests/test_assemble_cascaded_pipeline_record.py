@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.assemble_cascaded_pipeline_record import assemble_pipeline_record
 
@@ -55,18 +56,23 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
                     ),
                 ],
             )
+            _update_run_json(a2t, started_at="2026-06-16T19:00:00+00:00", code={"git_commit": "a2t"})
+            _update_run_json(t2t, started_at="2026-06-16T19:05:00+00:00", code={"git_commit": "t2t"})
+            _update_run_json(t2s, started_at="2026-06-16T19:10:00+00:00", code={"git_commit": "t2s"})
             pipeline_dir = root / "pipeline" / "20260616_1530"
 
-            report = assemble_pipeline_record(
-                pipeline_dir,
-                direction="a2s",
-                stage_run_dirs=[a2t, t2t, t2s],
-                dataset="ttas",
-                split="val",
-                pipeline_name="caption_text_tts",
-                now=datetime(2026, 6, 16, 19, 30, tzinfo=timezone.utc),
-            )
+            with patch.dict("os.environ", {"SLURM_JOB_ID": "1234", "SLURM_ARRAY_TASK_ID": "7"}):
+                report = assemble_pipeline_record(
+                    pipeline_dir,
+                    direction="a2s",
+                    stage_run_dirs=[a2t, t2t, t2s],
+                    dataset="ttas",
+                    split="val",
+                    pipeline_name="caption_text_tts",
+                    now=datetime(2026, 6, 16, 19, 30, tzinfo=timezone.utc),
+                )
             rows = _read_jsonl(pipeline_dir / "manifest.jsonl")
+            run = json.loads((pipeline_dir / "run.json").read_text(encoding="utf-8"))
             pipeline = json.loads((pipeline_dir / "pipeline.json").read_text(encoding="utf-8"))
 
         self.assertEqual(report["summary"]["samples"]["successful"], 2)
@@ -75,6 +81,11 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
         self.assertEqual(rows[0]["final_output"]["speech_file"], (t2s / "outputs" / "sample-b.wav").as_posix())
         self.assertEqual([stage["stage"] for stage in rows[0]["stages"]], ["a2t", "t2t", "t2s"])
         self.assertEqual(pipeline["final_output"]["stage"], "t2s")
+        self.assertEqual(run["started_at"], "2026-06-16T19:00:00+00:00")
+        self.assertEqual(run["completed_at"], "2026-06-16T15:30:00-04:00")
+        self.assertEqual(run["code"]["stage_runs"][0]["code"], {"git_commit": "a2t"})
+        self.assertEqual(run["code"]["stage_runs"][2]["code"], {"git_commit": "t2s"})
+        self.assertEqual(run["slurm"], {"job_id": "1234", "array_task_id": "7"})
         self.assertFalse((pipeline_dir / "outputs").exists())
 
     def test_incomplete_row_reports_first_failed_stage_before_final_stage(self) -> None:
@@ -404,6 +415,13 @@ def _write_stage_run(
         encoding="utf-8",
     )
     return run_dir
+
+
+def _update_run_json(run_dir: Path, **updates: object) -> None:
+    path = run_dir / "run.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document.update(updates)
+    path.write_text(json.dumps(document) + "\n", encoding="utf-8")
 
 
 def _row(
