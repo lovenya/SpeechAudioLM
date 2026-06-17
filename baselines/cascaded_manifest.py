@@ -121,11 +121,53 @@ def write_inspection_manifest(
 
 def read_inspection_definitions(manifest_path: Path) -> list[dict[str, Any]]:
     inspection_path = manifest_path.with_name("manifest.inspect.json")
-    if not inspection_path.is_file():
+    if inspection_path.is_file():
+        document = json.loads(inspection_path.read_text(encoding="utf-8"))
+        definitions = document.get("stage_definitions")
+        return [normalize_stage_definition(item) for item in definitions] if isinstance(definitions, list) else []
+
+    inspect_path = manifest_path.with_name("inspect.json")
+    if not inspect_path.is_file():
         return []
-    document = json.loads(inspection_path.read_text(encoding="utf-8"))
-    definitions = document.get("stage_definitions")
-    return [normalize_stage_definition(item) for item in definitions] if isinstance(definitions, list) else []
+    document = json.loads(inspect_path.read_text(encoding="utf-8"))
+    stage_configs = document.get("stage_configs")
+    if not isinstance(stage_configs, list):
+        return []
+    return [_stage_definition_from_v1_config(item) for item in stage_configs if isinstance(item, dict)]
+
+
+def _stage_definition_from_v1_config(config: dict[str, Any]) -> dict[str, Any]:
+    model = config.get("model") if isinstance(config.get("model"), dict) else {}
+    prompt = config.get("prompt") if isinstance(config.get("prompt"), dict) else {}
+    definition = {
+        "stage": config.get("stage"),
+        "task": _legacy_task_from_v1_stage(config.get("stage")),
+        "model": model.get("name") if isinstance(model, dict) else config.get("model"),
+        "checkpoint": model.get("path") if isinstance(model, dict) else None,
+        "dtype": model.get("dtype") if isinstance(model, dict) else None,
+        "prompt_template": prompt.get("template") if isinstance(prompt, dict) else None,
+        "generation": dict(config.get("generation") or {}),
+        "runtime": {
+            "device": model.get("device") if isinstance(model, dict) else None,
+            "model_load_seconds": None,
+        },
+    }
+    if isinstance(prompt, dict):
+        if prompt.get("mode") is not None:
+            definition["mode"] = prompt.get("mode")
+        if prompt.get("system_prompt") is not None:
+            definition["system_prompt"] = prompt.get("system_prompt")
+    return normalize_stage_definition(definition)
+
+
+def _legacy_task_from_v1_stage(stage: object) -> str | None:
+    return {
+        "a2t": "audio_to_text",
+        "s2t": "speech_to_text",
+        "t2t": "text_to_text",
+        "t2a": "text_to_audio",
+        "t2s": "text_to_speech",
+    }.get(stage)
 
 
 def output_duration_seconds(extra: dict[str, Any], sample_rate: int | None) -> float | None:

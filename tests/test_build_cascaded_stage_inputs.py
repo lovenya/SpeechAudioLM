@@ -182,6 +182,24 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
                 json.dumps(
                     {
                         "schema_version": 1,
+                        "stage_configs": [
+                            {
+                                "stage_index": 1,
+                                "stage": "a2t",
+                                "model": {
+                                    "name": "captioner",
+                                    "path": "{model_root}/captioner",
+                                    "device": "cuda",
+                                    "dtype": "bf16",
+                                },
+                                "prompt": {
+                                    "mode": "audio_description_to_speech",
+                                    "template": "caption template",
+                                    "system_prompt": "caption system",
+                                },
+                                "generation": {"temperature": 0.2},
+                            }
+                        ],
                         "samples": [
                             {
                                 "sample_id": "sample_a",
@@ -313,6 +331,24 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
                 json.dumps(
                     {
                         "schema_version": 1,
+                        "stage_configs": [
+                            {
+                                "stage_index": 1,
+                                "stage": "a2t",
+                                "model": {
+                                    "name": "captioner",
+                                    "path": "{model_root}/captioner",
+                                    "device": "cuda",
+                                    "dtype": "bf16",
+                                },
+                                "prompt": {
+                                    "mode": "audio_description_to_speech",
+                                    "template": "caption template",
+                                    "system_prompt": "caption system",
+                                },
+                                "generation": {"temperature": 0.2},
+                            }
+                        ],
                         "samples": [
                             {
                                 "sample_id": "sample_a",
@@ -358,6 +394,15 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(sample["stages"][0]["model"], "captioner")
         self.assertEqual(sample["stages"][0]["output"], {"type": "audio_caption", "text": "manifest caption"})
         self.assertEqual(sample["stages"][0]["inference_seconds"], 1.5)
+        definitions = rows[0]["_cascaded_stage_definitions"]
+        self.assertEqual(definitions[0]["task"], "audio_to_text")
+        self.assertEqual(definitions[0]["model"], "captioner")
+        self.assertEqual(definitions[0]["checkpoint"], "{model_root}/captioner")
+        self.assertEqual(definitions[0]["dtype"], "bf16")
+        self.assertEqual(definitions[0]["prompt_template"], "caption template")
+        self.assertEqual(definitions[0]["system_prompt"], "caption system")
+        self.assertEqual(definitions[0]["generation"], {"temperature": 0.2})
+        self.assertEqual(definitions[0]["runtime"]["device"], "cuda")
 
     def test_v1_stage1_to_t2t_rejects_stage_direction_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
