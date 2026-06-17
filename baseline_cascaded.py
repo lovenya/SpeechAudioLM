@@ -87,6 +87,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--t2a", default="audiogen", choices=["audiogen", "tangoflux", "audio_omni"])
 
     parser.add_argument("--model-path", default=None, help="Fallback model path override for single-backend runs.")
+    parser.add_argument(
+        "--model-cache-dir",
+        default=None,
+        help="Optional runtime model cache directory recorded in v1 config metadata.",
+    )
     parser.add_argument("--asr-model-path", default=None)
     parser.add_argument("--captioner-model-path", default=None)
     parser.add_argument("--text-model-path", default=None)
@@ -938,6 +943,7 @@ class ModularCascade:
             "runtime": {
                 "device": None if is_rule_based else self.args.device,
                 "model_load_seconds": None if is_rule_based else self._load_times.get(f"{runner_task}:{model}"),
+                "cache_dir": None if is_rule_based else getattr(self.args, "model_cache_dir", None),
             },
         }
         if task == "text_to_text":
@@ -1360,6 +1366,7 @@ def _run_config(args: argparse.Namespace, split_path: Path, prompt_field: str) -
         "prompt_template": args.prompt_template,
         "qwen_speaker": args.qwen_speaker,
         "qwen_template": args.qwen_template,
+        "model_cache_dir": getattr(args, "model_cache_dir", None),
         "model_paths": {
             "fallback": args.model_path,
             "asr": args.asr_model_path,
@@ -1566,10 +1573,12 @@ def _design_model_config(run_config: dict) -> dict:
     model_name = run_config.get(model_key) if model_key else run_config.get("model")
     model_paths = run_config.get("model_paths") if isinstance(run_config.get("model_paths"), dict) else {}
     path_key = {"text_model": "text"}.get(model_key, model_key)
+    is_rule_based = model_name in {"reference", "template"}
+    cache_dir = None if is_rule_based else _named_root_reference(run_config.get("model_cache_dir"))
     return {
         "name": model_name,
         "path": _named_root_reference(model_paths.get(path_key or "fallback") or model_paths.get("fallback")),
-        "cache_dir": None,
+        "cache_dir": cache_dir,
         "dtype": None,
         "device": run_config.get("device"),
     }
@@ -1710,7 +1719,7 @@ def _stage_config_summary(index: int, definition: dict) -> dict:
     model = {
         "name": definition.get("model"),
         "path": _named_root_reference(definition.get("checkpoint")),
-        "cache_dir": None,
+        "cache_dir": _named_root_reference((definition.get("runtime") or {}).get("cache_dir")),
         "device": (definition.get("runtime") or {}).get("device"),
         "dtype": definition.get("dtype"),
     }

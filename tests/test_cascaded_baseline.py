@@ -308,6 +308,18 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(run_doc["events"][1]["start_row_index"], 1)
         self.assertEqual(run_doc["events"][1]["existing_successful_rows"], 1)
 
+    def test_v1_config_records_non_rule_model_cache_dir_with_named_root(self) -> None:
+        args = _minimal_cascade_args(
+            pipeline="A2T",
+            captioner="audio_flamingo_next",
+            model_cache_dir=(root_path("cache_root") / "huggingface").as_posix(),
+            results_schema="v1",
+        )
+        run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+        config = _design_config_document(run_config, total_rows=1)
+
+        self.assertEqual(config["model"]["cache_dir"], "{cache_root}/huggingface")
+
     def test_v1_schema_resumes_config_only_interrupted_run(self) -> None:
         args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
         row = PromptRow(
@@ -365,6 +377,35 @@ class CascadedBaselineTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "different config"):
                 ModularCascade(args, dataset_root=None).run(rows, output_root, log_root, mismatched, total_rows=2)
+
+    def test_v1_schema_resume_rejects_model_cache_dir_mismatch(self) -> None:
+        args = _minimal_cascade_args(
+            pipeline="A2T",
+            captioner="audio_flamingo_next",
+            model_cache_dir=(root_path("cache_root") / "huggingface-a").as_posix(),
+            results_schema="v1",
+        )
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="first caption",
+            record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            output_root.mkdir(parents=True)
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            (output_root / "config.json").write_text(
+                json.dumps(_design_config_document(run_config, total_rows=1), indent=2) + "\n",
+                encoding="utf-8",
+            )
+            mismatched = dict(run_config)
+            mismatched["model_cache_dir"] = (root_path("cache_root") / "huggingface-b").as_posix()
+
+            with self.assertRaisesRegex(RuntimeError, "different config"):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, mismatched, total_rows=1)
 
     def test_v1_schema_resume_rejects_start_index_mismatch(self) -> None:
         args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
@@ -597,6 +638,7 @@ class CascadedBaselineTest(unittest.TestCase):
             text_model="template",
             text_mode="speech_to_audio_description",
             text_model_path=(root_path("model_root") / "text-model").as_posix(),
+            model_cache_dir=(root_path("cache_root") / "huggingface").as_posix(),
             results_schema="v1",
         )
         row = PromptRow(
@@ -625,7 +667,11 @@ class CascadedBaselineTest(unittest.TestCase):
                         "model": "reference",
                         "checkpoint": (root_path("model_root") / "asr-reference").as_posix(),
                         "generation": {},
-                        "runtime": {"device": "cpu", "model_load_seconds": None},
+                        "runtime": {
+                            "device": "cpu",
+                            "model_load_seconds": None,
+                            "cache_dir": (root_path("cache_root") / "asr-cache").as_posix(),
+                        },
                     }
                 ],
                 "_cascaded_stage_lineage": [
@@ -666,7 +712,10 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(runtime_prompt["messages"][0]["role"], "user")
         self.assertIn("Speech content:\nspoken words", runtime_prompt["messages"][0]["content"])
         self.assertEqual(config["model"]["path"], "{model_root}/text-model")
+        self.assertIsNone(config["model"]["cache_dir"])
         self.assertEqual(inspect["stage_configs"][0]["model"]["path"], "{model_root}/asr-reference")
+        self.assertEqual(inspect["stage_configs"][0]["model"]["cache_dir"], "{cache_root}/asr-cache")
+        self.assertIsNone(inspect["stage_configs"][1]["model"]["cache_dir"])
 
     def test_v1_t2t_requires_carried_stage1_sample(self) -> None:
         args = _minimal_cascade_args(pipeline="T2T", text_model="template", results_schema="v1")
@@ -1234,6 +1283,7 @@ def _minimal_cascade_args(**overrides) -> argparse.Namespace:
         "tts": "f5_tts",
         "t2a": "audiogen",
         "model_path": None,
+        "model_cache_dir": None,
         "asr_model_path": None,
         "captioner_model_path": None,
         "text_model_path": None,
