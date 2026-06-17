@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import csv
-import io
 import math
 import json
 import os
@@ -25,7 +23,7 @@ from evaluation.metrics.external import backend_metadata, require_configured_bac
 from evaluation.metrics.registry import MetricSpec
 from evaluation.metrics.text import normalize_text, word_error_rate
 from evaluation.result_validation import validate_final_result_completeness
-from project_conventions import eval_model_root
+from project_conventions import eval_stage_root
 from project_paths import model_path
 
 
@@ -33,6 +31,9 @@ from project_paths import model_path
 class EvalOptions:
     model: str
     task: str
+    stage: str
+    direction: str
+    evaluated_run_id: str
     dataset: str
     split: str
     manifest_path: Path
@@ -47,6 +48,7 @@ class EvalOptions:
     device: str
     command: list[str]
     temporary: bool = False
+    eval_run_id: str | None = None
 
 
 def run_evaluation(options: EvalOptions) -> dict[str, Path]:
@@ -69,9 +71,11 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         per_sample_rows.append(_evaluate_row(row, ordinal, options.metric_specs, dataset_root))
     _merge_backend_result(per_sample_rows, {"errors": preflight_errors})
 
-    output_dir = _evaluation_output_dir(options)
-    timestamp = utc_timestamp()
+    eval_run_id = options.eval_run_id or utc_timestamp()
+    output_dir = _evaluation_output_dir(options, eval_run_id)
+    timestamp = eval_run_id
     artifact_dir = _evaluation_artifact_dir(output_dir, options.split, timestamp)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     work_dir = _evaluation_work_dir(output_dir, options.split, timestamp)
     corpus_metrics = _compute_external_metrics(
         options,
@@ -101,11 +105,14 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     )
 
     paths = {
-        "per_sample": output_dir / f"per_sample_{options.split}_{timestamp}.jsonl",
-        "summary": output_dir / f"summary_{options.split}_{timestamp}.json",
-        "summary_csv": output_dir / f"summary_{options.split}_{timestamp}.csv",
-        "report": output_dir / f"report_{options.split}_{timestamp}.md",
-        "run_config": output_dir / f"run_config_{options.split}_{timestamp}.json",
+        "run": output_dir / "run.json",
+        "config": output_dir / "config.json",
+        "manifest": output_dir / "manifest.jsonl",
+        "per_sample": output_dir / "manifest.jsonl",
+        "errors": output_dir / "errors.json",
+        "summary": output_dir / "summary.json",
+        "report": output_dir / "report.md",
+        "run_config": output_dir / "config.json",
     }
 
     run_config = _run_config(
@@ -113,17 +120,20 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         metric_backend_metadata,
         validation_report,
     )
-    write_jsonl_create_only(paths["per_sample"], per_sample_rows)
+    run_doc = _run_document(options, eval_run_id, validation_report, paths)
+    errors_doc = _errors_document(summary, validation_report)
+    write_json_create_only(paths["run"], run_doc)
+    write_json_create_only(paths["config"], run_config)
+    write_jsonl_create_only(paths["manifest"], per_sample_rows)
+    write_json_create_only(paths["errors"], errors_doc)
     write_json_create_only(paths["summary"], summary)
-    write_text_create_only(paths["summary_csv"], _summary_csv_text(summary))
     write_text_create_only(paths["report"], _report_text(summary, run_config))
-    write_json_create_only(paths["run_config"], run_config)
 
     return paths
 
 
 def _evaluation_artifact_dir(output_dir: Path, split: str, timestamp: str) -> Path:
-    return output_dir / f"work_{split}_{timestamp}"
+    return output_dir / "artifacts"
 
 
 def _evaluation_work_dir(output_dir: Path, split: str, timestamp: str) -> Path:
@@ -132,7 +142,7 @@ def _evaluation_work_dir(output_dir: Path, split: str, timestamp: str) -> Path:
         root = Path(slurm_tmpdir) / "speechaudiolm_evaluation"
         root.mkdir(parents=True, exist_ok=True)
         return Path(tempfile.mkdtemp(prefix=f"work_{split}_{timestamp}_", dir=root))
-    return output_dir / f"work_{split}_{timestamp}"
+    return output_dir / "artifacts" / "work"
 
 
 def dry_run(options: EvalOptions) -> dict[str, Any]:
@@ -140,12 +150,15 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
     rows, selected_sample_ids = _evaluation_rows(options)
     dataset_root = Path(dataset_config["dataset_root"])
     _validate_rows(rows, options.metric_specs, dataset_root, require_success=False)
-    output_dir = _evaluation_output_dir(options)
+    output_dir = _evaluation_output_dir(options, options.eval_run_id or "<eval_run_id>")
     return {
         "dry_run": True,
         "status": _evaluation_status(options),
         "model": options.model,
         "task": options.task,
+        "stage": options.stage,
+        "direction": options.direction,
+        "evaluated_run_id": options.evaluated_run_id,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -160,10 +173,53 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
     }
 
 
-def _evaluation_output_dir(options: EvalOptions) -> Path:
+VALID_EVAL_STAGES = {"a2t", "s2t", "t2t", "t2a", "t2s", "s2a", "a2s"}
+VALID_EVAL_DIRECTIONS = {"a2s", "s2a"}
+IMPLIED_STAGE_DIRECTIONS = {
+    "a2t": "a2s",
+    "t2s": "a2s",
+    "a2s": "a2s",
+    "s2t": "s2a",
+    "t2a": "s2a",
+    "s2a": "s2a",
+}
+
+
+def resolve_stage_direction(stage: str, direction: str | None) -> str:
+    if stage not in VALID_EVAL_STAGES:
+        raise EvaluationError(f"Invalid eval stage {stage!r}; expected one of {sorted(VALID_EVAL_STAGES)}.")
+    if direction is not None and direction not in VALID_EVAL_DIRECTIONS:
+        raise EvaluationError(f"Invalid eval direction {direction!r}; expected one of {sorted(VALID_EVAL_DIRECTIONS)}.")
+    implied = IMPLIED_STAGE_DIRECTIONS.get(stage)
+    if implied is None:
+        if direction is None:
+            raise EvaluationError("--direction is required when --stage t2t is selected.")
+        return direction
+    if direction is not None and direction != implied:
+        raise EvaluationError(f"Stage {stage!r} implies direction {implied!r}; got {direction!r}.")
+    return implied
+
+
+def _evaluation_output_dir(options: EvalOptions, eval_run_id: str) -> Path:
     if options.temporary and "temporary" not in options.output_root.parts:
         raise EvaluationError("Temporary evaluations must write under a temporary results root.")
-    return eval_model_root(options.task, options.dataset, options.model, options.output_root)
+    direction = resolve_stage_direction(options.stage, options.direction)
+    if not options.evaluated_run_id:
+        raise EvaluationError("evaluated_run_id is required.")
+    if len(options.metric_specs) != 1:
+        raise EvaluationError("Each eval run must contain exactly one metric; split multi-metric commands into per-metric runs.")
+    metric_id = options.metric_specs[0].name
+    return eval_stage_root(
+        direction,
+        options.stage,
+        options.model,
+        options.dataset,
+        options.split,
+        options.evaluated_run_id,
+        metric_id,
+        eval_run_id,
+        root=options.output_root,
+    )
 
 
 def _evaluation_rows(options: EvalOptions) -> tuple[list[dict], tuple[str, ...]]:
@@ -1171,6 +1227,9 @@ def _summarize(
         "temporary": options.temporary,
         "model": options.model,
         "task": options.task,
+        "stage": options.stage,
+        "direction": options.direction,
+        "evaluated_run_id": options.evaluated_run_id,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -1211,6 +1270,64 @@ def _corpus_summary(value: Any) -> dict:
     }
 
 
+def _run_document(
+    options: EvalOptions,
+    eval_run_id: str,
+    validation_report: dict[str, Any],
+    paths: dict[str, Path],
+) -> dict:
+    metric = options.metric_specs[0]
+    return {
+        "schema_version": 1,
+        "run_id": eval_run_id,
+        "temporary": options.temporary,
+        "status": validation_report["status"],
+        "metric": {
+            "metric_id": metric.name,
+            "level": metric.level,
+            "reference_pairing_required": bool(metric.required_source_fields),
+        },
+        "target": {
+            "kind": "stage",
+            "stage": options.stage,
+            "direction": options.direction,
+            "model": options.model,
+            "dataset": options.dataset,
+            "split": options.split,
+            "run_id": options.evaluated_run_id,
+            "manifest": str(options.manifest_path),
+        },
+        "dataset": options.dataset,
+        "split": options.split,
+        "started_at": eval_run_id,
+        "completed_at": utc_timestamp(),
+        "code": {},
+        "slurm": _slurm_identity(),
+        "paths": {
+            "result": str(paths["run"].parent),
+            "manifest": str(paths["manifest"]),
+            "summary": str(paths["summary"]),
+            "report": str(paths["report"]),
+        },
+    }
+
+
+def _slurm_identity() -> dict[str, str | None]:
+    return {
+        "job_id": os.environ.get("SLURM_JOB_ID"),
+        "array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
+    }
+
+
+def _errors_document(summary: dict, validation_report: dict[str, Any]) -> dict:
+    return {
+        "status": validation_report["status"],
+        "result_status": validation_report.get("result_status"),
+        "errors_by_metric": summary.get("errors_by_metric", {}),
+        "failed_sample_ids": validation_report.get("failed_sample_ids", {}),
+    }
+
+
 def _run_config(
     options: EvalOptions,
     backend_metadata: dict[str, dict],
@@ -1221,6 +1338,9 @@ def _run_config(
         "temporary": options.temporary,
         "model": options.model,
         "task": options.task,
+        "stage": options.stage,
+        "direction": options.direction,
+        "evaluated_run_id": options.evaluated_run_id,
         "dataset": options.dataset,
         "split": options.split,
         "manifest": str(options.manifest_path),
@@ -1237,26 +1357,6 @@ def _run_config(
         "command": options.command,
         "timestamp_utc": utc_timestamp(),
     }
-
-
-def _summary_csv_text(summary: dict) -> str:
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(["metric", "count", "mean", "std", "min", "max", "median", "status"])
-    for metric, stats in summary.get("metric_summaries", {}).items():
-        writer.writerow(
-            [
-                metric,
-                stats.get("count"),
-                stats.get("mean"),
-                stats.get("std"),
-                stats.get("min"),
-                stats.get("max"),
-                stats.get("median"),
-                stats.get("status"),
-            ]
-        )
-    return output.getvalue()
 
 
 def _report_text(summary: dict, run_config: dict) -> str:

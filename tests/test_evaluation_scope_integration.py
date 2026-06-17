@@ -46,6 +46,9 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
         return EvalOptions(
             model="cascaded",
             task="S2T",
+            stage="s2t",
+            direction="s2a",
+            evaluated_run_id="20260616_1500",
             dataset="ttas",
             split="val",
             manifest_path=manifest,

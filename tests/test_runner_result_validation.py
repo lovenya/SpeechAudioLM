@@ -42,6 +42,9 @@ class RunnerResultValidationTest(unittest.TestCase):
         return EvalOptions(
             model="cascaded",
             task="S2T",
+            stage="s2t",
+            direction="s2a",
+            evaluated_run_id="20260616_1500",
             dataset="ttas",
             split="val",
             manifest_path=manifest,
@@ -94,6 +97,13 @@ class RunnerResultValidationTest(unittest.TestCase):
             paths = run_evaluation(self._options(root))
 
             self.assertTrue(all(path.is_file() for path in paths.values()))
+            self.assertEqual(paths["run"].name, "run.json")
+            self.assertEqual(paths["config"].name, "config.json")
+            self.assertEqual(paths["manifest"].name, "manifest.jsonl")
+            self.assertEqual(paths["summary"].name, "summary.json")
+            self.assertEqual(paths["report"].name, "report.md")
+            self.assertEqual(paths["errors"].name, "errors.json")
+            self.assertTrue((paths["run"].parent / "artifacts").is_dir())
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             run_config = json.loads(paths["run_config"].read_text(encoding="utf-8"))
             report = summary["result_validation"]

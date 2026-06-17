@@ -147,26 +147,32 @@ The `results/` and `logs/` directories are ignored by git.
 ## Evaluation CLI
 
 Use `evaluate.py` to score a baseline manifest. The evaluator resolves the
-canonical manifest path from `--model`, `--task`, `--dataset`, and `--split`;
+canonical manifest path from `--model`, `--stage`, `--dataset`, and `--split`;
 `--manifest` can override this for older or custom runs. Task metric validity is
-loaded from `configs/task_metric_map.json`.
+loaded from `configs/task_metric_map.json`, and `--metrics` must name one or
+more metrics or `all`.
+
+Stage choices are `a2t`, `s2t`, `t2t`, `t2a`, `t2s`, `s2a`, and `a2s`.
+`a2t`/`t2s`/`a2s` imply `--direction a2s`; `s2t`/`t2a`/`s2a` imply
+`--direction s2a`; `t2t` requires `--direction a2s` or `--direction s2a`.
 
 Example:
 
 ```bash
-python evaluate.py --model audio_omni --task S2T --metrics wer --max-samples 2
-python evaluate.py --model audio_omni --task T2A --metrics fad,kad,inception_score --dry-run
-python evaluate.py --model audio_omni --task T2S --metrics asr_wer,dwer,utmos --dry-run
+python evaluate.py --model audio_omni --stage s2t --evaluated-run-id 20260616_1500 --metrics wer --max-samples 2 --temporary
+python evaluate.py --model audio_omni --stage t2a --evaluated-run-id 20260616_1500 --metrics fad,kad,inception_score --dry-run
+python evaluate.py --model cascaded --stage t2t --direction a2s --evaluated-run-id 20260616_1500 --metrics g_eval_reference_free --dry-run
 ```
 
 Evaluation outputs are organized under:
 
 ```text
-results/evals/<task>/<dataset>/<model>/
+results/evals/stages/<direction>/<stage>/<model>/<dataset>/<split>/<evaluated_run_id>/<metric_id>/<eval_run_id>/
 ```
 
-Each run writes timestamped `per_sample`, `summary`, `summary.csv`, `report`,
-and `run_config` files plus `latest_*` aliases. Heavy metrics are configurable
+Each metric run writes stable files in its eval run directory: `run.json`,
+`config.json`, `manifest.jsonl`, `errors.json`, `summary.json`, and `report.md`,
+with metric backend artifacts under `artifacts/`. Heavy metrics are configurable
 through `configs/eval_metrics.json`; missing external packages or model weights
 fail only when the corresponding metric is selected.
 
@@ -212,14 +218,14 @@ Metric caches/checkpoints should live on scratch:
 
 Metric notes:
 
-- `--metrics` is optional; defaults are selected from the task mapping.
+- `--metrics` is required; use a comma-separated metric list or `all`.
 - S2A final-output evaluation uses audio-generation metrics, not WER. WER is
-  evaluated by running `--task S2T` on the S2T component manifest.
+  evaluated by running `--stage s2t` on the S2T component manifest.
 - A2S final-output evaluation uses generated-speech metrics. Caption metrics
-  are evaluated by running `--task A2T` on the A2T component manifest.
+  are evaluated by running `--stage a2t` on the A2T component manifest.
 - T2T-stage evaluation compares input transcript/description text against the
-  generated transcript/caption/description text. Use `--task T2T --metrics
-  nli_contradiction` on the text-to-text component manifest.
+  generated transcript/caption/description text. Use `--stage t2t --direction
+  a2s` or `--stage t2t --direction s2a`, depending on the evaluated pipeline.
 - Generated-speech `asr_wer` is `WER(reference_transcript, ASR(generated_speech))`.
 - Generated-speech `dwer` is directional:
   `WER(ASR(reference_speech), ASR(generated_speech))`.

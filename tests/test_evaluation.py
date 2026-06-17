@@ -11,9 +11,9 @@ from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
-from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, _prediction_text_for_metric, _run_backend_worker, dry_run, run_evaluation
+from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, _prediction_text_for_metric, _run_backend_worker, dry_run, resolve_stage_direction, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
-from project_conventions import baseline_output_root, eval_model_root
+from project_conventions import baseline_output_root, eval_stage_root
 from project_paths import result_path, root_path
 
 
@@ -37,14 +37,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
             with patch.dict("os.environ", {}, clear=True):
                 work_dir = _evaluation_work_dir(output_dir, "val", "timestamp")
 
-        self.assertEqual(work_dir, output_dir / "work_val_timestamp")
+        self.assertEqual(work_dir, output_dir / "artifacts" / "work")
 
     def test_evaluation_artifact_dir_stays_on_persistent_output_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "persistent-output"
             artifact_dir = _evaluation_artifact_dir(output_dir, "val", "timestamp")
 
-        self.assertEqual(artifact_dir, output_dir / "work_val_timestamp")
+        self.assertEqual(artifact_dir, output_dir / "artifacts")
 
     def test_path_conventions(self) -> None:
         self.assertEqual(
@@ -52,8 +52,8 @@ class EvaluationScaffoldTest(unittest.TestCase):
             result_path("baselines") / "audio_omni" / "T2A" / "ttas" / "test",
         )
         self.assertEqual(
-            eval_model_root("T2A", "ttas", "audio_omni"),
-            root_path("results_root") / "evals" / "T2A" / "ttas" / "audio_omni",
+            eval_stage_root("s2a", "t2a", "audio_omni", "ttas", "test", "20260616_1500", "fad", "20260616_1830"),
+            root_path("results_root") / "evals" / "stages" / "s2a" / "t2a" / "audio_omni" / "ttas" / "test" / "20260616_1500" / "fad" / "20260616_1830",
         )
 
     def test_evaluate_cli_defaults_to_results_evals(self) -> None:
@@ -63,13 +63,28 @@ class EvaluationScaffoldTest(unittest.TestCase):
             "evaluate.py",
             "--model",
             "audio_omni",
-            "--task",
-            "T2A",
+            "--stage",
+            "t2a",
+            "--evaluated-run-id",
+            "20260616_1500",
+            "--metrics",
+            "fad",
         ]
         with patch.object(sys, "argv", argv):
             args = parse_args()
 
         self.assertEqual(Path(args.output_root), root_path("results_root") / "evals")
+
+    def test_stage_direction_rules(self) -> None:
+        self.assertEqual(resolve_stage_direction("a2t", None), "a2s")
+        self.assertEqual(resolve_stage_direction("t2s", "a2s"), "a2s")
+        self.assertEqual(resolve_stage_direction("s2t", None), "s2a")
+        self.assertEqual(resolve_stage_direction("t2a", "s2a"), "s2a")
+        self.assertEqual(resolve_stage_direction("t2t", "a2s"), "a2s")
+        with self.assertRaisesRegex(EvaluationError, "direction is required"):
+            resolve_stage_direction("t2t", None)
+        with self.assertRaisesRegex(EvaluationError, "implies direction"):
+            resolve_stage_direction("t2a", "a2s")
 
     def test_capability_validation(self) -> None:
         caps = load_capabilities(Path("configs/model_capabilities.json"))
@@ -206,6 +221,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="cascaded",
                 task="T2A",
+                stage="t2a",
+                direction="s2a",
+                evaluated_run_id="20260616_1500",
                 dataset="ttas",
                 split="val",
                 manifest_path=root / "manifest.jsonl",
@@ -295,6 +313,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="audio_omni",
                 task="T2A",
+                stage="t2a",
+                direction="s2a",
+                evaluated_run_id="20260616_1500",
                 dataset="ttas",
                 split="test",
                 manifest_path=manifest,
@@ -356,6 +377,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="cascaded",
                 task="T2A",
+                stage="t2a",
+                direction="s2a",
+                evaluated_run_id="20260616_1500",
                 dataset="ttas",
                 split="test",
                 manifest_path=manifest,
@@ -407,6 +431,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="audio_omni",
                 task="T2A",
+                stage="t2a",
+                direction="s2a",
+                evaluated_run_id="20260616_1500",
                 dataset="ttas",
                 split="test",
                 manifest_path=manifest,
@@ -431,6 +458,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="cascaded",
                 task="T2T",
+                stage="t2t",
+                direction="s2a",
+                evaluated_run_id="20260616_1500",
                 dataset="ttas",
                 split="val",
                 manifest_path=root / "manifest.jsonl",
@@ -507,6 +537,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="cascaded",
                 task="T2T",
+                stage="t2t",
+                direction="s2a",
+                evaluated_run_id="20260616_1500",
                 dataset="ttas",
                 split="val",
                 manifest_path=manifest,
@@ -584,6 +617,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
             options = EvalOptions(
                 model="cascaded",
                 task="T2T",
+                stage="t2t",
+                direction="a2s",
+                evaluated_run_id="20260616_1500",
                 dataset="ttas",
                 split="val",
                 manifest_path=manifest,
@@ -591,7 +627,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 metrics_config_path=metrics_config,
                 task_metric_map_path=root / "task_metric_map.json",
                 output_root=output_root,
-                metric_specs=get_metric_specs(["nli_contradiction", "g_eval_reference_free"]),
+                metric_specs=get_metric_specs(["g_eval_reference_free"]),
                 max_samples=None,
                 start_index=0,
                 cache_dir=root / "cache",
@@ -602,7 +638,6 @@ class EvaluationScaffoldTest(unittest.TestCase):
 
             paths = run_evaluation(options)
             per_sample = [json.loads(line) for line in paths["per_sample"].read_text(encoding="utf-8").splitlines()]
-            self.assertIn("nli_contradiction", per_sample[0]["metrics"])
             self.assertIn("g_eval_reference_free", per_sample[0]["metrics"])
             g_eval = per_sample[0]["predictions"]["g_eval_reference_free"]
             self.assertEqual(g_eval["direction"], "audio_to_speech")

@@ -33,21 +33,18 @@ def legacy_baseline_output_roots(
     return candidates
 
 
-def eval_model_root(
-    task: str,
-    dataset: str,
+def eval_stage_root(
+    direction: str,
+    stage: str,
     model: str,
-    root: Path = DEFAULT_EVAL_ROOT,
-) -> Path:
-    return root / task / dataset / model
-
-
-def eval_comparison_root(
-    task: str,
     dataset: str,
+    split: str,
+    evaluated_run_id: str,
+    metric_id: str,
+    eval_run_id: str,
     root: Path = DEFAULT_EVAL_ROOT,
 ) -> Path:
-    return root / task / dataset / "comparisons"
+    return root / "stages" / direction / stage / model / dataset / split / evaluated_run_id / metric_id / eval_run_id
 
 
 def default_prompt_field(task: str) -> str:

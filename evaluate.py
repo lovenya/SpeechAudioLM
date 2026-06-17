@@ -10,9 +10,10 @@ from pathlib import Path
 
 from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
+from evaluation.io import utc_timestamp
 from evaluation.manifest import resolve_manifest_path
 from evaluation.metrics import get_metric_specs
-from evaluation.runner import EvalOptions, dry_run, run_evaluation
+from evaluation.runner import EvalOptions, dry_run, resolve_stage_direction, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import DEFAULT_EVAL_ROOT
 from project_paths import result_path, root_path
@@ -20,12 +21,19 @@ from project_paths import result_path, root_path
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate SpeechAudio LM baseline outputs.")
-    parser.add_argument("--model", required=True, help="Model/backend name, e.g. audio_omni.")
-    parser.add_argument("--task", required=True, help="Task name, e.g. T2A, T2S, S2A, or A2S.")
+    parser.add_argument("--model", required=True, help="Evaluated model/backend name, e.g. audio_omni.")
+    parser.add_argument(
+        "--stage",
+        required=True,
+        choices=["a2t", "s2t", "t2t", "t2a", "t2s", "s2a", "a2s"],
+        help="Evaluated stage/task: a2t, s2t, t2t, t2a, t2s, s2a, or a2s.",
+    )
+    parser.add_argument("--direction", choices=["a2s", "s2a"], help="Pipeline direction. Required for --stage t2t; otherwise inferred and validated when supplied.")
+    parser.add_argument("--evaluated-run-id", required=True, help="Run ID of the result being evaluated.")
     parser.add_argument("--dataset", default="ttas", help="Dataset name. Defaults to ttas.")
     parser.add_argument("--split", default="test", help="Dataset split. Defaults to test.")
     parser.add_argument("--manifest", default=None, help="Optional explicit baseline manifest path.")
-    parser.add_argument("--metrics", default=None, help='Comma-separated metrics, or "all". Required.')
+    parser.add_argument("--metrics", required=True, help='Comma-separated metrics, or "all".')
     parser.add_argument("--dataset-config", default="configs/ttas_dataset.json")
     parser.add_argument("--metrics-config", default="configs/eval_metrics.json")
     parser.add_argument("--task-metric-map", default="configs/task_metric_map.json")
@@ -45,13 +53,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     try:
+        task = args.stage.upper()
+        direction = resolve_stage_direction(args.stage, args.direction)
         capabilities = load_capabilities(Path(args.capabilities_config))
-        validate_model_task(args.model, args.task, capabilities)
+        validate_model_task(args.model, task, capabilities)
         task_metric_map = load_task_metric_map(Path(args.task_metric_map))
-        selection = select_metrics(args.task, args.metrics, task_metric_map)
+        selection = select_metrics(task, args.metrics, task_metric_map)
         manifest_path = resolve_manifest_path(
             model=args.model,
-            task=args.task,
+            task=task,
             dataset=args.dataset,
             split=args.split,
             explicit_manifest=args.manifest,
@@ -61,9 +71,14 @@ def main() -> None:
         if args.temporary:
             output_root = root_path("temporary_results_root") / "evals"
         metric_specs = get_metric_specs(selection.metric_names)
+        eval_run_id = utc_timestamp()
         shared_options = dict(
             model=args.model,
-            task=args.task,
+            task=task,
+            stage=args.stage,
+            direction=direction,
+            evaluated_run_id=args.evaluated_run_id,
+            eval_run_id=eval_run_id,
             dataset=args.dataset,
             split=args.split,
             manifest_path=manifest_path,
@@ -85,16 +100,21 @@ def main() -> None:
                 dry_runs.append(dry_run(options))
             print(json.dumps(dry_runs[0] if len(dry_runs) == 1 else dry_runs, indent=2, ensure_ascii=False, sort_keys=True))
             return
-        paths = None
+        all_paths = []
         for metric_spec in metric_specs:
             options = EvalOptions(metric_specs=[metric_spec], **shared_options)
-            paths = run_evaluation(options)
+            all_paths.append((metric_spec.name, run_evaluation(options)))
     except EvaluationError as exc:
         raise SystemExit(f"error: {exc}") from None
 
-    assert paths is not None
-    for name, path in paths.items():
-        print(f"{name}={path}")
+    assert all_paths
+    if len(all_paths) == 1:
+        for name, path in all_paths[0][1].items():
+            print(f"{name}={path}")
+        return
+    for metric_name, paths in all_paths:
+        for name, path in paths.items():
+            print(f"{metric_name}.{name}={path}")
 
 
 if __name__ == "__main__":

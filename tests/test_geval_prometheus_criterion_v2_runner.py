@@ -15,6 +15,9 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
         return EvalOptions(
             model="cascaded",
             task="T2T",
+            stage="t2t",
+            direction="a2s",
+            evaluated_run_id="20260616_1500",
             dataset="ttas",
             split="val",
             manifest_path=root / "manifest.jsonl",
@@ -140,12 +143,16 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            paths = run_evaluation(self._options(root, metric_ids))
-            row = json.loads(paths["per_sample"].read_text(encoding="utf-8"))
+            rows_by_metric = {}
             for metric in metric_ids:
+                paths = run_evaluation(self._options(root, [metric]))
+                rows_by_metric[metric] = json.loads(paths["per_sample"].read_text(encoding="utf-8"))
+                self.assertIn(f"/stages/a2s/t2t/cascaded/ttas/val/20260616_1500/{metric}/", str(paths["per_sample"]))
+
+            for metric, row in rows_by_metric.items():
                 self.assertEqual(row["metrics"][metric], 4)
                 self.assertEqual(row["predictions"][metric]["final_score"], 4)
-            anchors = row["predictions"]["g_eval_prometheus_criterion_v2_reference_grounded"]["reference_anchors"]
+            anchors = rows_by_metric["g_eval_prometheus_criterion_v2_reference_grounded"]["predictions"]["g_eval_prometheus_criterion_v2_reference_grounded"]["reference_anchors"]
             self.assertEqual(anchors[0]["text"], "Please let the dog inside.")
 
 
