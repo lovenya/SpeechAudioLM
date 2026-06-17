@@ -49,15 +49,15 @@ The cascaded runner supports individual pipelines (`T2A`, `T2S`, `A2T`, `S2T`,
 `T2T`) and full cascades (`A2S`, `S2A`) with selectors for each stage:
 
 ```bash
-python baseline_cascaded.py --pipeline S2A --asr reference --text-model template --t2a audiogen --num-samples 1 --dry-run
-python baseline_cascaded.py --pipeline A2S --captioner reference --text-model template --tts audio_omni --num-samples 1 --dry-run
+python baseline_cascaded.py --pipeline S2A --asr reference --text-model llama3_3_70b_instruct --t2a tangoflux --num-samples 1 --dry-run
+python baseline_cascaded.py --pipeline A2S --captioner reference --text-model llama3_3_70b_instruct --tts cosyvoice3 --num-samples 1 --dry-run
 ```
 
 Backend selectors currently exposed by the modular runner:
 
 - ASR: `audio_omni`, `reference`, `whisper`, `qwen3_asr`
 - audio captioning: `audio_omni`, `reference`, `audio_flamingo_next`, `qwen3_omni_captioner`
-- text-to-text: `template`, `identity`, `qwen3_32b`, `llama3_3_70b_instruct`
+- text-to-text: `qwen3_32b`, `llama3_3_70b_instruct`
 - TTS: `audio_omni`, `qwen3_omni`, `f5_tts`, `cosyvoice3`
 - T2A: `audiogen`, `tangoflux`, `audio_omni`
 

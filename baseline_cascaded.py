@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--asr", default="audio_omni", choices=["audio_omni", "reference", "whisper", "qwen3_asr"])
     parser.add_argument("--captioner", default="audio_omni", choices=["audio_omni", "reference", "audio_flamingo_next", "qwen3_omni_captioner"])
-    parser.add_argument("--text-model", default="template", choices=["template", "qwen3_32b", "llama3_3_70b_instruct"])
+    parser.add_argument("--text-model", default="llama3_3_70b_instruct", choices=["template", "qwen3_32b", "llama3_3_70b_instruct"])
     parser.add_argument(
         "--text-mode",
         default="speech_to_audio_description",
