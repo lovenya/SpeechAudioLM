@@ -124,7 +124,7 @@ def main() -> None:
     if args.results_schema == "v1" and run_config["pipeline"] in {"A2S", "S2A"}:
         raise ValueError("results-schema v1 is only supported for individual stage runs; assemble pipelines separately")
     if args.results_schema == "v1" and args.overwrite:
-        raise ValueError("results-schema v1 runs are create-only and do not support --overwrite")
+        raise ValueError("results-schema v1 runs do not support --overwrite; use the same run ID to resume")
 
     if args.results_schema == "v1":
         paths = _v1_stage_paths(args, run_config, run_id=args.run_id or generate_run_id())
@@ -142,7 +142,11 @@ def main() -> None:
         _dry_run(args, rows, output_root, run_config, total_rows)
         return
     if args.results_schema == "v1":
-        create_run_directories(paths)
+        if not paths.result.exists() and not paths.logs.exists():
+            create_run_directories(paths)
+        else:
+            paths.result.mkdir(parents=True, exist_ok=True)
+            paths.logs.mkdir(parents=True, exist_ok=True)
     cascade.run(rows, output_root, log_root, run_config, total_rows)
 
 
@@ -169,7 +173,7 @@ class ModularCascade:
         if schema_v1 and self.args.pipeline in {"A2S", "S2A"}:
             raise ValueError("results-schema v1 is only supported for individual stage runs; assemble pipelines separately")
         if schema_v1 and self.args.overwrite:
-            raise ValueError("results-schema v1 runs are create-only and do not support --overwrite")
+            raise ValueError("results-schema v1 runs do not support --overwrite; use the same run ID to resume")
         if schema_v1:
             rows = list(rows)
             _validate_v1_stage_inputs(self.args, rows)
@@ -179,6 +183,10 @@ class ModularCascade:
         inspection_manifest = output_root / ("inspect.json" if schema_v1 else "manifest.inspect.json")
         run_config_path = output_root / ("config.json" if schema_v1 else "run_config.json")
         self._run_config = run_config
+        config_document = _design_config_document(run_config, total_rows) if schema_v1 else run_config
+        config_payload = json.dumps(config_document, indent=2, sort_keys=not schema_v1) + "\n"
+        resume_event: dict | None = None
+        existing_run_doc: dict | None = None
         if self.args.overwrite:
             _unlink_if_exists(final_manifest)
             _unlink_if_exists(inspection_manifest)
@@ -188,16 +196,25 @@ class ModularCascade:
                     _unlink_if_exists(artifact)
             for component_manifest in (output_root / "components").glob("*/manifest.jsonl"):
                 _unlink_if_exists(component_manifest)
+        elif schema_v1:
+            existing_run_doc = _read_optional_json(output_root / "run.json")
+            existing_samples = self._read_existing_v1_samples(final_manifest, rows, output_root)
+            resume_event = _validate_v1_resume_state(
+                output_root=output_root,
+                config_path=run_config_path,
+                manifest_path=final_manifest,
+                config_document=config_document,
+                existing_samples=existing_samples,
+                existing_run_doc=existing_run_doc,
+            )
         else:
-            if schema_v1 and final_manifest.exists():
-                raise RuntimeError("results-schema v1 does not support appending to an existing manifest yet")
             _validate_existing_run_config(run_config_path, final_manifest, run_config)
+            existing_samples = _read_existing_samples(final_manifest)
         if schema_v1:
-            _validate_v1_artifact_targets(output_root)
-        config_document = _design_config_document(run_config, total_rows) if schema_v1 else run_config
-        config_payload = json.dumps(config_document, indent=2, sort_keys=not schema_v1) + "\n"
+            _validate_v1_artifact_targets(output_root, allow_resume=bool(existing_samples))
         if schema_v1:
-            _write_text_create_only(run_config_path, config_payload)
+            if not run_config_path.exists():
+                _write_text_create_only(run_config_path, config_payload)
         else:
             run_config_path.write_text(config_payload, encoding="utf-8")
         code_state = _git_state() if schema_v1 else None
@@ -206,9 +223,9 @@ class ModularCascade:
         skipped = 0
         failed = 0
         created_at = _existing_created_at(inspection_manifest) or eastern_now()
-        started_at = eastern_now()
+        started_at = _v1_existing_started_at(existing_run_doc) if schema_v1 else eastern_now()
+        started_at = started_at or eastern_now()
         started = time.time()
-        existing_samples = _read_existing_samples(final_manifest) if not self.args.overwrite else {}
         samples: dict[tuple[int, str], dict] = dict(existing_samples)
         existing_definitions = read_inspection_definitions(final_manifest) if existing_samples else []
         prior_definitions = existing_definitions[:-1] if existing_definitions else []
@@ -219,7 +236,7 @@ class ModularCascade:
         print(f"run_config={run_config_path}")
         print(f"total_rows={total_rows}")
 
-        manifest_mode = "x" if schema_v1 else "a"
+        manifest_mode = "a"
         with final_manifest.open(manifest_mode, encoding="utf-8") as manifest:
             for ordinal, row in enumerate(rows, start=1):
                 row_definitions = carried_stage_definitions(row.record) or [
@@ -292,6 +309,8 @@ class ModularCascade:
                 processed=processed,
                 skipped=skipped,
                 upstream_lineage=prior_lineage,
+                resume_event=resume_event,
+                existing_run_doc=existing_run_doc,
             )
         else:
             write_inspection_manifest(
@@ -724,6 +743,66 @@ class ModularCascade:
             record=row.record,
             stage=stage,
             status="success",
+        )
+
+    def _read_existing_v1_samples(
+        self,
+        manifest_path: Path,
+        rows: list[PromptRow],
+        output_root: Path,
+    ) -> dict[tuple[int, str], dict]:
+        if not manifest_path.is_file():
+            return {}
+        rows_by_key = {(row.row_index, row.sample_id): row for row in rows}
+        samples: dict[tuple[int, str], dict] = {}
+        seen_row_indices: set[int] = set()
+        seen_sample_ids: set[str] = set()
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                row_index = record.get("row_index")
+                sample_id = record.get("sample_id")
+                if not isinstance(row_index, int) or not isinstance(sample_id, str):
+                    raise ValueError(f"Invalid existing v1 manifest row at {manifest_path}:{line_number}")
+                if row_index in seen_row_indices:
+                    raise ValueError(f"Duplicate existing v1 row_index {row_index} in {manifest_path}")
+                if sample_id in seen_sample_ids:
+                    raise ValueError(f"Duplicate existing v1 sample_id {sample_id!r} in {manifest_path}")
+                seen_row_indices.add(row_index)
+                seen_sample_ids.add(sample_id)
+                key = (row_index, sample_id)
+                source_row = rows_by_key.get(key)
+                if source_row is None:
+                    raise ValueError(f"Existing v1 manifest row {key} is not present in this run input")
+                sample = self._sample_from_v1_manifest_row(record, source_row, output_root)
+                samples[key] = sample
+        return samples
+
+    def _sample_from_v1_manifest_row(self, record: dict, row: PromptRow, output_root: Path) -> dict:
+        task, model = self._current_task_and_model()
+        stage_number = len(carried_stages(row.record)) + 1
+        stage = {
+            "stage": stage_number,
+            "task": task,
+            "model": record.get("model") or model,
+            "input": self._stage_input(task, row),
+            "prompt": None,
+            "inference_seconds": _v1_manifest_inference_seconds(record),
+            "output": _legacy_output_from_v1_stage_row(record, output_root),
+            "error": record.get("error"),
+        }
+        if task == "text_to_text":
+            stage["mode"] = self.args.text_mode
+        status = record.get("status") if isinstance(record.get("status"), str) else "error"
+        return build_sample(
+            row_index=row.row_index,
+            sample_id=row.sample_id,
+            record=row.record,
+            stage=stage,
+            status=status,
+            error=record.get("error") if status != "success" and isinstance(record.get("error"), dict) else None,
         )
 
     def _error_sample(self, row: PromptRow, output_path: Path, inference_seconds: float, exc: Exception) -> dict:
@@ -1353,6 +1432,8 @@ def _write_design_run_artifacts(
     processed: int,
     skipped: int,
     upstream_lineage: list[dict] | None = None,
+    resume_event: dict | None = None,
+    existing_run_doc: dict | None = None,
 ) -> None:
     status = "complete" if all(sample.get("status") == "success" for sample in samples) else "complete_with_errors"
     current_stage_index = max((len(sample.get("stages", [])) for sample in samples), default=len(definitions))
@@ -1374,6 +1455,13 @@ def _write_design_run_artifacts(
         current_stage_index=current_stage_index,
         upstream_lineage=upstream_lineage or [],
     )
+    events = _design_run_events(
+        existing_run_doc=existing_run_doc,
+        started_at=started_at,
+        completed_at=completed_at,
+        samples=samples,
+        resume_event=resume_event,
+    )
     artifacts = {
         "run.json": {
             "schema_version": 1,
@@ -1394,6 +1482,7 @@ def _write_design_run_artifacts(
                 "logs": _path_reference(log_root),
             },
             "lineage": lineage,
+            "events": events,
         },
         "inspect.json": {
             "schema_version": 1,
@@ -1416,7 +1505,7 @@ def _write_design_run_artifacts(
         "summary.json": summary,
     }
     for name, document in artifacts.items():
-        _write_json_create_only(output_root / name, document)
+        _write_json_replace(output_root / name, document)
 
 
 def _design_config_document(run_config: dict, total_rows: int) -> dict:
@@ -1677,10 +1766,10 @@ def _median(values: list[float]) -> float | None:
     return (ordered[midpoint - 1] + ordered[midpoint]) / 2
 
 
-def _validate_v1_artifact_targets(output_root: Path) -> None:
+def _validate_v1_artifact_targets(output_root: Path, *, allow_resume: bool = False) -> None:
     for name in ("manifest.jsonl", "config.json", "run.json", "inspect.json", "errors.json", "summary.json"):
         path = output_root / name
-        if path.exists():
+        if path.exists() and not allow_resume:
             raise FileExistsError(f"v1 artifact already exists: {path}")
 
 
@@ -1689,6 +1778,10 @@ def _write_json_create_only(path: Path, document: dict) -> None:
         path,
         json.dumps(document, ensure_ascii=False, indent=2) + "\n",
     )
+
+
+def _write_json_replace(path: Path, document: dict) -> None:
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _write_text_create_only(path: Path, payload: str) -> None:
@@ -1719,6 +1812,128 @@ def _git_state() -> dict[str, object]:
     except (OSError, subprocess.CalledProcessError) as exc:
         return {"git_commit": None, "git_dirty": None, "error": str(exc)}
     return {"git_commit": commit, "git_dirty": dirty}
+
+
+def _read_optional_json(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_v1_resume_state(
+    *,
+    output_root: Path,
+    config_path: Path,
+    manifest_path: Path,
+    config_document: dict,
+    existing_samples: dict[tuple[int, str], dict],
+    existing_run_doc: dict | None,
+) -> dict | None:
+    if not existing_samples:
+        return None
+    if not config_path.is_file():
+        raise FileNotFoundError(f"v1 resume requires existing config.json: {config_path}")
+    existing_config = json.loads(config_path.read_text(encoding="utf-8"))
+    if existing_config != config_document:
+        raise RuntimeError("Existing v1 output directory belongs to a different config.json")
+    if existing_run_doc and existing_run_doc.get("status") == "complete":
+        raise RuntimeError(f"v1 run is already complete: {output_root}")
+    successful = sum(sample.get("status") == "success" for sample in existing_samples.values())
+    errors = len(existing_samples) - successful
+    start_row_index = min((key[0] for key in existing_samples), default=0)
+    return {
+        "type": "resumed",
+        "time": eastern_now(),
+        "start_row_index": start_row_index,
+        "existing_successful_rows": successful,
+        "existing_error_rows": errors,
+        "reason": "manual_resume",
+        "manifest": manifest_path.name,
+    }
+
+
+def _v1_existing_started_at(existing_run_doc: dict | None) -> str | None:
+    if not isinstance(existing_run_doc, dict):
+        return None
+    value = existing_run_doc.get("started_at")
+    return value if isinstance(value, str) else None
+
+
+def _design_run_events(
+    *,
+    existing_run_doc: dict | None,
+    started_at: str,
+    completed_at: str,
+    samples: list[dict],
+    resume_event: dict | None,
+) -> list[dict]:
+    existing_events = existing_run_doc.get("events") if isinstance(existing_run_doc, dict) else None
+    events = [dict(event) for event in existing_events] if isinstance(existing_events, list) else []
+    if not events:
+        events.append({"type": "started", "time": started_at, "start_row_index": 0})
+    if resume_event is not None:
+        events.append(resume_event)
+    events.append(
+        {
+            "type": "completed",
+            "time": completed_at,
+            "successful_rows": sum(sample.get("status") == "success" for sample in samples),
+            "error_rows": sum(sample.get("status") != "success" for sample in samples),
+        }
+    )
+    return events
+
+
+def _v1_manifest_inference_seconds(record: dict) -> float | None:
+    timing = record.get("timing")
+    if not isinstance(timing, dict):
+        return None
+    seconds = timing.get("inference_seconds")
+    return seconds if isinstance(seconds, (int, float)) else None
+
+
+def _legacy_output_from_v1_stage_row(record: dict, output_root: Path) -> dict | None:
+    output = record.get("output")
+    if not isinstance(output, dict):
+        return None
+    text = _v1_text_output(output)
+    if text is not None:
+        key, value = text
+        output_type = {
+            "audio_caption": "audio_caption",
+            "speech_transcription": "speech_text",
+            "generated_speech_text": "speech_text",
+            "generated_audio_caption": "audio_description",
+            "text": "text",
+        }[key]
+        return {"type": output_type, "text": value}
+    for field, output_type in (("audio_file", "environmental_audio"), ("speech_file", "speech_audio"), ("file", "media")):
+        value = output.get(field)
+        if isinstance(value, str) and value:
+            resolved = _resolve_v1_output_reference(output_root, value)
+            if record.get("status") == "success" and not resolved.is_file():
+                raise FileNotFoundError(f"successful v1 row points to missing media file: {resolved}")
+            legacy = {"type": output_type, "file": value}
+            for key in ("sample_rate", "duration_seconds"):
+                if output.get(key) is not None:
+                    legacy[key] = output[key]
+            return legacy
+    return dict(output)
+
+
+def _v1_text_output(output: dict) -> tuple[str, str] | None:
+    for key in ("audio_caption", "speech_transcription", "generated_speech_text", "generated_audio_caption", "text"):
+        value = output.get(key)
+        if isinstance(value, str):
+            return key, value
+    return None
+
+
+def _resolve_v1_output_reference(output_root: Path, value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return output_root / path
 
 
 def _validate_existing_run_config(path: Path, manifest_path: Path, run_config: dict) -> None:

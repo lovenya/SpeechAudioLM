@@ -245,7 +245,7 @@ class CascadedBaselineTest(unittest.TestCase):
             manifest.write_text("existing manifest\n", encoding="utf-8")
             run_json.write_text("existing run\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "create-only"):
+            with self.assertRaisesRegex(ValueError, "do not support --overwrite"):
                 ModularCascade(args, dataset_root=None).run(
                     [],
                     output_root,
@@ -256,6 +256,65 @@ class CascadedBaselineTest(unittest.TestCase):
 
             self.assertEqual(manifest.read_text(encoding="utf-8"), "existing manifest\n")
             self.assertEqual(run_json.read_text(encoding="utf-8"), "existing run\n")
+
+    def test_v1_schema_resumes_partial_manifest_without_inspect(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        rows = [
+            PromptRow(
+                row_index=0,
+                sample_id="sample-a",
+                prompt="first caption",
+                record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+            ),
+            PromptRow(
+                row_index=1,
+                sample_id="sample-b",
+                prompt="second caption",
+                record={"audio_file": "audio/b.wav", "audio_cap": "second caption"},
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            cascade = ModularCascade(args, dataset_root=None)
+            cascade.run(rows[:1], output_root, log_root, run_config, total_rows=2)
+            for name in ("run.json", "inspect.json", "errors.json", "summary.json"):
+                (output_root / name).unlink()
+            self.assertFalse((output_root / "inspect.json").exists())
+
+            ModularCascade(args, dataset_root=None).run(rows, output_root, log_root, run_config, total_rows=2)
+            manifest = _read_jsonl(output_root / "manifest.jsonl")
+            inspect = json.loads((output_root / "inspect.json").read_text(encoding="utf-8"))
+            summary = json.loads((output_root / "summary.json").read_text(encoding="utf-8"))
+            run_doc = json.loads((output_root / "run.json").read_text(encoding="utf-8"))
+
+        self.assertEqual([row["sample_id"] for row in manifest], ["sample-a", "sample-b"])
+        self.assertEqual([sample["sample_id"] for sample in inspect["samples"]], ["sample-a", "sample-b"])
+        self.assertEqual(summary["samples"]["successful"], 2)
+        self.assertEqual(summary["samples"]["processed"], 1)
+        self.assertEqual(summary["samples"]["skipped"], 1)
+        self.assertEqual([event["type"] for event in run_doc["events"]], ["started", "resumed", "completed"])
+        self.assertEqual(run_doc["events"][1]["existing_successful_rows"], 1)
+
+    def test_v1_schema_rejects_rerun_after_complete(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="first caption",
+            record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+
+            with self.assertRaisesRegex(RuntimeError, "already complete"):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
 
     def test_v1_dry_run_does_not_create_run_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
