@@ -14,6 +14,7 @@ from baseline_cascaded import (
     ModularCascade,
     _cascade_output_root,
     _cascade_variant_name,
+    _design_config_document,
     _pipeline_prompt_field,
     _planned_stages,
     _run_config,
@@ -223,7 +224,7 @@ class CascadedBaselineTest(unittest.TestCase):
             output_root.mkdir(parents=True)
             (output_root / "run.json").write_text("{}\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(FileExistsError, "v1 artifact already exists"):
+            with self.assertRaisesRegex(FileNotFoundError, "requires existing config"):
                 ModularCascade(args, dataset_root=None).run(
                     [row],
                     output_root,
@@ -296,7 +297,36 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(summary["samples"]["processed"], 1)
         self.assertEqual(summary["samples"]["skipped"], 1)
         self.assertEqual([event["type"] for event in run_doc["events"]], ["started", "resumed", "completed"])
+        self.assertEqual(run_doc["events"][1]["start_row_index"], 1)
         self.assertEqual(run_doc["events"][1]["existing_successful_rows"], 1)
+
+    def test_v1_schema_resumes_config_only_interrupted_run(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="first caption",
+            record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            output_root.mkdir(parents=True)
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            (output_root / "config.json").write_text(
+                json.dumps(_design_config_document(run_config, total_rows=1), indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+            manifest = _read_jsonl(output_root / "manifest.jsonl")
+            run_doc = json.loads((output_root / "run.json").read_text(encoding="utf-8"))
+
+        self.assertEqual([entry["sample_id"] for entry in manifest], ["sample-a"])
+        self.assertEqual([event["type"] for event in run_doc["events"]], ["started", "resumed", "completed"])
+        self.assertEqual(run_doc["events"][1]["start_row_index"], 0)
+        self.assertEqual(run_doc["events"][1]["existing_successful_rows"], 0)
 
     def test_v1_schema_resume_rejects_config_mismatch(self) -> None:
         args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
@@ -385,6 +415,36 @@ class CascadedBaselineTest(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "missing media file"):
                 ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
 
+    def test_v1_schema_resume_rejects_orphan_output_file(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        rows = [
+            PromptRow(
+                row_index=0,
+                sample_id="sample-a",
+                prompt="first caption",
+                record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+            ),
+            PromptRow(
+                row_index=1,
+                sample_id="sample-b",
+                prompt="second caption",
+                record={"audio_file": "audio/b.wav", "audio_cap": "second caption"},
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            ModularCascade(args, dataset_root=None).run(rows[:1], output_root, log_root, run_config, total_rows=2)
+            for name in ("run.json", "inspect.json", "errors.json", "summary.json"):
+                (output_root / name).unlink()
+            orphan = output_root / "text" / "000001_sample-b.json"
+            orphan.write_text("{}\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "Orphan v1 output"):
+                ModularCascade(args, dataset_root=None).run(rows, output_root, log_root, run_config, total_rows=2)
+
     def test_v1_schema_rejects_rerun_after_complete(self) -> None:
         args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
         row = PromptRow(
@@ -399,6 +459,48 @@ class CascadedBaselineTest(unittest.TestCase):
             log_root = root / "logs" / "20260616_1437"
             run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
             ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+
+            with self.assertRaisesRegex(RuntimeError, "already complete"):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+
+    def test_v1_schema_rejects_manifest_complete_without_run_json(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="first caption",
+            record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+            for name in ("run.json", "inspect.json", "errors.json", "summary.json"):
+                (output_root / name).unlink()
+
+            with self.assertRaisesRegex(RuntimeError, "already complete"):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+
+    def test_v1_schema_rejects_complete_with_errors_as_terminal(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="first caption",
+            record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+            run_json = output_root / "run.json"
+            run_doc = json.loads(run_json.read_text(encoding="utf-8"))
+            run_doc["status"] = "complete_with_errors"
+            run_json.write_text(json.dumps(run_doc) + "\n", encoding="utf-8")
 
             with self.assertRaisesRegex(RuntimeError, "already complete"):
                 ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
@@ -735,6 +837,73 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertFalse(legacy_exists)
         self.assertEqual(run_doc["run_id"], "20260616_1437")
         self.assertEqual(run_doc["paths"]["result"], design_root.as_posix())
+
+    def test_v1_main_stage_input_keeps_cli_stage_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            split = root / "t2t_stage_input.jsonl"
+            split.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "sample-a",
+                        "speech_text": "start the engine",
+                        "_cascaded_pipeline": "S2A",
+                        "_cascaded_sample": _carried_sample(
+                            row_index=0,
+                            sample_id="sample-a",
+                            stages=[
+                                {
+                                    "stage": 1,
+                                    "task": "asr",
+                                    "model": "reference",
+                                    "input": {"type": "speech_audio", "file": "speech/source.wav"},
+                                    "output": {"type": "speech_text", "text": "start the engine"},
+                                }
+                            ],
+                        ),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            config = root / "dataset.json"
+            config.write_text(
+                json.dumps({"dataset_root": str(root), "splits": {"val": str(split), "train": str(split), "test": str(split)}}) + "\n",
+                encoding="utf-8",
+            )
+            argv = [
+                "baseline_cascaded.py",
+                "--pipeline",
+                "T2T",
+                "--text-model",
+                "template",
+                "--asr",
+                "reference",
+                "--dataset-config",
+                str(config),
+                "--split",
+                "val",
+                "--num-samples",
+                "1",
+                "--results-schema",
+                "v1",
+                "--run-id",
+                "20260616_1437",
+                "--device",
+                "cpu",
+            ]
+            env = {"SALM_RESULTS_ROOT": str(root / "results"), "SALM_LOGS_ROOT": str(root / "logs")}
+            with patch.object(sys, "argv", argv), patch.dict("os.environ", env):
+                main()
+
+            design_root = root / "results" / "cascaded" / "stages" / "t2t" / "s2a" / "template" / "from-s2t" / "reference" / "ttas" / "val" / "20260616_1437"
+            run_doc = json.loads((design_root / "run.json").read_text(encoding="utf-8"))
+            config_doc = json.loads((design_root / "config.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(run_doc["stage"], "t2t")
+        self.assertEqual(run_doc["direction"], "s2a")
+        self.assertEqual(config_doc["execution"]["legacy_pipeline"], "T2T")
+        self.assertEqual(config_doc["execution"]["cascade_pipeline"], "S2A")
 
     def test_cascade_variant_distinguishes_backend_choices(self) -> None:
         audiogen = argparse.Namespace(pipeline="S2A", run_name=None, asr="reference", text_model="template", t2a="audiogen")

@@ -120,8 +120,8 @@ def main() -> None:
     total_rows = count_jsonl_rows(split_path, args.start_index, args.num_samples)
     run_config = _run_config(args, split_path, prompt_field)
     if rows and isinstance(rows[0].record.get("_cascaded_pipeline"), str):
-        run_config["pipeline"] = rows[0].record["_cascaded_pipeline"]
-    if args.results_schema == "v1" and run_config["pipeline"] in {"A2S", "S2A"}:
+        run_config["cascade_pipeline"] = rows[0].record["_cascaded_pipeline"]
+    if args.results_schema == "v1" and args.pipeline in {"A2S", "S2A"}:
         raise ValueError("results-schema v1 is only supported for individual stage runs; assemble pipelines separately")
     if args.results_schema == "v1" and args.overwrite:
         raise ValueError("results-schema v1 runs do not support --overwrite; use the same run ID to resume")
@@ -204,14 +204,17 @@ class ModularCascade:
                 config_path=run_config_path,
                 manifest_path=final_manifest,
                 config_document=config_document,
+                requested_keys=[(row.row_index, row.sample_id) for row in rows],
                 existing_samples=existing_samples,
                 existing_run_doc=existing_run_doc,
             )
+            if resume_event is not None:
+                self._validate_v1_output_files_match_manifest(output_root, rows, existing_samples)
         else:
             _validate_existing_run_config(run_config_path, final_manifest, run_config)
             existing_samples = _read_existing_samples(final_manifest)
         if schema_v1:
-            _validate_v1_artifact_targets(output_root, allow_resume=bool(existing_samples))
+            _validate_v1_artifact_targets(output_root, allow_resume=resume_event is not None)
         if schema_v1:
             if not run_config_path.exists():
                 _write_text_create_only(run_config_path, config_payload)
@@ -779,6 +782,25 @@ class ModularCascade:
                 sample = self._sample_from_v1_manifest_row(record, source_row, output_root)
                 samples[key] = sample
         return samples
+
+    def _validate_v1_output_files_match_manifest(
+        self,
+        output_root: Path,
+        rows: list[PromptRow],
+        existing_samples: dict[tuple[int, str], dict],
+    ) -> None:
+        allowed_paths = {
+            self._final_output_path(output_root, row).resolve()
+            for row in rows
+            if (row.row_index, row.sample_id) in existing_samples
+        }
+        for dirname in ("text", "outputs"):
+            directory = output_root / dirname
+            if not directory.is_dir():
+                continue
+            for path in directory.rglob("*"):
+                if path.is_file() and path.resolve() not in allowed_paths:
+                    raise RuntimeError(f"Orphan v1 output exists without a matching manifest row: {path}")
 
     def _sample_from_v1_manifest_row(self, record: dict, row: PromptRow, output_root: Path) -> dict:
         task, model = self._current_task_and_model()
@@ -1530,6 +1552,7 @@ def _design_config_document(run_config: dict, total_rows: int) -> dict:
             "shard_index": None,
             "num_shards": None,
             "legacy_pipeline": pipeline,
+            "cascade_pipeline": run_config.get("cascade_pipeline"),
         },
     }
 
@@ -1826,21 +1849,34 @@ def _validate_v1_resume_state(
     config_path: Path,
     manifest_path: Path,
     config_document: dict,
+    requested_keys: list[tuple[int, str]],
     existing_samples: dict[tuple[int, str], dict],
     existing_run_doc: dict | None,
 ) -> dict | None:
-    if not existing_samples:
+    has_resume_artifact = (
+        config_path.exists()
+        or manifest_path.exists()
+        or existing_run_doc is not None
+        or (output_root / "inspect.json").exists()
+        or (output_root / "errors.json").exists()
+        or (output_root / "summary.json").exists()
+    )
+    if not has_resume_artifact:
         return None
     if not config_path.is_file():
         raise FileNotFoundError(f"v1 resume requires existing config.json: {config_path}")
     existing_config = json.loads(config_path.read_text(encoding="utf-8"))
     if existing_config != config_document:
         raise RuntimeError("Existing v1 output directory belongs to a different config.json")
-    if existing_run_doc and existing_run_doc.get("status") == "complete":
+    terminal_statuses = {"complete", "complete_with_errors"}
+    if existing_run_doc and existing_run_doc.get("status") in terminal_statuses:
+        raise RuntimeError(f"v1 run is already complete: {output_root}")
+    if requested_keys and all(key in existing_samples for key in requested_keys):
         raise RuntimeError(f"v1 run is already complete: {output_root}")
     successful = sum(sample.get("status") == "success" for sample in existing_samples.values())
     errors = len(existing_samples) - successful
-    start_row_index = min((key[0] for key in existing_samples), default=0)
+    missing_row_indices = [row_index for row_index, sample_id in requested_keys if (row_index, sample_id) not in existing_samples]
+    start_row_index = missing_row_indices[0] if missing_row_indices else 0
     return {
         "type": "resumed",
         "time": eastern_now(),
