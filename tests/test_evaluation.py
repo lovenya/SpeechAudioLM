@@ -761,3 +761,262 @@ class WrappedCascadedManifestTest(unittest.TestCase):
 
         self.assertEqual(row["output_file"], (run_dir / "outputs" / "sample-a.wav").as_posix())
         self.assertTrue(output_exists)
+
+    def test_evaluation_reader_joins_v1_inspect_references_for_stage_rows(self) -> None:
+        from evaluation.io import iter_jsonl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "results" / "cascaded" / "stages" / "t2t" / "a2s" / "qwen3_32b" / "from-a2t" / "captioner" / "ttas" / "val" / "20260616_1437"
+            run_dir.mkdir(parents=True)
+            (run_dir / "manifest.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 7,
+                        "sample_id": "sample-a",
+                        "stage": "t2t",
+                        "model": "qwen3_32b",
+                        "status": "success",
+                        "input": {"source_stage_index": 1, "source_sample_id": "sample-a", "source_status": "success"},
+                        "output": {"type": "text", "generated_speech_text": "Try the starter again."},
+                        "timing": {"inference_seconds": 2.4},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "samples": [
+                            {
+                                "sample_id": "sample-a",
+                                "row_index": 7,
+                                "status": "success",
+                                "reference": {
+                                    "audio_file": "audio/source.wav",
+                                    "speech_file": "speech/source.wav",
+                                    "reference_audio_caption": "A motor starts.",
+                                    "reference_speech_text": "Try the starter.",
+                                },
+                                "stages": [
+                                    {"stage_index": 1, "stage": "a2t", "model": "captioner", "status": "success"},
+                                    {
+                                        "stage_index": 2,
+                                        "stage": "t2t",
+                                        "model": "qwen3_32b",
+                                        "status": "success",
+                                        "input": {"audio_caption": "A motor starts."},
+                                        "runtime_prompt": "exact chat prompt",
+                                        "output": {"type": "text", "generated_speech_text": "Try the starter again."},
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            row = next(iter_jsonl(run_dir / "manifest.jsonl")).record
+
+        self.assertEqual(row["source"]["audio_file"], "audio/source.wav")
+        self.assertEqual(row["source"]["speech_file"], "speech/source.wav")
+        self.assertEqual(row["source"]["audio_cap"], "A motor starts.")
+        self.assertEqual(row["source"]["audio_caption"], "A motor starts.")
+        self.assertEqual(row["source"]["speech_text"], "Try the starter.")
+        self.assertEqual(row["source"]["source_stage_index"], 1)
+        self.assertEqual(row["input_text"], "A motor starts.")
+        self.assertEqual(row["direction"], "audio_to_speech")
+        self.assertEqual(row["prompt"], "exact chat prompt")
+
+    def test_evaluation_reader_joins_v1_inspect_runtime_prompt_for_media_rows(self) -> None:
+        from evaluation.io import iter_jsonl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "results" / "cascaded" / "stages" / "t2a" / "audiogen" / "from-t2t" / "qwen3_32b" / "ttas" / "val" / "20260616_1437"
+            outputs = run_dir / "outputs"
+            outputs.mkdir(parents=True)
+            (outputs / "sample-a.wav").write_bytes(b"RIFFfake")
+            (run_dir / "manifest.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 7,
+                        "sample_id": "sample-a",
+                        "stage": "t2a",
+                        "model": "audiogen",
+                        "status": "success",
+                        "input": {"source_stage_index": 2, "source_sample_id": "sample-a", "source_status": "success"},
+                        "output": {"type": "audio", "audio_file": "outputs/sample-a.wav"},
+                        "timing": {"inference_seconds": 4.1},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "samples": [
+                            {
+                                "sample_id": "sample-a",
+                                "row_index": 7,
+                                "status": "success",
+                                "reference": {
+                                    "audio_file": "audio/source.wav",
+                                    "speech_file": "speech/source.wav",
+                                    "reference_audio_caption": "Reference audio.",
+                                    "reference_speech_text": "Reference speech.",
+                                },
+                                "stages": [
+                                    {"stage_index": 1, "stage": "s2t", "model": "asr", "status": "success"},
+                                    {"stage_index": 2, "stage": "t2t", "model": "qwen3_32b", "status": "success"},
+                                    {
+                                        "stage_index": 3,
+                                        "stage": "t2a",
+                                        "model": "audiogen",
+                                        "status": "success",
+                                        "input": {"generated_audio_caption": "Generated engine sound."},
+                                        "runtime_prompt": "Generated engine sound.",
+                                        "output": {"type": "audio", "audio_file": "outputs/sample-a.wav"},
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            row = next(iter_jsonl(run_dir / "manifest.jsonl")).record
+
+        self.assertEqual(row["source"]["audio_cap"], "Reference audio.")
+        self.assertEqual(row["source"]["speech_text"], "Reference speech.")
+        self.assertEqual(row["prompt"], "Generated engine sound.")
+        self.assertEqual(row["input_text"], "Generated engine sound.")
+        self.assertEqual(row["output_file"], (run_dir / "outputs" / "sample-a.wav").as_posix())
+        self.assertEqual(_prediction_text_for_metric(row, "prompt_adherence_clap_score"), "Generated engine sound.")
+
+    def test_evaluation_reader_joins_v1_pipeline_inspect_references(self) -> None:
+        from evaluation.io import iter_jsonl
+        from evaluation.runner import _predictions
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "results" / "cascaded" / "pipelines" / "a2s" / "captioner-qwen3_32b-f5_tts" / "ttas" / "val" / "20260616_1437"
+            outputs = run_dir / "outputs"
+            outputs.mkdir(parents=True)
+            (outputs / "sample-a.wav").write_bytes(b"RIFFfake")
+            (run_dir / "manifest.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sample_id": "sample-a",
+                        "status": "success",
+                        "direction": "a2s",
+                        "input": {"audio_file": "audio/source.wav"},
+                        "stages": [
+                            {"stage_index": 1, "stage": "a2t", "model": "captioner", "status": "success"},
+                            {"stage_index": 2, "stage": "t2t", "model": "qwen3_32b", "status": "success"},
+                            {"stage_index": 3, "stage": "t2s", "model": "f5_tts", "status": "success"},
+                        ],
+                        "final_output": {"type": "speech", "speech_file": "outputs/sample-a.wav", "sample_rate": 24000},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "samples": [
+                            {
+                                "sample_id": "sample-a",
+                                "row_index": 7,
+                                "status": "success",
+                                "reference": {
+                                    "audio_file": "audio/source.wav",
+                                    "speech_file": "speech/source.wav",
+                                    "reference_audio_caption": "Reference audio.",
+                                    "reference_speech_text": "Reference speech.",
+                                },
+                                "stages": [
+                                    {"stage_index": 1, "stage": "a2t", "model": "captioner", "status": "success"},
+                                    {"stage_index": 2, "stage": "t2t", "model": "qwen3_32b", "status": "success"},
+                                    {
+                                        "stage_index": 3,
+                                        "stage": "t2s",
+                                        "model": "f5_tts",
+                                        "status": "success",
+                                        "input": {"generated_speech_text": "Generated speech."},
+                                        "runtime_prompt": "Generated speech.",
+                                        "output": {"type": "speech", "speech_file": "outputs/sample-a.wav"},
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            row = next(iter_jsonl(run_dir / "manifest.jsonl")).record
+
+        self.assertEqual(row["task"], "A2S")
+        self.assertEqual(row["source"]["audio_cap"], "Reference audio.")
+        self.assertEqual(row["source"]["speech_text"], "Reference speech.")
+        self.assertEqual(row["prompt"], "Generated speech.")
+        self.assertEqual(row["output_file"], (run_dir / "outputs" / "sample-a.wav").as_posix())
+        self.assertEqual(
+            _predictions(row, []),
+            {"generated_speech": (run_dir / "outputs" / "sample-a.wav").as_posix()},
+        )
+
+    def test_evaluation_reader_rejects_v1_inspect_source_status_mismatch(self) -> None:
+        from evaluation.io import iter_jsonl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "results" / "cascaded" / "stages" / "t2t" / "a2s" / "qwen3_32b" / "from-a2t" / "captioner" / "ttas" / "val" / "20260616_1437"
+            run_dir.mkdir(parents=True)
+            (run_dir / "manifest.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 7,
+                        "sample_id": "sample-a",
+                        "stage": "t2t",
+                        "model": "qwen3_32b",
+                        "status": "success",
+                        "input": {"source_stage_index": 1, "source_sample_id": "sample-a", "source_status": "success"},
+                        "output": {"type": "text", "generated_speech_text": "Try the starter again."},
+                        "timing": {"inference_seconds": 2.4},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "samples": [
+                            {
+                                "sample_id": "sample-a",
+                                "row_index": 7,
+                                "status": "error",
+                                "reference": {"reference_audio_caption": "A motor starts."},
+                                "stages": [
+                                    {"stage_index": 1, "stage": "a2t", "model": "captioner", "status": "error"}
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "source_status success does not match inspect stage 1"):
+                next(iter_jsonl(run_dir / "manifest.jsonl"))
