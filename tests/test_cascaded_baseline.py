@@ -148,7 +148,8 @@ class CascadedBaselineTest(unittest.TestCase):
             log_root = root / "logs" / "cascaded" / "stages" / "a2t" / "reference" / "ttas" / "val" / "20260616_1437"
             run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
 
-            ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+            with patch.dict("os.environ", {"SLURM_JOB_ID": "1234", "SLURM_ARRAY_JOB_ID": "1200", "SLURM_ARRAY_TASK_ID": "7"}):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
 
             manifest_rows = _read_jsonl(output_root / "manifest.jsonl")
             run_doc = json.loads((output_root / "run.json").read_text(encoding="utf-8"))
@@ -184,6 +185,7 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(run_doc["stage"], "a2t")
         self.assertIn("git_commit", run_doc["code"])
         self.assertIn("git_dirty", run_doc["code"])
+        self.assertEqual(run_doc["slurm"], {"job_id": "1234", "array_job_id": "1200", "array_task_id": "7"})
         self.assertEqual(run_doc["paths"], {"result": output_root.as_posix(), "logs": log_root.as_posix()})
         self.assertEqual(config["input"]["manifest"], "data/splits/ttas_val.jsonl")
         self.assertEqual(config["input"]["input_field"], "audio_cap")

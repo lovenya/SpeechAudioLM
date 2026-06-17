@@ -61,7 +61,7 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
             _update_run_json(t2s, started_at="2026-06-16T19:10:00+00:00", code={"git_commit": "t2s"})
             pipeline_dir = root / "pipeline" / "20260616_1530"
 
-            with patch.dict("os.environ", {"SLURM_JOB_ID": "1234", "SLURM_ARRAY_TASK_ID": "7"}):
+            with patch.dict("os.environ", {"SLURM_JOB_ID": "1234", "SLURM_ARRAY_JOB_ID": "1200", "SLURM_ARRAY_TASK_ID": "7"}):
                 report = assemble_pipeline_record(
                     pipeline_dir,
                     direction="a2s",
@@ -85,7 +85,7 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
         self.assertEqual(run["completed_at"], "2026-06-16T15:30:00-04:00")
         self.assertEqual(run["code"]["stage_runs"][0]["code"], {"git_commit": "a2t"})
         self.assertEqual(run["code"]["stage_runs"][2]["code"], {"git_commit": "t2s"})
-        self.assertEqual(run["slurm"], {"job_id": "1234", "array_task_id": "7"})
+        self.assertEqual(run["slurm"], {"job_id": "1234", "array_job_id": "1200", "array_task_id": "7"})
         self.assertFalse((pipeline_dir / "outputs").exists())
 
     def test_incomplete_row_reports_first_failed_stage_before_final_stage(self) -> None:

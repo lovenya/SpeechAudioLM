@@ -180,6 +180,7 @@ Example:
   },
   "slurm": {
     "job_id": "321500",
+    "array_job_id": null,
     "array_task_id": null
   },
   "paths": {
@@ -1181,6 +1182,7 @@ Immediately before launching the workload, every job must record:
 ```text
 git rev-parse HEAD
 git dirty state
+SLURM_JOB_ID, SLURM_ARRAY_JOB_ID, and SLURM_ARRAY_TASK_ID when present
 ```
 
 This uses local Git data and requires no internet access. The commit captured at job start is the authoritative commit recorded for the run.

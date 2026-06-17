@@ -472,6 +472,7 @@ def _pipeline_code_state(stage_runs: list[dict[str, Any]]) -> dict[str, Any]:
 def _slurm_state() -> dict[str, str | None]:
     return {
         "job_id": os.environ.get("SLURM_JOB_ID"),
+        "array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
         "array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
     }
 

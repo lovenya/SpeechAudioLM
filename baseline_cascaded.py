@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from collections import Counter
@@ -1498,7 +1499,7 @@ def _write_design_run_artifacts(
             "started_at": started_at,
             "completed_at": completed_at,
             "code": code_state,
-            "slurm": {"job_id": None, "array_task_id": None},
+            "slurm": _slurm_state(),
             "paths": {
                 "result": _path_reference(output_root),
                 "logs": _path_reference(log_root),
@@ -1814,6 +1815,14 @@ def _write_text_create_only(path: Path, payload: str) -> None:
 
 def _path_reference(path: Path) -> str:
     return relative_to_project_root(path)
+
+
+def _slurm_state() -> dict[str, str | None]:
+    return {
+        "job_id": os.environ.get("SLURM_JOB_ID"),
+        "array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
+        "array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
+    }
 
 
 def _git_state() -> dict[str, object]:
