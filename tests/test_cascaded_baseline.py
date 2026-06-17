@@ -130,6 +130,8 @@ class CascadedBaselineTest(unittest.TestCase):
             captioner="reference",
             results_schema="v1",
             continue_on_error=False,
+            start_index=5,
+            num_samples=1,
         )
         row = PromptRow(
             row_index=0,
@@ -189,6 +191,8 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(run_doc["paths"], {"result": output_root.as_posix(), "logs": log_root.as_posix()})
         self.assertEqual(config["input"]["manifest"], "data/splits/ttas_val.jsonl")
         self.assertEqual(config["input"]["input_field"], "audio_cap")
+        self.assertEqual(config["input"]["start_index"], 5)
+        self.assertEqual(config["input"]["num_samples"], 1)
         self.assertEqual(inspect["samples"][0]["stages"][0]["output"], {"type": "text", "audio_caption": "A motor starts."})
         self.assertEqual(errors, {"schema_version": 1, "run_id": "20260616_1437", "error_count": 0, "errors": []})
         self.assertEqual(summary["samples"]["successful"], 1)
@@ -359,6 +363,48 @@ class CascadedBaselineTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "different config"):
                 ModularCascade(args, dataset_root=None).run(rows, output_root, log_root, mismatched, total_rows=2)
+
+    def test_v1_schema_resume_rejects_start_index_mismatch(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="first caption",
+            record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+            for name in ("run.json", "inspect.json", "errors.json", "summary.json"):
+                (output_root / name).unlink()
+            mismatched = dict(run_config)
+            mismatched["start_index"] = 1
+
+            with self.assertRaisesRegex(RuntimeError, "different config"):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, mismatched, total_rows=1)
+
+    def test_v1_schema_resume_rejects_selected_count_mismatch(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="first caption",
+            record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+            for name in ("run.json", "inspect.json", "errors.json", "summary.json"):
+                (output_root / name).unlink()
+
+            with self.assertRaisesRegex(RuntimeError, "different config"):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=2)
 
     def test_v1_schema_resume_rejects_missing_successful_media_output(self) -> None:
         args = _minimal_cascade_args(pipeline="T2A", t2a="audiogen", results_schema="v1")
@@ -1191,6 +1237,8 @@ def _minimal_cascade_args(**overrides) -> argparse.Namespace:
         "output_dir": "results/baselines",
         "log_dir": "logs/baselines",
         "temporary": False,
+        "start_index": 0,
+        "num_samples": 5,
     }
     values.update(overrides)
     return argparse.Namespace(**values)

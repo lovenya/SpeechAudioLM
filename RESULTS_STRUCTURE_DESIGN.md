@@ -227,7 +227,7 @@ Incomplete or failed runs remain in their intended location with an appropriate 
 
 ### `config.json`
 
-Stores exact resolved settings that affect output generation. It should contain only settings relevant to the current stage, not every possible model family.
+Stores exact resolved settings that affect output generation or the selected input set. It should contain only settings relevant to the current stage, not every possible model family.
 
 Field order:
 

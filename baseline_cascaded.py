@@ -1350,6 +1350,7 @@ def _run_config(args: argparse.Namespace, split_path: Path, prompt_field: str) -
         "split": args.split,
         "split_file": str(split_path),
         "prompt_field": prompt_field,
+        "start_index": getattr(args, "start_index", 0),
         "asr": args.asr,
         "captioner": args.captioner,
         "text_model": args.text_model,
@@ -1538,7 +1539,7 @@ def _design_config_document(run_config: dict, total_rows: int) -> dict:
         "input": {
             "manifest": run_config.get("split_file"),
             "input_field": run_config.get("prompt_field"),
-            "start_index": None,
+            "start_index": run_config.get("start_index"),
             "num_samples": total_rows,
         },
         "model": _design_model_config(run_config),
