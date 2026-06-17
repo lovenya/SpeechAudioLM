@@ -727,3 +727,37 @@ class WrappedCascadedManifestTest(unittest.TestCase):
                 "generated_speech": "results/cascaded/stages/t2s/f5_tts/from-t2t/qwen3_32b/ttas/val/20260616_1200/outputs/sample-a.wav"
             },
         )
+
+    def test_evaluation_reader_resolves_v1_run_local_outputs_relative_to_manifest(self) -> None:
+        from evaluation.io import iter_jsonl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "results" / "cascaded" / "stages" / "t2a" / "audiogen" / "from-t2t" / "template" / "ttas" / "val" / "20260616_1437"
+            outputs = run_dir / "outputs"
+            outputs.mkdir(parents=True)
+            (outputs / "sample-a.wav").write_bytes(b"RIFFfake")
+            manifest = run_dir / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 7,
+                        "sample_id": "sample-a",
+                        "stage": "t2a",
+                        "model": "audiogen",
+                        "status": "success",
+                        "input": {"source_stage_index": 2, "source_sample_id": "sample-a", "source_status": "success"},
+                        "output": {"type": "audio", "audio_file": "outputs/sample-a.wav"},
+                        "timing": {"inference_seconds": 2.4},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            row = next(iter_jsonl(manifest)).record
+            output_exists = Path(row["output_file"]).is_file()
+
+        self.assertEqual(row["output_file"], (run_dir / "outputs" / "sample-a.wav").as_posix())
+        self.assertTrue(output_exists)

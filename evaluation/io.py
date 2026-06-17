@@ -37,7 +37,7 @@ def iter_jsonl(path: Path, max_samples: int | None = None, start_index: int = 0)
             if seen < start_index:
                 seen += 1
                 continue
-            yield ManifestRow(ordinal=ordinal, record=_normalize_generation_record(json.loads(line)))
+            yield ManifestRow(ordinal=ordinal, record=_normalize_generation_record(json.loads(line), manifest_dir=path.parent))
             seen += 1
             emitted += 1
             if max_samples is not None and emitted >= max_samples:
@@ -53,9 +53,9 @@ def _legacy_task_name(task: object) -> object:
         "text_to_audio": "T2A",
     }.get(task, task)
 
-def _normalize_generation_record(record: dict) -> dict:
+def _normalize_generation_record(record: dict, manifest_dir: Path | None = None) -> dict:
     if _is_v1_cascaded_record(record):
-        return _normalize_v1_cascaded_record(record)
+        return _normalize_v1_cascaded_record(record, manifest_dir=manifest_dir)
     sample = record.get("sample")
     if not isinstance(sample, dict):
         return record
@@ -96,7 +96,7 @@ def _is_v1_cascaded_record(record: dict) -> bool:
     )
 
 
-def _normalize_v1_cascaded_record(record: dict) -> dict:
+def _normalize_v1_cascaded_record(record: dict, manifest_dir: Path | None = None) -> dict:
     output = record.get("output") if isinstance(record.get("output"), dict) else record.get("final_output")
     output = output if isinstance(output, dict) else {}
     normalized = dict(record)
@@ -107,7 +107,7 @@ def _normalize_v1_cascaded_record(record: dict) -> dict:
             "model": record.get("model"),
             "source": source,
             "candidate_text": _v1_output_text(output),
-            "output_file": output.get("audio_file") or output.get("speech_file") or output.get("file"),
+            "output_file": _v1_output_file(output, manifest_dir),
             "sample_rate": output.get("sample_rate"),
             "generation_seconds": _v1_generation_seconds(record),
             "model_extra": {"v1_output": output, "stages": record.get("stages", [])},
@@ -147,6 +147,18 @@ def _v1_output_text(output: dict) -> str | None:
         if isinstance(value, str):
             return value
     return None
+
+
+def _v1_output_file(output: dict, manifest_dir: Path | None) -> str | None:
+    value = output.get("audio_file") or output.get("speech_file") or output.get("file")
+    if not isinstance(value, str) or not value:
+        return None
+    path = Path(value)
+    if path.is_absolute() or value.startswith("results/") or value.startswith("temporary/results/"):
+        return value
+    if manifest_dir is not None and path.parts and path.parts[0] == "outputs":
+        return (manifest_dir / path).as_posix()
+    return value
 
 
 def _v1_generation_seconds(record: dict) -> float | None:
