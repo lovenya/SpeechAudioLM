@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from project_paths import root_path
+
 from baseline_cascaded import (
     ModularCascade,
     _cascade_output_root,
@@ -594,7 +596,7 @@ class CascadedBaselineTest(unittest.TestCase):
             pipeline="T2T",
             text_model="template",
             text_mode="speech_to_audio_description",
-            text_model_path="{model_root}/text-model",
+            text_model_path=(root_path("model_root") / "text-model").as_posix(),
             results_schema="v1",
         )
         row = PromptRow(
@@ -616,6 +618,16 @@ class CascadedBaselineTest(unittest.TestCase):
                         }
                     ],
                 ),
+                "_cascaded_stage_definitions": [
+                    {
+                        "stage": 1,
+                        "task": "speech_to_text",
+                        "model": "reference",
+                        "checkpoint": (root_path("model_root") / "asr-reference").as_posix(),
+                        "generation": {},
+                        "runtime": {"device": "cpu", "model_load_seconds": None},
+                    }
+                ],
                 "_cascaded_stage_lineage": [
                     {
                         "stage_index": 1,
@@ -654,6 +666,7 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(runtime_prompt["messages"][0]["role"], "user")
         self.assertIn("Speech content:\nspoken words", runtime_prompt["messages"][0]["content"])
         self.assertEqual(config["model"]["path"], "{model_root}/text-model")
+        self.assertEqual(inspect["stage_configs"][0]["model"]["path"], "{model_root}/asr-reference")
 
     def test_v1_t2t_requires_carried_stage1_sample(self) -> None:
         args = _minimal_cascade_args(pipeline="T2T", text_model="template", results_schema="v1")

@@ -1568,7 +1568,7 @@ def _design_model_config(run_config: dict) -> dict:
     path_key = {"text_model": "text"}.get(model_key, model_key)
     return {
         "name": model_name,
-        "path": model_paths.get(path_key or "fallback") or model_paths.get("fallback"),
+        "path": _named_root_reference(model_paths.get(path_key or "fallback") or model_paths.get("fallback")),
         "cache_dir": None,
         "dtype": None,
         "device": run_config.get("device"),
@@ -1709,7 +1709,7 @@ def _design_lineage_entry(
 def _stage_config_summary(index: int, definition: dict) -> dict:
     model = {
         "name": definition.get("model"),
-        "path": definition.get("checkpoint"),
+        "path": _named_root_reference(definition.get("checkpoint")),
         "cache_dir": None,
         "device": (definition.get("runtime") or {}).get("device"),
         "dtype": definition.get("dtype"),
@@ -1819,6 +1819,31 @@ def _slurm_state() -> dict[str, str | None]:
         "array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
         "array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
     }
+
+
+def _named_root_reference(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    if not value:
+        return None
+    normalized = value.replace("\\", "/")
+    if normalized.startswith("{"):
+        return normalized
+    path = Path(normalized)
+    if not path.is_absolute():
+        return path.as_posix()
+    resolved = path.resolve()
+    for root_name in ("model_root", "cache_root", "sources_root", "environment_root", "datasets_root", "repo_root"):
+        try:
+            root = root_path(root_name).resolve()
+            relative = resolved.relative_to(root)
+        except (KeyError, ValueError):
+            continue
+        token = "{" + root_name + "}"
+        return token if relative.as_posix() == "." else f"{token}/{relative.as_posix()}"
+    return relative_to_project_root(path)
 
 
 def _git_state() -> dict[str, object]:
