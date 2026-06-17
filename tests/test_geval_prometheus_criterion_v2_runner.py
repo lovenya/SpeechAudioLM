@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from evaluation.io import _normalize_generation_record
-from evaluation.metric_contracts import EvaluationMode
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.runner import EvalOptions, _dedicated_text_pair_rows, run_evaluation
 
@@ -22,14 +21,14 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
             dataset_config_path=root / "dataset.json",
             metrics_config_path=root / "metrics.json",
             task_metric_map_path=root / "task_metric_map.json",
-            output_root=root / "evals",
+            output_root=root / "temporary" / "results" / "evals",
             metric_specs=get_metric_specs(metrics),
             max_samples=None,
             start_index=0,
             cache_dir=root / "cache",
             device="cpu",
             command=["evaluate.py"],
-            evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+            temporary=True,
         )
 
     def test_reference_extraction_from_wrapped_cascaded_rows(self) -> None:

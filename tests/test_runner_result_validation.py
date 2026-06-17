@@ -7,13 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from evaluation.artifacts import ArtifactAlreadyExistsError
-from evaluation.metric_contracts import EvaluationMode
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.runner import EvalOptions, run_evaluation
 
 
 class RunnerResultValidationTest(unittest.TestCase):
-    def _options(self, root: Path, mode: EvaluationMode) -> EvalOptions:
+    def _options(self, root: Path, *, temporary: bool = False) -> EvalOptions:
         dataset_root = root / "dataset"
         dataset_root.mkdir()
         dataset_config = root / "dataset.json"
@@ -40,16 +39,6 @@ class RunnerResultValidationTest(unittest.TestCase):
             "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
         )
 
-        common_ids = None
-        common_ids_path = None
-        if mode is EvaluationMode.FINAL:
-            common_ids = ("sample-a", "sample-b")
-            common_ids_path = root / "common_sample_ids.json"
-            common_ids_path.write_text(
-                json.dumps({"common_sample_ids": list(common_ids)}),
-                encoding="utf-8",
-            )
-
         return EvalOptions(
             model="cascaded",
             task="S2T",
@@ -59,16 +48,14 @@ class RunnerResultValidationTest(unittest.TestCase):
             dataset_config_path=dataset_config,
             metrics_config_path=metrics_config,
             task_metric_map_path=root / "task_metric_map.json",
-            output_root=root / "evals",
+            output_root=(root / "temporary" / "results" / "evals") if temporary else root / "evals",
             metric_specs=get_metric_specs(["wer"]),
             max_samples=None,
             start_index=0,
             cache_dir=root / "cache",
             device="cpu",
             command=["evaluate.py"],
-            evaluation_mode=mode,
-            common_sample_ids=common_ids,
-            common_sample_ids_path=common_ids_path,
+            temporary=temporary,
         )
 
     @staticmethod
@@ -87,7 +74,7 @@ class RunnerResultValidationTest(unittest.TestCase):
     def test_final_with_attributable_errors_writes_result_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, EvaluationMode.FINAL)
+            options = self._options(root)
 
             with patch("evaluation.runner._evaluate_row", side_effect=self._incomplete_row):
                 paths = run_evaluation(options)
@@ -100,12 +87,11 @@ class RunnerResultValidationTest(unittest.TestCase):
                 "attempted_count": 2, "passed_count": 0, "error_count": 2,
             })
             self.assertEqual(validation["failed_sample_ids"]["wer"], ["sample-a", "sample-b"])
-            self.assertTrue(paths["summary"].with_name("latest_summary_val.json").is_file())
 
-    def test_valid_final_writes_immutable_artifacts_and_latest(self) -> None:
+    def test_valid_final_writes_result_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = run_evaluation(self._options(root, EvaluationMode.FINAL))
+            paths = run_evaluation(self._options(root))
 
             self.assertTrue(all(path.is_file() for path in paths.values()))
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
@@ -116,12 +102,11 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(report["status"], "final_scientific")
             self.assertEqual(report["result_status"], "passed")
             self.assertEqual(run_config["result_validation"], report)
-            self.assertTrue(paths["summary"].with_name("latest_summary_val.json").is_file())
 
-    def test_backend_smoke_publishes_diagnostic_validation_report(self) -> None:
+    def test_temporary_eval_publishes_diagnostic_validation_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, EvaluationMode.BACKEND_SMOKE)
+            options = self._options(root, temporary=True)
 
             with patch("evaluation.runner._evaluate_row", side_effect=self._incomplete_row):
                 paths = run_evaluation(options)
@@ -138,7 +123,7 @@ class RunnerResultValidationTest(unittest.TestCase):
     def test_nonfinite_sample_score_becomes_explicit_error_and_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, EvaluationMode.FINAL)
+            options = self._options(root)
 
             def nonfinite_row(row: dict, ordinal: int, specs: list, dataset_root: Path) -> dict:
                 return {
@@ -165,7 +150,7 @@ class RunnerResultValidationTest(unittest.TestCase):
     def test_timestamped_artifacts_refuse_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, EvaluationMode.FINAL)
+            options = self._options(root)
 
             with patch("evaluation.runner.utc_timestamp", return_value="20260101T000000Z"):
                 paths = run_evaluation(options)

@@ -9,7 +9,6 @@ from pathlib import Path
 
 from evaluation.capabilities import load_capabilities, validate_model_task
 from evaluation.errors import EvaluationError
-from evaluation.metric_contracts import EvaluationMode
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.metrics.text import word_error_rate
 from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, _prediction_text_for_metric, _run_backend_worker, dry_run, run_evaluation
@@ -213,14 +212,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 dataset_config_path=root / "dataset.json",
                 metrics_config_path=root / "metrics.json",
                 task_metric_map_path=root / "task_metric_map.json",
-                output_root=root / "evals",
+                output_root=root / "temporary" / "results" / "evals",
                 metric_specs=get_metric_specs(["prompt_adherence_clap_score"]),
                 max_samples=1,
                 start_index=0,
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
-                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+                temporary=True,
             )
             rows = [{
                 "row_index": 0,
@@ -302,14 +301,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 dataset_config_path=dataset_config,
                 metrics_config_path=metrics_config,
                 task_metric_map_path=root / "task_metric_map.json",
-                output_root=root / "evals",
+                output_root=root / "temporary" / "results" / "evals",
                 metric_specs=get_metric_specs(["fad"]),
                 max_samples=None,
                 start_index=0,
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
-                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+                temporary=True,
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
@@ -363,14 +362,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 dataset_config_path=dataset_config,
                 metrics_config_path=metrics_config,
                 task_metric_map_path=root / "task_metric_map.json",
-                output_root=root / "evals",
+                output_root=root / "temporary" / "results" / "evals",
                 metric_specs=get_metric_specs(["fad"]),
                 max_samples=None,
                 start_index=0,
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
-                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+                temporary=True,
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
@@ -414,14 +413,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 dataset_config_path=dataset_config,
                 metrics_config_path=metrics_config,
                 task_metric_map_path=root / "task_metric_map.json",
-                output_root=root / "evals",
+                output_root=root / "temporary" / "results" / "evals",
                 metric_specs=get_metric_specs(["fad"]),
                 max_samples=1,
                 start_index=2,
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
-                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+                temporary=True,
             )
             preview = dry_run(options)
             self.assertEqual(preview["rows"], 1)
@@ -438,14 +437,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 dataset_config_path=root / "dataset.json",
                 metrics_config_path=root / "metrics.json",
                 task_metric_map_path=root / "task_metric_map.json",
-                output_root=root / "evals",
+                output_root=root / "temporary" / "results" / "evals",
                 metric_specs=get_metric_specs(["nli_contradiction"]),
                 max_samples=None,
                 start_index=0,
                 cache_dir=root / "cache",
                 device="cuda",
                 command=["evaluate.py"],
-                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+                temporary=True,
             )
 
             command = _dedicated_script_command(
@@ -466,7 +465,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             dataset_root = root / "dataset"
-            output_root = root / "evals"
+            output_root = root / "temporary" / "results" / "evals"
             dataset_root.mkdir()
             dataset_config = root / "dataset.json"
             dataset_config.write_text(json.dumps({"dataset_root": str(dataset_root)}), encoding="utf-8")
@@ -521,7 +520,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
-                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+                temporary=True,
             )
 
             paths = run_evaluation(options)
@@ -537,7 +536,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             dataset_root = root / "dataset"
-            output_root = root / "evals"
+            output_root = root / "temporary" / "results" / "evals"
             dataset_root.mkdir()
             dataset_config = root / "dataset.json"
             dataset_config.write_text(json.dumps({"dataset_root": str(dataset_root)}), encoding="utf-8")
@@ -598,7 +597,7 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 cache_dir=root / "cache",
                 device="cpu",
                 command=["evaluate.py"],
-                evaluation_mode=EvaluationMode.BACKEND_SMOKE,
+                temporary=True,
             )
 
             paths = run_evaluation(options)

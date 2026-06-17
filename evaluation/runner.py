@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import io
 import math
 import json
@@ -20,19 +19,8 @@ from evaluation.artifacts import (
     write_text_create_only,
 )
 from evaluation.errors import EvaluationError, MetricUnavailableError
-from evaluation.io import iter_jsonl, read_json, update_latest, utc_timestamp, write_json, write_jsonl
+from evaluation.io import iter_jsonl, read_json, utc_timestamp, write_json, write_jsonl
 from evaluation.manifest import is_successful_generation, sample_id, source_record
-from evaluation.metric_contracts import (
-    ContractError,
-    EvaluationMode,
-    EvaluationProvenance,
-    EvaluationScope,
-    sha256_config,
-    sha256_manifest,
-    sha256_policy,
-    sha256_sample_id_set,
-    sha256_selected_rows,
-)
 from evaluation.metrics.external import backend_metadata, require_configured_backend
 from evaluation.metrics.registry import MetricSpec
 from evaluation.metrics.text import normalize_text, word_error_rate
@@ -58,16 +46,14 @@ class EvalOptions:
     cache_dir: Path
     device: str
     command: list[str]
-    evaluation_mode: EvaluationMode
-    common_sample_ids: tuple[str, ...] | None = None
-    common_sample_ids_path: Path | None = None
+    temporary: bool = False
 
 
 def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     dataset_config = read_json(options.dataset_config_path)
     metrics_config = read_json(options.metrics_config_path).get("metrics", {})
     dataset_root = Path(dataset_config["dataset_root"])
-    rows, scope, provenance = _evaluation_scope_and_provenance(options)
+    rows, selected_sample_ids = _evaluation_rows(options)
 
     preflight_errors = _validate_rows(
         rows,
@@ -100,10 +86,10 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     _record_nonfinite_metric_errors(per_sample_rows, corpus_metrics)
     validation_report = validate_final_result_completeness(
         options.metric_specs,
-        scope.selected_sample_ids,
+        selected_sample_ids,
         per_sample_rows,
         corpus_metrics,
-        diagnostic=options.evaluation_mode is EvaluationMode.BACKEND_SMOKE,
+        diagnostic=options.temporary,
     ).to_dict()
 
     summary = _summarize(
@@ -111,8 +97,6 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         per_sample_rows,
         metric_backend_metadata,
         corpus_metrics,
-        scope,
-        provenance,
         validation_report,
     )
 
@@ -127,8 +111,6 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     run_config = _run_config(
         options,
         metric_backend_metadata,
-        scope,
-        provenance,
         validation_report,
     )
     write_jsonl_create_only(paths["per_sample"], per_sample_rows)
@@ -137,16 +119,6 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     write_text_create_only(paths["report"], _report_text(summary, run_config))
     write_json_create_only(paths["run_config"], run_config)
 
-    if scope.publishable:
-        latest = {
-            "per_sample": output_dir / f"latest_per_sample_{options.split}.jsonl",
-            "summary": output_dir / f"latest_summary_{options.split}.json",
-            "summary_csv": output_dir / f"latest_summary_{options.split}.csv",
-            "report": output_dir / f"latest_report_{options.split}.md",
-            "run_config": output_dir / f"latest_run_config_{options.split}.json",
-        }
-        for key, path in paths.items():
-            update_latest(path, latest[key])
     return paths
 
 
@@ -165,13 +137,13 @@ def _evaluation_work_dir(output_dir: Path, split: str, timestamp: str) -> Path:
 
 def dry_run(options: EvalOptions) -> dict[str, Any]:
     dataset_config = read_json(options.dataset_config_path)
-    rows, scope, provenance = _evaluation_scope_and_provenance(options)
+    rows, selected_sample_ids = _evaluation_rows(options)
     dataset_root = Path(dataset_config["dataset_root"])
     _validate_rows(rows, options.metric_specs, dataset_root, require_success=False)
     output_dir = _evaluation_output_dir(options)
     return {
         "dry_run": True,
-        "status": _evaluation_status(scope),
+        "status": _evaluation_status(options),
         "model": options.model,
         "task": options.task,
         "dataset": options.dataset,
@@ -179,133 +151,42 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
         "manifest": str(options.manifest_path),
         "output_dir": str(output_dir),
         "metrics": [spec.name for spec in options.metric_specs],
-        "start_index": options.start_index,
+        "temporary": options.temporary,
+        "start_index": options.start_index if options.temporary else None,
+        "max_samples": options.max_samples if options.temporary else None,
         "rows": len(rows),
+        "selected_sample_count": len(selected_sample_ids),
         "cache_dir": str(options.cache_dir),
-        "scope": scope.report_fields(),
-        "provenance": provenance.report_fields(),
     }
 
 
 def _evaluation_output_dir(options: EvalOptions) -> Path:
-    root = eval_model_root(options.task, options.dataset, options.model, options.output_root)
-    if options.evaluation_mode is EvaluationMode.BACKEND_SMOKE:
-        return root / EvaluationMode.BACKEND_SMOKE.value
-    return root
+    if options.temporary and "temporary" not in options.output_root.parts:
+        raise EvaluationError("Temporary evaluations must write under a temporary results root.")
+    return eval_model_root(options.task, options.dataset, options.model, options.output_root)
 
 
-def _evaluation_scope_and_provenance(options: EvalOptions) -> tuple[list[dict], EvaluationScope, EvaluationProvenance]:
-    try:
-        all_rows = [item.record for item in iter_jsonl(options.manifest_path)]
-        stop_index = None if options.max_samples is None else options.start_index + options.max_samples
-        selected_rows = all_rows[options.start_index:stop_index]
-        expected_ids = tuple(sample_id(row, ordinal) for ordinal, row in enumerate(all_rows))
-        selected_ids = tuple(
-            sample_id(row, ordinal)
-            for ordinal, row in enumerate(selected_rows, start=options.start_index)
-        )
-        if options.evaluation_mode is EvaluationMode.FINAL and (
-            options.common_sample_ids is None or options.common_sample_ids_path is None
-        ):
-            raise EvaluationError(
-                "Final evaluation requires explicit --common-sample-ids identical to all manifest IDs."
-            )
-        common_ids = options.common_sample_ids or expected_ids
-        common_ids_hash = (
-            sha256_manifest(options.common_sample_ids_path)
-            if options.common_sample_ids_path is not None
-            else sha256_sample_id_set(common_ids)
-        )
-        git_worktree_hash, git_untracked_files = _git_worktree_provenance()
-        scope = EvaluationScope(
-            mode=options.evaluation_mode,
-            expected_sample_ids=expected_ids,
-            common_sample_ids=common_ids,
-            selected_sample_ids=selected_ids,
-            start_index=options.start_index,
-            max_samples=options.max_samples,
-        )
-        provenance = EvaluationProvenance(
-            manifest_sha256=sha256_manifest(options.manifest_path),
-            config_sha256=sha256_config(_combined_configs(options)),
-            policy_sha256=sha256_policy(_evaluation_policy(scope)),
-            selected_rows_sha256=sha256_selected_rows(selected_rows),
-            sample_id_set_sha256=sha256_sample_id_set(selected_ids),
-            common_sample_ids_sha256=common_ids_hash,
-            git_commit=_git_output(["rev-parse", "HEAD"]).decode("ascii").strip(),
-            git_worktree_sha256=git_worktree_hash,
-            git_untracked_files=git_untracked_files,
-        )
-    except ContractError as exc:
-        raise EvaluationError(f"Invalid evaluation scope or provenance: {exc}") from None
-    return selected_rows, scope, provenance
-
-
-def _combined_configs(options: EvalOptions) -> dict[str, Any]:
-    return {
-        "dataset_config": _config_value(options.dataset_config_path),
-        "metrics_config": _config_value(options.metrics_config_path),
-        "task_metric_map": _config_value(options.task_metric_map_path),
-    }
-
-
-def _config_value(path: Path) -> dict[str, Any]:
-    return {"path": str(path), "content": read_json(path) if path.is_file() else None}
-
-
-def _evaluation_policy(scope: EvaluationScope) -> dict[str, Any]:
-    return {
-        "scope": scope.report_fields(),
-        "common_sample_ids": list(scope.common_sample_ids),
-        "reject_unsuccessful_generation_rows": scope.scientific,
-        "latest_alias_policy": "final_only",
-        "evaluation_sharding": "disallowed_for_final",
-    }
-
-
-def _git_output(arguments: list[str]) -> bytes:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=Path(__file__).resolve().parents[1],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+def _evaluation_rows(options: EvalOptions) -> tuple[list[dict], tuple[str, ...]]:
+    if options.start_index < 0:
+        raise EvaluationError("start_index must be non-negative.")
+    if options.max_samples is not None and options.max_samples < 1:
+        raise EvaluationError("max_samples must be positive when set.")
+    if not options.temporary and (options.start_index != 0 or options.max_samples is not None):
+        raise EvaluationError("Canonical evaluation must use the full manifest; use --temporary for sliced checks.")
+    all_rows = [item.record for item in iter_jsonl(options.manifest_path)]
+    stop_index = None if options.max_samples is None else options.start_index + options.max_samples
+    selected_rows = all_rows[options.start_index:stop_index]
+    selected_ids = tuple(
+        sample_id(row, ordinal)
+        for ordinal, row in enumerate(selected_rows, start=options.start_index)
     )
-    if completed.returncode != 0:
-        message = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise EvaluationError(f"Unable to record git provenance: {message}")
-    return completed.stdout
+    if not selected_rows:
+        raise EvaluationError("Manifest contains no rows after --max-samples filtering.")
+    return selected_rows, selected_ids
 
 
-def _git_worktree_provenance() -> tuple[str, tuple[str, ...]]:
-    repo_root = Path(__file__).resolve().parents[1]
-    hasher = hashlib.sha256()
-    hasher.update(b"tracked-diff\0")
-    hasher.update(_git_output(["diff", "--binary", "HEAD", "--"]))
-
-    untracked_text = _git_output(["ls-files", "--others", "--exclude-standard"]).decode(
-        "utf-8", errors="strict"
-    )
-    relevant_roots = ("configs/", "evaluation/", "scripts/", "submission_scripts/", "tests/")
-    relevant_suffixes = {".py", ".json", ".yaml", ".yml", ".toml", ".sh", ".sbatch"}
-    relevant_paths: list[str] = []
-    for relative in sorted(line for line in untracked_text.splitlines() if line):
-        path = Path(relative)
-        is_root_source = len(path.parts) == 1 and path.suffix in relevant_suffixes
-        if not (relative.startswith(relevant_roots) or is_root_source):
-            continue
-        absolute = repo_root / path
-        if not absolute.is_file():
-            continue
-        relevant_paths.append(relative)
-        hasher.update(b"untracked-file\0")
-        hasher.update(relative.encode("utf-8"))
-        hasher.update(b"\0")
-        hasher.update(hashlib.sha256(absolute.read_bytes()).digest())
-    return hasher.hexdigest(), tuple(relevant_paths)
-
-
-def _evaluation_status(scope: EvaluationScope) -> str:
-    return "final_scientific" if scope.scientific else "diagnostic_non_authoritative"
+def _evaluation_status(options: EvalOptions) -> str:
+    return "diagnostic_non_authoritative" if options.temporary else "final_scientific"
 
 
 def _validate_rows(
@@ -1255,8 +1136,6 @@ def _summarize(
     rows: list[dict],
     backend_metadata: dict[str, dict],
     corpus_metrics: dict[str, Any] | None,
-    scope: EvaluationScope,
-    provenance: EvaluationProvenance,
     validation_report: dict[str, Any],
 ) -> dict:
     corpus_metrics = corpus_metrics or {}
@@ -1289,8 +1168,7 @@ def _summarize(
 
     return {
         "status": validation_report["status"],
-        "scope": scope.report_fields(),
-        "provenance": provenance.report_fields(),
+        "temporary": options.temporary,
         "model": options.model,
         "task": options.task,
         "dataset": options.dataset,
@@ -1336,14 +1214,11 @@ def _corpus_summary(value: Any) -> dict:
 def _run_config(
     options: EvalOptions,
     backend_metadata: dict[str, dict],
-    scope: EvaluationScope,
-    provenance: EvaluationProvenance,
     validation_report: dict[str, Any],
 ) -> dict:
     return {
         "status": validation_report["status"],
-        "scope": scope.report_fields(),
-        "provenance": provenance.report_fields(),
+        "temporary": options.temporary,
         "model": options.model,
         "task": options.task,
         "dataset": options.dataset,
@@ -1355,8 +1230,8 @@ def _run_config(
         "metrics": [spec.name for spec in options.metric_specs],
         "metric_backends": backend_metadata,
         "result_validation": validation_report,
-        "start_index": options.start_index,
-        "max_samples": options.max_samples,
+        "start_index": options.start_index if options.temporary else None,
+        "max_samples": options.max_samples if options.temporary else None,
         "cache_dir": str(options.cache_dir),
         "device": options.device,
         "command": options.command,
@@ -1389,7 +1264,7 @@ def _report_text(summary: dict, run_config: dict) -> str:
         f"# Evaluation Report: {summary['model']} {summary['task']}",
         "",
         f"- Scientific status: `{summary['status']}`",
-        f"- Evaluation mode: `{summary['scope']['evaluation_mode']}`",
+        f"- Temporary: `{summary.get('temporary', False)}`",
         f"- Dataset: `{summary['dataset']}`",
         f"- Split: `{summary['split']}`",
         f"- Manifest: `{summary['manifest']}`",
