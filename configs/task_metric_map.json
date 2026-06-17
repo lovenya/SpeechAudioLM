@@ -1,43 +1,36 @@
 {
   "A2T": {
     "description": "audio to text / audio captioning",
-    "default_metrics": ["mace", "spider", "aac_clapsim"],
-    "allowed_metrics": ["mace", "spider", "aac_clapsim", "fense", "spider_max"],
+    "allowed_metrics": ["mace", "spider", "aac_clapsim", "fense"],
     "output_type": "text"
   },
   "S2T": {
     "description": "speech to text / ASR transcription",
-    "default_metrics": ["wer"],
-    "allowed_metrics": ["wer", "semantic_equivalence"],
+    "allowed_metrics": ["wer"],
     "output_type": "text"
   },
   "T2S": {
     "description": "text to speech / generated speech",
-    "default_metrics": ["asr_wer", "dwer", "utmos"],
     "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
     "output_type": "audio"
   },
   "T2A": {
     "description": "text to audio / environmental audio generation",
-    "default_metrics": ["fad", "kad", "inception_score"],
     "allowed_metrics": ["fad", "kad", "kl_passt", "target_caption_clap_score", "prompt_adherence_clap_score", "inception_score"],
     "output_type": "audio"
   },
   "S2A": {
     "description": "speech to audio cascade/direct task",
-    "default_metrics": ["fad", "kad", "inception_score"],
     "allowed_metrics": ["fad", "kad", "kl_passt", "target_caption_clap_score", "prompt_adherence_clap_score", "inception_score"],
     "output_type": "audio"
   },
   "A2S": {
     "description": "audio to speech cascade/direct task",
-    "default_metrics": ["asr_wer", "dwer", "utmos"],
     "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
     "output_type": "audio"
   },
   "T2T": {
     "description": "text to text intermediate conversion stage",
-    "default_metrics": ["nli_contradiction"],
     "allowed_metrics": ["nli_contradiction", "g_eval_reference_free", "g_eval_prometheus_criterion_v2_plausibility", "g_eval_prometheus_criterion_v2_reference_grounded"],
     "output_type": "text"
   }

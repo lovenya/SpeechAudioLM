@@ -29,7 +29,12 @@ def select_metrics(
 ) -> MetricSelection:
     task_config = _resolve_task_config(task, task_metric_map)
     allowed = _metric_list(task_config, "allowed_metrics", task)
-    metric_names = _parse_metric_arg(metrics_arg) if metrics_arg else list(_metric_list(task_config, "default_metrics", task))
+    if metrics_arg is None:
+        raise EvaluationError('Specify one or more metric names, or use "all".')
+    if metrics_arg.strip().lower() == "all":
+        metric_names = list(allowed)
+    else:
+        metric_names = _parse_metric_arg(metrics_arg)
     _validate_known_metrics(metric_names)
     invalid = [name for name in metric_names if name not in allowed]
     if invalid:

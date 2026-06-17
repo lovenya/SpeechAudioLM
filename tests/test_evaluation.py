@@ -155,13 +155,14 @@ class EvaluationScaffoldTest(unittest.TestCase):
         with self.assertRaises(EvaluationError):
             select_metrics("A2S", "nli_contradiction", mapping)
 
-    def test_task_metric_mapping_selects_defaults(self) -> None:
+    def test_task_metric_mapping_requires_explicit_selection_or_all(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
-        self.assertEqual(select_metrics("A2T", None, mapping).metric_names, ["mace", "spider", "aac_clapsim"])
-        self.assertEqual(select_metrics("T2A", None, mapping).metric_names, ["fad", "kad", "inception_score"])
-        self.assertEqual(select_metrics("S2A", None, mapping).metric_names, ["fad", "kad", "inception_score"])
-        self.assertEqual(select_metrics("T2S", None, mapping).metric_names, ["asr_wer", "dwer", "utmos"])
-        self.assertEqual(select_metrics("T2T", None, mapping).metric_names, ["nli_contradiction"])
+        with self.assertRaisesRegex(EvaluationError, "Specify one or more metric names"):
+            select_metrics("A2T", None, mapping)
+        self.assertEqual(
+            select_metrics("A2T", "all", mapping).metric_names,
+            ["mace", "spider", "aac_clapsim", "fense"],
+        )
 
     def test_prompt_adherence_uses_only_exact_persisted_generation_prompt(self) -> None:
         row = {

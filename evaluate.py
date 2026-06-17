@@ -16,7 +16,7 @@ from evaluation.metrics import get_metric_specs
 from evaluation.runner import EvalOptions, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import DEFAULT_EVAL_ROOT
-from project_paths import result_path
+from project_paths import result_path, root_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,13 +26,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", default="ttas", help="Dataset name. Defaults to ttas.")
     parser.add_argument("--split", default="test", help="Dataset split. Defaults to test.")
     parser.add_argument("--manifest", default=None, help="Optional explicit baseline manifest path.")
-    parser.add_argument("--metrics", default=None, help="Comma-separated metrics. Defaults depend on --task.")
+    parser.add_argument("--metrics", default=None, help='Comma-separated metrics, or "all". Required.')
     parser.add_argument("--dataset-config", default="configs/ttas_dataset.json")
     parser.add_argument("--metrics-config", default="configs/eval_metrics.json")
     parser.add_argument("--task-metric-map", default="configs/task_metric_map.json")
     parser.add_argument("--capabilities-config", default="configs/model_capabilities.json")
     parser.add_argument("--baseline-root", default=str(result_path("baselines")))
     parser.add_argument("--output-root", default=str(DEFAULT_EVAL_ROOT))
+    parser.add_argument("--temporary", action="store_true", help="Write outputs under temporary results roots.")
     parser.add_argument("--cache-dir", default=str(result_path("evaluation_cache")))
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
@@ -94,8 +95,11 @@ def main() -> None:
             explicit_manifest=args.manifest,
             baseline_root=Path(args.baseline_root),
         )
+        output_root = Path(args.output_root)
+        if args.temporary:
+            output_root = root_path("temporary_results_root") / "evals"
         metric_specs = get_metric_specs(selection.metric_names)
-        options = EvalOptions(
+        shared_options = dict(
             model=args.model,
             task=args.task,
             dataset=args.dataset,
@@ -104,8 +108,7 @@ def main() -> None:
             dataset_config_path=Path(args.dataset_config),
             metrics_config_path=Path(args.metrics_config),
             task_metric_map_path=Path(args.task_metric_map),
-            output_root=Path(args.output_root),
-            metric_specs=metric_specs,
+            output_root=output_root,
             max_samples=args.max_samples,
             start_index=args.start_index,
             cache_dir=Path(args.cache_dir),
@@ -116,12 +119,20 @@ def main() -> None:
             common_sample_ids_path=(Path(args.common_sample_ids) if args.common_sample_ids else None),
         )
         if args.dry_run:
-            print(json.dumps(dry_run(options), indent=2, ensure_ascii=False, sort_keys=True))
+            dry_runs = []
+            for metric_spec in metric_specs:
+                options = EvalOptions(metric_specs=[metric_spec], **shared_options)
+                dry_runs.append(dry_run(options))
+            print(json.dumps(dry_runs[0] if len(dry_runs) == 1 else dry_runs, indent=2, ensure_ascii=False, sort_keys=True))
             return
-        paths = run_evaluation(options)
+        paths = None
+        for metric_spec in metric_specs:
+            options = EvalOptions(metric_specs=[metric_spec], **shared_options)
+            paths = run_evaluation(options)
     except EvaluationError as exc:
         raise SystemExit(f"error: {exc}") from None
 
+    assert paths is not None
     for name, path in paths.items():
         print(f"{name}={path}")
 
