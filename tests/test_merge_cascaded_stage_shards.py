@@ -128,6 +128,103 @@ class MergeCascadedStageShardsTest(unittest.TestCase):
             with self.assertRaisesRegex(FileExistsError, "canonical artifact already exists"):
                 merge_stage_shards(run_dir, expected_count=1)
 
+    def test_fails_for_mismatched_shard_inspect_direction_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(run_dir, "shard_000", [_row(0, "sample-a")])
+            _write_shard(run_dir, "shard_001", [_row(1, "sample-b")], inspect_updates={"direction": "s2a"})
+
+            with self.assertRaisesRegex(ValueError, "inspect.json direction does not match"):
+                merge_stage_shards(run_dir, expected_count=2)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
+    def test_fails_for_mismatched_shard_inspect_stage_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(run_dir, "shard_000", [_row(0, "sample-a")])
+            _write_shard(run_dir, "shard_001", [_row(1, "sample-b")], inspect_updates={"stage": "t2s"})
+
+            with self.assertRaisesRegex(ValueError, "inspect.json stage does not match"):
+                merge_stage_shards(run_dir, expected_count=2)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
+    def test_fails_for_mismatched_shard_inspect_lineage_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(run_dir, "shard_000", [_row(0, "sample-a")])
+            _write_shard(
+                run_dir,
+                "shard_001",
+                [_row(1, "sample-b")],
+                inspect_updates={"lineage": {"direction": "a2s", "current_stage_index": 3, "stages": []}},
+            )
+
+            with self.assertRaisesRegex(ValueError, "inspect.json lineage does not match"):
+                merge_stage_shards(run_dir, expected_count=2)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
+    def test_fails_for_mismatched_shard_stage_configs_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(run_dir, "shard_000", [_row(0, "sample-a")])
+            _write_shard(
+                run_dir,
+                "shard_001",
+                [_row(1, "sample-b")],
+                inspect_updates={"stage_configs": [{"stage": "t2t", "model": {"name": "other"}}]},
+            )
+
+            with self.assertRaisesRegex(ValueError, "inspect.json stage_configs does not match"):
+                merge_stage_shards(run_dir, expected_count=2)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
+    def test_fails_when_shard_inspect_is_missing_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(run_dir, "shard_000", [_row(0, "sample-a")])
+            (run_dir / "shards" / "shard_000" / "inspect.json").unlink()
+
+            with self.assertRaisesRegex(FileNotFoundError, "missing shard inspect file"):
+                merge_stage_shards(run_dir, expected_count=1)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
+    def test_fails_for_shard_inspect_root_identity_mismatch_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(run_dir, "shard_000", [_row(0, "sample-a")], inspect_updates={"dataset": "other"})
+
+            with self.assertRaisesRegex(ValueError, "inspect.json dataset does not match root run.json"):
+                merge_stage_shards(run_dir, expected_count=1)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
+    def test_fails_for_shard_inspect_sample_coverage_mismatch_without_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "20260616_1437"
+            _write_shard(
+                run_dir,
+                "shard_000",
+                [_row(0, "sample-a")],
+                inspect_updates={"samples": [{"sample_id": "other", "status": "success"}]},
+            )
+
+            with self.assertRaisesRegex(ValueError, "inspect.json sample IDs do not match"):
+                merge_stage_shards(run_dir, expected_count=1)
+
+            self.assertFalse((run_dir / "manifest.jsonl").exists())
+            self.assertTrue((run_dir / "shards").is_dir())
+
     def test_fails_if_root_run_artifacts_are_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "20260616_1437"
@@ -145,6 +242,7 @@ def _write_shard(
     rows: list[dict],
     *,
     write_root_artifacts: bool = True,
+    inspect_updates: dict | None = None,
 ) -> None:
     if write_root_artifacts:
         _write_root_artifacts(run_dir, rows)
@@ -154,23 +252,23 @@ def _write_shard(
         "".join(json.dumps(row) + "\n" for row in rows),
         encoding="utf-8",
     )
+    inspect = {
+        "schema_version": 1,
+        "run_id": run_dir.name,
+        "stage": rows[0].get("stage", "t2t"),
+        "direction": "a2s",
+        "dataset": "ttas",
+        "split": "val",
+        "status": "complete",
+        "lineage": {"direction": "a2s", "current_stage_index": 2, "stages": []},
+        "stage_configs": [],
+        "summary": {"requested": len(rows), "successful": len(rows), "failed": 0},
+        "samples": [{"sample_id": row["sample_id"], "status": row["status"]} for row in rows],
+    }
+    if inspect_updates:
+        inspect.update(inspect_updates)
     (shard / "inspect.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "run_id": run_dir.name,
-                "stage": rows[0].get("stage", "t2t"),
-                "direction": "a2s",
-                "dataset": "ttas",
-                "split": "val",
-                "status": "complete",
-                "lineage": {"direction": "a2s", "current_stage_index": 2, "stages": []},
-                "stage_configs": [],
-                "summary": {"requested": len(rows), "successful": len(rows), "failed": 0},
-                "samples": [{"sample_id": row["sample_id"], "status": row["status"]} for row in rows],
-            }
-        )
-        + "\n",
+        json.dumps(inspect) + "\n",
         encoding="utf-8",
     )
 

@@ -54,6 +54,7 @@ def merge_stage_shards(
     if not shard_dirs:
         raise FileNotFoundError(f"no shard directories under {shards_dir}")
     _require_root_artifacts(run_dir)
+    root_run = _read_json(run_dir / "run.json")
     _fail_if_published_outputs_exist(run_dir, media_output)
 
     rows: dict[int, dict[str, Any]] = {}
@@ -64,10 +65,14 @@ def merge_stage_shards(
 
     for shard_dir in shard_dirs:
         shard_rows = _read_manifest(shard_dir / "manifest.jsonl")
-        shard_inspect = _read_optional_json(shard_dir / "inspect.json")
-        if shard_inspect and not first_inspect:
+        shard_inspect = _read_json(shard_dir / "inspect.json")
+        _validate_shard_inspect_identity(root_run, shard_inspect, shard_dir)
+        _validate_shard_inspect_samples(shard_rows, shard_inspect, shard_dir)
+        if not first_inspect:
             first_inspect = shard_inspect
-        for sample in shard_inspect.get("samples", []) if shard_inspect else []:
+        else:
+            _validate_shard_inspect_compatible(first_inspect, shard_inspect, shard_dir)
+        for sample in shard_inspect.get("samples", []):
             if isinstance(sample, dict) and isinstance(sample.get("sample_id"), str):
                 inspect_by_sample_id[sample["sample_id"]] = sample
         successful = 0
@@ -373,6 +378,41 @@ def _summary_document(
             "by_type": dict(Counter(_error_type(row) for row in rows if row.get("status") == "error")),
         },
     }
+
+
+def _validate_shard_inspect_identity(root_run: dict[str, Any], inspect: dict[str, Any], shard_dir: Path) -> None:
+    for key in ("run_id", "stage", "direction", "dataset", "split"):
+        root_value = root_run.get(key)
+        if root_value is not None and inspect.get(key) != root_value:
+            raise ValueError(f"{shard_dir}: inspect.json {key} does not match root run.json")
+    lineage = inspect.get("lineage")
+    if isinstance(lineage, dict):
+        root_direction = root_run.get("direction")
+        if root_direction is not None and lineage.get("direction") != root_direction:
+            raise ValueError(f"{shard_dir}: inspect.json lineage.direction does not match root run.json")
+
+
+def _validate_shard_inspect_compatible(reference: dict[str, Any], current: dict[str, Any], shard_dir: Path) -> None:
+    for key in ("stage", "direction", "dataset", "split", "lineage", "stage_configs"):
+        if current.get(key) != reference.get(key):
+            raise ValueError(f"{shard_dir}: inspect.json {key} does not match other shards")
+
+
+def _validate_shard_inspect_samples(shard_rows: list[dict[str, Any]], inspect: dict[str, Any], shard_dir: Path) -> None:
+    manifest_ids = [_sample_id(row, shard_dir) for row in shard_rows]
+    samples = inspect.get("samples")
+    if not isinstance(samples, list):
+        raise ValueError(f"{shard_dir}: inspect.json samples must be a list")
+    inspect_ids = []
+    for sample in samples:
+        if not isinstance(sample, dict) or not isinstance(sample.get("sample_id"), str) or not sample.get("sample_id"):
+            raise ValueError(f"{shard_dir}: inspect.json sample entries must have non-empty sample_id")
+        inspect_ids.append(sample["sample_id"])
+    duplicate_ids = [sample_id for sample_id, count in Counter(inspect_ids).items() if count > 1]
+    if duplicate_ids:
+        raise ValueError(f"{shard_dir}: inspect.json has duplicate sample_id values: {', '.join(sorted(duplicate_ids)[:10])}")
+    if set(inspect_ids) != set(manifest_ids):
+        raise ValueError(f"{shard_dir}: inspect.json sample IDs do not match manifest rows")
 
 
 def _inspect_document(
