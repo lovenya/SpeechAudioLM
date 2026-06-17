@@ -62,7 +62,7 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
             temporary=temporary,
         )
 
-    def test_canonical_eval_uses_full_manifest_without_common_ids(self) -> None:
+    def test_canonical_eval_uses_full_manifest_without_id_filtering(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             preview = dry_run(self._options(root))

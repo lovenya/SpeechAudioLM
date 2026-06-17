@@ -18,12 +18,12 @@ Those metrics are being redesigned separately.
 - Preserve every attempted row with per-sample `passed` or `error` status.
 - Aggregate each metric over its passed samples and report attempted, passed, and error counts and IDs.
 - Use metric status `passed`, `passed_with_errors`, or `error`; an all-failed metric has no numeric score but does not block other final results.
-- Final results with disclosed sample errors are reportable. Identical common-retained-set recomputation across compared models remains the comparison goal and is a later sanity/recompute TODO.
+- Final results with disclosed sample errors are reportable; cross-model differences in failed rows are handled by manual inspection and reporting.
 - Corpus metrics must run on the complete corpus.
 - Per-sample metrics must preserve per-sample values.
-- Shard aggregation is allowed only when mathematically equivalent to full-corpus evaluation.
+- Canonical eval sharding is removed; temporary partial runs are diagnostics only.
 - Reject invalid, non-finite, sentinel, or unaccounted-for outputs; do not silently exclude failed attempts.
-- Record immutable input/config/code provenance.
+- Record resolved metric/backend settings and target references in the eval run artifacts.
 
 ## Current Result Status
 
@@ -68,7 +68,7 @@ Verification at `07e778f`:
 Required fix:
 
 - [Resolved 2026-06-10] Removed the local 100-word candidate truncation from the worker and metric config. Stored captions and full candidate text now reach the official `aac-metrics` SPIDEr function after the existing declared single-line PTB-tokenizer preprocessing.
-- [Policy decided 2026-06-10] Evaluation sharding will not be supported for scientific results. Final SPIDEr evaluation must run once on the complete common sample-ID set; partial runs are non-publishable backend diagnostics only. Enforcement is pending integration.
+- [Policy decided 2026-06-10] Evaluation sharding will not be supported for scientific results. Final SPIDEr evaluation must run once on the complete manifest; partial runs are temporary backend diagnostics only.
 - [Pending compute verification] Run SPIDEr on each complete caption corpus. If SPICE cannot process a caption, preserve that attempted row as an error and aggregate over passed rows; do not restore truncation or fallback behavior. If all rows fail, emit no numeric SPIDEr score and mark only that metric `error`.
 - [Rerun required] All existing SPIDEr scores remain provisional because they were computed on shards and/or with the local 100-word cap.
 
@@ -135,18 +135,18 @@ Normalization recommendation:
 
 ### FAD, KAD, Inception Score, And Corpus Audio Metrics
 
-**Status: Partially resolved; Pending compute verification; Rerun required.** Input rejection and minimum-size protections are active (`bc0a474`), and final common-ID scope is active (`7eac6be`, `6d5de6b`). Reliability thresholds beyond the backend minimum and complete audio preprocessing provenance remain to be established.
+**Status: Partially resolved; Pending compute verification; Rerun required.** Input rejection and minimum-size protections are active (`bc0a474`). Reliability thresholds beyond the backend minimum and complete audio preprocessing metadata remain to be established.
 
-- Different models may currently be evaluated on different successful-generation subsets.
-- This changes both generated and reference corpus distributions.
-- Direct corpus comparisons ultimately require recomputation on one common retained sample-ID set.
+- Different models may have different generation failures.
+- This changes both generated and reference corpus distributions for passed rows.
+- Direct corpus comparisons must disclose attempted, passed, failed, and skipped counts instead of forcing a common retained ID set.
 - Invalid values such as FAD sentinel -1 or NaN may be accepted.
 - Small-corpus workarounds duplicate files to force metrics to run.
 - Such smoke-test scores are not scientifically valid.
 
 Required fix:
 
-- [Later TODO] Add a sanity/recompute script that forms the union of failures across compared models and recomputes each comparison on the resulting common retained set. This is not implemented now and does not prevent reporting final results with disclosed errors.
+- Report model-specific attempted, passed, failed, and skipped counts; do not silently drop rows to force cross-model equality.
 - Preserve missing expected outputs as explicit error rows; aggregate the corpus metric over passed rows when its official implementation supports that retained corpus.
 - [Partially resolved 2026-06-10] Backend scalar and sample-vector conversion now rejects missing, NaN, and infinity values; FAD also rejects sentinel `-1`. Strict end-to-end backend-result completeness validation remains pending.
 - [Resolved 2026-06-10] Removed the FAD/Inception sample-duplication workaround. Undersized corpora now fail explicitly.
@@ -208,15 +208,15 @@ Required fix:
 - Report attempted, passed, and error counts and IDs. An all-failed metric has no numeric score and does not block publication of other final metric results.
 - Preserve official corpus score and per-sample distribution separately.
 - Never overwrite historical results.
-- Store immutable manifest, selected-row, config, prompt/policy, and git hashes.
+- Store resolved metric/backend settings, target references, row counts, and metric-specific metadata without hash/fingerprint blocks.
 
 ## Evaluation Parallelism Policy
 
 **Status: Resolved for runner scope and publication; Pending compute verification.**
 
-Scientific metric evaluation will not be sharded. Final evaluations must run each selected metric once on one explicit complete/common sample-ID set.
+Scientific metric evaluation will not be sharded. Final evaluations must run each selected metric once on the complete evaluated manifest.
 
-Partial execution is allowed only in an explicit `backend_smoke` mode that is labeled non-scientific and non-publishable, writes to a separate namespace, and cannot update authoritative `latest_*` artifacts.
+Partial execution is allowed only when `temporary: true`, writes under temporary eval roots, and is labeled diagnostic/non-authoritative.
 
 Historical shard outputs remain provisional diagnostic artifacts. `scripts/aggregate_evaluation_shards.py` now labels every merge diagnostic-only and removes shard-derived SPIDEr values rather than presenting them as valid.
 
@@ -245,10 +245,10 @@ For every metric record:
 
 ## Implementation Plan
 
-1. Add metric contracts describing scientific semantics and shard safety. [In progress: `MetricSpec.shard_safe` now rejects currently unsupported partial-corpus SPIDEr/FAD/KAD/KL-PaSST/Inception Score runs.] **[Partially resolved: `7eac6be` adds contracts and final scope enforcement; the active registry remains the simpler `MetricSpec` registry.]**
+1. Keep metric definitions focused on scientific semantics and required inputs; canonical eval sharding and final-scope/common-ID enforcement are removed from the target runner.
 2. Remove silent truncation, duplication, fallback, and invalid-value workarounds. [In progress: SPIDEr's local 100-word truncation is removed.] **[Partially resolved: `7460173` and `bc0a474`; remaining backend-native limits must be disclosed, not bypassed.]**
-3. Implement immutable evaluation provenance. **[Resolved: `6d5de6b`.]**
-4. Preserve explicit evaluation scope now; later add union-of-failures sanity/recompute tooling so compared models can be recomputed on one common retained set. **[Common-ID input support exists in `7eac6be`, `6d5de6b`, and `74b095e`; automatic cross-model union-of-failures recomputation is a later TODO.]**
+3. Record resolved eval run config and target references without manifest/config/hash fingerprint blocks.
+4. Preserve complete attempted-row accounting and report failed/skipped rows directly; common-ID filtering is removed.
 5. Correct WER normalization and corpus aggregation. **[Resolved in active execution by `07e778f`; representative compute smoke passed.]**
 6. Correct AAC metric constraints and reporting. **[Resolved in execution code: `7b139ad`, `d8dee62`; Pending compute verification.]**
 7. Correct T2A/T2S corpus metric validation. **[Integrated by `07e778f`; CLAPScore and KL-PaSST compute smoke passed, FAD/KAD/Inception smoke pending.]**
@@ -259,12 +259,12 @@ For every metric record:
 
 ## 2026-06-12 Status Addendum
 
-- **Common IDs:** `74b095e` provides create-only common-successful-ID construction. Automatic union-of-failures recomputation across compared models remains a later TODO and does not block reporting each model's final result with disclosed errors.
-- **Artifact immutability:** Resolved for timestamped evaluation artifacts by `07e778f`; `latest_*` aliases remain intentionally mutable pointers and update only for final mode after validation.
+- **Common IDs:** Removed from the target eval design; report attempted, passed, failed, and skipped counts directly.
+- **Artifact immutability:** Target eval runs use immutable run directories and stable filenames; mutable `latest_*` aliases are removed from eval output.
 - **Result completeness:** Resolved by `07e778f`. Ordinary attributable errors produce `passed_with_errors` or `error` metric status and retain all attempted rows; structural ID corruption remains blocking.
 - **Tests:** 203 repository tests passed after integration.
 - **Compute status:** SPIDEr, ASR-WER, dWER, UTMOS, DNSMOS, target-caption CLAPScore, and KL-PaSST passed two-sample backend smoke with complete artifacts. MACE, AAC-CLAPSim, FENSE, FAD, and KAD passed representative smoke. Inception Score returned non-finite mean/std on two samples; a 50-sample smoke is pending. The updated runner now publishes this as a metric-level `error` artifact with no fabricated score. The updated runner now publishes this as a metric-level `error` artifact with no fabricated score.
-- **Rerun readiness:** Integration is nearly ready, but full scientific reruns wait for the remaining smoke checks, truncation/context coverage reporting, final-scope/common-ID preparation, and full-corpus commands. Representative smoke results are diagnostic and non-publishable.
+- **Rerun readiness:** Integration is nearly ready, but full scientific reruns wait for remaining smoke checks, truncation/context coverage reporting, explicit target metadata, and full-corpus commands. Representative smoke results are temporary diagnostics.
 
 ## Fresh-Chat Agent Plan
 
@@ -274,8 +274,8 @@ Deploy independent implementation agents with disjoint ownership:
 
 - Agent 1: AAC metrics, caption constraints, SPIDEr full-corpus execution
 - Agent 2: WER, ASR-WER, dWER normalization and corpus aggregation
-- Agent 3: T2A/T2S corpus metrics, common-ID sets, invalid-output checks
-- Agent 4: provenance, metric contracts, shard-safety enforcement, job validation
+- Agent 3: T2A/T2S corpus metrics, invalid-output checks, and attempted/passed/error accounting
+- Agent 4: eval run metadata, metric contracts, no-sharding enforcement, and job validation
 - Agent 5: independent scientific-validity review after implementation
 
 Do not work on G-Eval or NLI in this goal.

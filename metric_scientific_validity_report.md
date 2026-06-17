@@ -20,10 +20,10 @@ Status meanings:
 |---|---|
 | `7460173` | Removed the local SPIDEr 100-word truncation. |
 | `23fe5ce` | Added versioned normalization, edit counts, corpus WER, and macro WER primitives. |
-| `7eac6be` | Added fail-closed evaluation scope, common-ID, and provenance contracts. |
+| `7eac6be` | Historical scope/provenance contract work; superseded by the eval structure refactor. |
 | `ef1c39a` | Marked shard aggregation diagnostic-only and invalidated shard-derived SPIDEr. |
 | `bc0a474` | Rejected non-finite/sentinel corpus outputs, sample duplication, and KAD short-audio padding; declared minimum corpus sizes. |
-| `6d5de6b` | Integrated final/common-ID scope and stronger manifest/config/policy/row/git provenance into the runner. |
+| `6d5de6b` | Historical final-scope/provenance runner work; superseded by the eval structure refactor. |
 | `7b139ad` | Added explicit AAC caption, MS-CLAP, crop/repetition, seed, and reconstruction semantics. |
 | `d8dee62` | Integrated AAC semantics into `scripts/eval_backend_worker.py`. |
 | `e0b19e2` | Added explicit Whisper/WER backend helpers; not integrated into the active worker. |
@@ -33,7 +33,7 @@ Status meanings:
 | `de44b8c` | Added paper-comparable UTMOS no-silence-removal policy; not integrated into the active worker. |
 | `5480f53` | Tests repository-root/backend `PYTHONPATH` construction; this is import coverage, not backend compute verification. |
 | `4230dae` | Added atomic create-only artifact writers; the active evaluation runner does not use them. |
-| `74b095e` | Added create-only common-successful-ID artifact construction with canonical first-manifest ordering; runner consumption remains operator-managed. |
+| `74b095e` | Historical common-ID artifact work; removed from the target eval design. |
 | `07e778f` | Integrated final-results-with-errors validation, create-only artifacts, WER/UTMOS policies, explicit KL pairs, target-caption CLAPScore, AAC filtering, and valid-pair corpus-audio staging. |
 
 ## Current Worktree Integration
@@ -44,23 +44,23 @@ Commit `07e778f` contains the active metrics integration. The full repository te
 
 ## Cross-Metric Contract
 
-### Evaluation Scope, IDs, And Sharding
+### Evaluation Scope And Sharding
 
 **Resolved in the runner; Pending compute verification.**
 
-Final mode requires an explicit evaluation-scope file, no slicing, and exact equality among expected, selected, and declared ID sets. The final manifest must preserve every attempted row with per-sample `passed` or `error` status. Missing required files or fields become explicit row errors rather than silent exclusions. Only final runs may update `latest_*`; `backend_smoke` writes to a separate non-authoritative namespace.
+Canonical evals use the complete evaluated manifest with no slicing. Temporary evals may use subsets for diagnostics and must write under temporary eval roots. The target design removes `evaluation_mode`, common-ID filtering, hash/fingerprint provenance, and `latest_*` eval aliases.
 
 Scientific evaluation must not be sharded. SPIDEr/CIDEr document frequencies, distributional audio metrics, and order-dependent AAC audio crops cannot be reconstructed reliably from independently invoked shards. `ef1c39a` makes historical shard merges diagnostic-only and removes shard-derived SPIDEr values. Partial runs are backend diagnostics, not publishable results.
 
-Final results with disclosed errors are reportable. For strict cross-model comparison, the eventual goal remains recomputation on one common retained set after taking the union of failures across compared models. A sanity/recompute script for that workflow is a later TODO and is not implemented now. `74b095e` provides a create-only common-ID builder, but it does not implement automatic union-of-failures recomputation.
+Final results with disclosed errors are reportable. Cross-model comparisons should disclose attempted, passed, failed, and skipped counts instead of forcing models onto a common retained ID set.
 
-### Provenance
+### Run Metadata
 
-**Resolved for core runner inputs; Partially resolved for prompt-specific semantics.**
+**Partially resolved for target eval run metadata and prompt-specific semantics.**
 
-`6d5de6b` records exact manifest bytes, canonical combined configuration, evaluation policy, selected rows, selected/common ID sets, git commit, tracked worktree diff, and relevant untracked source/config files. Timestamped outputs preserve history.
+The target eval design records run IDs, target references, resolved metric/backend configs, row counts, and metric-specific metadata. It intentionally omits manifest/config/row/common-ID hashes and fingerprint blocks.
 
-Final provenance must also identify metric package/version, model/checkpoint, evaluated fields, reference construction, sample rate, channels, resampling, normalization, duration handling, token limits, seeds, and runtime resources. Backend metadata records several fields, and integrated AAC metrics add detailed policy metadata. Exact conditioning text remains mandatory for prompt-adherence CLAPScore and must be present in the generation manifest.
+Eval metadata should identify metric package/version, model/checkpoint, evaluated fields, reference construction, sample rate, channels, resampling, normalization, duration handling, token limits, seeds, and runtime resources where relevant. Exact conditioning text remains mandatory for prompt-adherence CLAPScore and must be present in the generation manifest.
 
 ### Result Completeness
 
@@ -74,7 +74,7 @@ The final gate must require complete accounting, not universal sample success. E
 
 **Resolved for timestamped artifacts.**
 
-`4230dae` adds atomic create-only writers that reject existing destinations and non-finite JSON values. `74b095e` uses them for common-ID artifacts. Committed `HEAD` still writes evaluation outputs through `evaluation.io` and overwriteable `latest_*` aliases. The current uncommitted runner has begun using create-only timestamped result writers, but targeted tests fail before this path is valid; mutable aliases must still update only after successful completeness validation.
+`4230dae` adds atomic create-only writers that reject existing destinations and non-finite JSON values. The target eval design writes immutable eval run directories with stable filenames and no mutable `latest_*` eval aliases.
 
 ## Input Transformation Policy
 
@@ -152,7 +152,7 @@ Integrate `e0b19e2`, emit per-sample sufficient statistics, make corpus WER prim
 
 `bc0a474` rejects NaN/infinity, FAD `-1`, undersized corpora, and KAD clips below one second without modifying data. The active mathematical/backend minimum is two files for FAD, KAD, and Inception Score. Two is not a reliability recommendation; final reports must state a scientifically justified corpus size and uncertainty/stability limitations.
 
-Final runs require exact encoder/checkpoint/preprocessing provenance and complete attempted-row accounting. Results with disclosed errors are reportable, but direct cross-model claims should later be recomputed on one common retained set using the planned union-of-failures sanity/recompute workflow. Historical smoke scores produced by duplication or silent exclusion remain non-scientific.
+Final runs require exact encoder/checkpoint/preprocessing metadata and complete attempted-row accounting. Results with disclosed errors are reportable, but direct cross-model claims must disclose differing failures/skips instead of relying on common-ID filtering. Historical smoke scores produced by duplication or silent exclusion remain non-scientific.
 
 ### KL-PaSST
 
@@ -178,7 +178,7 @@ Integrate both semantics, require the exact stored generation prompt for prompt 
 
 **Resolved in active execution; full-corpus verification pending.**
 
-Backend nonzero exits already fail, and final artifacts are timestamped. However, the `0f2f532` validator must be revised and integrated before final summaries and `latest_*` updates. Row errors are reportable when every attempted row is retained and counts/IDs are complete. The job must still fail on unaccounted-for rows, unexpected/duplicate IDs, malformed structures, or non-finite values. An all-failed metric has no numeric score but does not block other final results. Historical artifacts must never be overwritten or relabeled as final.
+Backend nonzero exits already fail. Row errors are reportable when every attempted row is retained and counts/IDs are complete. The job must still fail on unaccounted-for rows, unexpected/duplicate IDs, malformed structures, or non-finite values. An all-failed metric has no numeric score but does not block other final results. Historical artifacts must never be overwritten or relabeled as final.
 
 ## Minimum Corpus Sizes
 
@@ -189,25 +189,25 @@ The active hard minimum of two passed files for FAD, KAD, and Inception Score on
 Focused tests exist for:
 
 - SPIDEr no-local-truncation behavior.
-- Evaluation modes, common-ID equality, provenance hashes, and final-only publication.
+- Temporary-vs-canonical eval policy, complete-manifest accounting, and removal of old common-ID/provenance-hash publication surfaces.
 - Diagnostic shard aggregation and SPIDEr invalidation.
 - FAD/KAD/Inception invalid-value, minimum-size, duplication, and padding rejection.
 - AAC preprocessing, crop/repetition metadata, reconstruction, and active worker integration.
 - WER normalization/counting/aggregation and standalone Whisper backend semantics.
 - Standalone final-result completeness validation.
 - Standalone KL-PaSST, CLAPScore, and UTMOS policies/validators.
-- Create-only artifact writers and immutable common-successful-ID construction.
+- Create-only artifact writers and immutable eval run directories.
 - Repository-root/backend `PYTHONPATH` construction.
 
 After commit `07e778f`, the full repository suite passes 206 tests. These tests cover integration and policy behavior but do not substitute for full-corpus backend execution.
 
 These tests establish local semantics, not backend scientific validity. Required compute verification remains:
 
-1. Run each integrated AAC metric on representative long captions, short/long audio, and then the complete ordered common corpus.
+1. Run each integrated AAC metric on representative long captions, short/long audio, and then the complete evaluated corpus.
 2. Measure token overflow/truncation coverage for MS-CLAP, FENSE, and CLAPScore.
 3. Confirm identical-order/seed repeatability and document order sensitivity.
 4. Integrate and execute WER, final-result validation, KL-PaSST, CLAPScore, and UTMOS paths.
-5. Verify FAD/KAD/Inception preprocessing and stable finite outputs on the final common corpus.
+5. Verify FAD/KAD/Inception preprocessing and stable finite outputs on the final evaluated corpus.
 6. Confirm complete attempted-row accounting, passed-only aggregation, correct metric statuses, and isolation of all-failed metrics without blocking other final results.
 
 Current integrated two-sample GPU smoke passes for SPIDEr, ASR-WER, dWER, UTMOS, DNSMOS, target-caption CLAPScore, and KL-PaSST, each with complete backend-smoke artifacts. MACE, AAC-CLAPSim, FENSE, FAD, and KAD now pass representative smoke. Inception Score remains pending at a larger smoke size because the official backend returned non-finite mean/std for two samples. No full-corpus scientific rerun has been performed under `07e778f`.
@@ -231,17 +231,17 @@ Preserve these artifacts with original provenance. Do not overwrite them or prom
 
 The repository is ready for final reruns only when all applicable gates pass:
 
-- One explicit, versioned evaluation-scope file exists for each final run.
-- Final mode uses the complete unsliced attempted-row manifest in stable ID order.
+- Explicit target metadata and run ID exist for each canonical eval run.
+- Canonical eval uses the complete unsliced attempted-row manifest in stable row order.
 - Every attempted row has `passed` or `error` status, and every metric reports attempted/passed/error counts and IDs.
 - Every attempted ID records either the required output/reference availability and passed result or an explicit error.
 - WER backend semantics are integrated.
 - Final-result complete-accounting validation runs before publication.
-- Timestamped result artifacts use create-only publication; mutable `latest_*` aliases are updated only after all final gates pass.
+- Eval run directories are immutable and use stable filenames without mutable `latest_*` aliases.
 - KL-PaSST, CLAPScore, and UTMOS helpers are integrated when selected.
 - Token-context coverage and every crop, pad, repeat, resample, channel, normalization, and silence policy are emitted.
-- Package, checkpoint, config, policy, manifest, row, ID-set, prompt, git commit, worktree, seed, and runtime provenance are retained.
+- Package, checkpoint, config, policy, manifest path, row counts, prompt, seed, and runtime metadata are retained where relevant; hash/fingerprint blocks are omitted.
 - Representative backend verification passes without fallback, duplication, substitution, sentinel acceptance, or silent exclusion.
 - Each metric aggregates finite passed outputs, uses status `passed`, `passed_with_errors`, or `error`, and emits no numeric score when all attempts fail.
 
-After these gates, rerun only affected metrics on the declared evaluation scope. Final results with disclosed errors are reportable. Cross-model common-retained-set recomputation after taking the union of failures remains a later sanity/recompute TODO. Until the applicable gates pass, the correct status is **Rerun required**, not final scientific validity.
+After these gates, rerun only affected metrics on the declared evaluation target. Final results with disclosed errors are reportable. Cross-model comparisons should disclose differing failures and skipped rows. Until the applicable gates pass, the correct status is **Rerun required**, not final scientific validity.
