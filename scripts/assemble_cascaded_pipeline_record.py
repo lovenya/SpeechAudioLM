@@ -508,6 +508,7 @@ def _inspect_document(
                     "run_id": stage["run_id"],
                     "run_path": stage["run_path"],
                     "manifest": stage["manifest"],
+                    "config": stage["config"],
                 }
                 for stage in stage_runs
             ],
@@ -524,11 +525,31 @@ def _inspect_sample(row: dict[str, Any], stage_runs: list[dict[str, Any]]) -> di
     return {
         "sample_id": sample_id,
         "status": row["status"],
+        "reference": _reference_from_inspect(stage_runs, sample_id),
         "input": row["input"],
         "stages": [_inspect_stage(stage_run, sample_id) for stage_run in stage_runs],
         "final_output": row["final_output"],
         "error": row["error"],
     }
+
+
+def _reference_from_inspect(stage_runs: list[dict[str, Any]], sample_id: str) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for stage_run in stage_runs:
+        samples = stage_run.get("inspect", {}).get("samples")
+        if not isinstance(samples, list):
+            continue
+        for sample in samples:
+            if not isinstance(sample, dict) or sample.get("sample_id") != sample_id:
+                continue
+            reference = sample.get("reference")
+            if not isinstance(reference, dict):
+                continue
+            for key, value in reference.items():
+                if key in merged and merged[key] != value:
+                    raise ValueError(f"sample_id={sample_id!r}: conflicting reference.{key} across stage inspect records")
+                merged[key] = value
+    return merged
 
 
 def _inspect_stage(stage_run: dict[str, Any], sample_id: str) -> dict[str, Any]:

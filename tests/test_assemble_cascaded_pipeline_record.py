@@ -74,6 +74,7 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
             rows = _read_jsonl(pipeline_dir / "manifest.jsonl")
             run = json.loads((pipeline_dir / "run.json").read_text(encoding="utf-8"))
             pipeline = json.loads((pipeline_dir / "pipeline.json").read_text(encoding="utf-8"))
+            inspect = json.loads((pipeline_dir / "inspect.json").read_text(encoding="utf-8"))
 
         self.assertEqual(report["summary"]["samples"]["successful"], 2)
         self.assertEqual([row["sample_id"] for row in rows], ["sample-b", "sample-a"])
@@ -86,6 +87,8 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
         self.assertEqual(run["code"]["stage_runs"][0]["code"], {"git_commit": "a2t"})
         self.assertEqual(run["code"]["stage_runs"][2]["code"], {"git_commit": "t2s"})
         self.assertEqual(run["slurm"], {"job_id": "1234", "array_job_id": "1200", "array_task_id": "7"})
+        self.assertEqual(inspect["samples"][0]["reference"], {"audio_file": "b-input.wav", "reference_audio_caption": "reference caption for sample-b"})
+        self.assertEqual(inspect["lineage"]["stages"][0]["config"], (a2t / "config.json").as_posix())
         self.assertFalse((pipeline_dir / "outputs").exists())
 
     def test_incomplete_row_reports_first_failed_stage_before_final_stage(self) -> None:
@@ -185,10 +188,12 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
 
             assemble_pipeline_record(root / "pipeline", direction="s2a", stage_run_dirs=[s2t, t2t, t2a])
             row = _read_jsonl(root / "pipeline" / "manifest.jsonl")[0]
+            inspect = json.loads((root / "pipeline" / "inspect.json").read_text(encoding="utf-8"))
 
         self.assertEqual(row["input"], {"speech_file": "speech.wav"})
         self.assertEqual(row["final_output"]["audio_file"], (t2a / "outputs" / "sample-a.wav").as_posix())
         self.assertEqual([stage["stage"] for stage in row["stages"]], ["s2t", "t2t", "t2a"])
+        self.assertEqual(inspect["samples"][0]["reference"], {"speech_file": "speech.wav", "reference_audio_caption": "reference caption for sample-a"})
 
     def test_fails_if_pipeline_artifact_already_exists_without_rewriting(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -334,6 +339,76 @@ class AssembleCascadedPipelineRecordTest(unittest.TestCase):
             (t2s / "outputs" / "sample-a.wav").unlink()
 
             with self.assertRaisesRegex(FileNotFoundError, "missing final output file"):
+                assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+
+    def test_pipeline_inspect_merges_reference_keys_from_stage_inspects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a-input.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "t2t",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2t", model="text")],
+            )
+            t2s = _write_stage_run(
+                root / "t2s",
+                stage="t2s",
+                model="tts",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2s", model="tts", output={"type": "speech", "speech_file": "outputs/sample-a.wav"})],
+            )
+            a2t_inspect = json.loads((a2t / "inspect.json").read_text(encoding="utf-8"))
+            a2t_inspect["samples"][0]["reference"] = {"audio_file": "a-input.wav"}
+            (a2t / "inspect.json").write_text(json.dumps(a2t_inspect) + "\n", encoding="utf-8")
+            t2t_inspect = json.loads((t2t / "inspect.json").read_text(encoding="utf-8"))
+            t2t_inspect["samples"][0].pop("reference")
+            (t2t / "inspect.json").write_text(json.dumps(t2t_inspect) + "\n", encoding="utf-8")
+            t2s_inspect = json.loads((t2s / "inspect.json").read_text(encoding="utf-8"))
+            t2s_inspect["samples"][0]["reference"] = {"reference_speech_text": "spoken reference"}
+            (t2s / "inspect.json").write_text(json.dumps(t2s_inspect) + "\n", encoding="utf-8")
+
+            assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
+            inspect = json.loads((root / "pipeline" / "inspect.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(inspect["samples"][0]["reference"], {"audio_file": "a-input.wav", "reference_speech_text": "spoken reference"})
+
+    def test_pipeline_inspect_rejects_conflicting_stage_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            a2t = _write_stage_run(
+                root / "a2t",
+                stage="a2t",
+                model="captioner",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="a2t", model="captioner", input_value={"audio_file": "a-input.wav"})],
+            )
+            t2t = _write_stage_run(
+                root / "t2t",
+                stage="t2t",
+                model="text",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2t", model="text")],
+            )
+            t2s = _write_stage_run(
+                root / "t2s",
+                stage="t2s",
+                model="tts",
+                direction="a2s",
+                rows=[_row(0, "sample-a", stage="t2s", model="tts", output={"type": "speech", "speech_file": "outputs/sample-a.wav"})],
+            )
+            inspect = json.loads((t2t / "inspect.json").read_text(encoding="utf-8"))
+            inspect["samples"][0]["reference"]["reference_audio_caption"] = "conflicting caption"
+            (t2t / "inspect.json").write_text(json.dumps(inspect) + "\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "conflicting reference"):
                 assemble_pipeline_record(root / "pipeline", direction="a2s", stage_run_dirs=[a2t, t2t, t2s])
 
     def test_rejects_downstream_source_sample_mismatch(self) -> None:
@@ -492,7 +567,32 @@ def _write_stage_run(
         + "\n",
         encoding="utf-8",
     )
+    (run_dir / "inspect.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": run_dir.name,
+                "samples": [_inspect_sample_fixture(row, stage) for row in rows],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return run_dir
+
+
+def _inspect_sample_fixture(row: dict, stage: str) -> dict:
+    input_value = row.get("input") if isinstance(row.get("input"), dict) else {}
+    reference = {"reference_audio_caption": f"reference caption for {row.get('sample_id')}"}
+    if isinstance(input_value.get("audio_file"), str):
+        reference["audio_file"] = input_value["audio_file"]
+    if isinstance(input_value.get("speech_file"), str):
+        reference["speech_file"] = input_value["speech_file"]
+    return {
+        "sample_id": row.get("sample_id"),
+        "reference": reference,
+        "stages": [{"stage": stage, "runtime_prompt": None}],
+    }
 
 
 def _write_referenced_media(run_dir: Path, rows: list[dict]) -> None:
