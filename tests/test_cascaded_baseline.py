@@ -21,6 +21,8 @@ from baseline_cascaded import (
     _planned_stages,
     _run_config,
     _temporary_path,
+    _validate_v1_shard_args,
+    _write_text_create_or_verify,
     main,
 )
 from baselines.models.audio_captioning import _patch_audio_flamingo_next_transformers_compat
@@ -319,6 +321,91 @@ class CascadedBaselineTest(unittest.TestCase):
         config = _design_config_document(run_config, total_rows=1)
 
         self.assertEqual(config["model"]["cache_dir"], "{cache_root}/huggingface")
+
+    def test_v1_stage_shards_write_only_shard_local_artifacts(self) -> None:
+        args0 = _minimal_cascade_args(
+            pipeline="A2T",
+            captioner="reference",
+            results_schema="v1",
+            shard_index=0,
+            num_shards=2,
+            num_samples=2,
+        )
+        args1 = _minimal_cascade_args(
+            pipeline="A2T",
+            captioner="reference",
+            results_schema="v1",
+            shard_index=1,
+            num_shards=2,
+            num_samples=2,
+        )
+        rows = [
+            PromptRow(
+                row_index=0,
+                sample_id="sample-a",
+                prompt="first caption",
+                record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+            ),
+            PromptRow(
+                row_index=1,
+                sample_id="sample-b",
+                prompt="second caption",
+                record={"audio_file": "audio/b.wav", "audio_cap": "second caption"},
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config0 = _run_config(args0, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            run_config0["input_start_index"] = 0
+            run_config0["input_num_samples"] = 2
+            run_config1 = _run_config(args1, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            run_config1["input_start_index"] = 0
+            run_config1["input_num_samples"] = 2
+
+            ModularCascade(args0, dataset_root=None).run([rows[0]], output_root, log_root, run_config0, total_rows=1)
+            ModularCascade(args1, dataset_root=None).run([rows[1]], output_root, log_root, run_config1, total_rows=1)
+
+            root_run = json.loads((output_root / "run.json").read_text(encoding="utf-8"))
+            root_config = json.loads((output_root / "config.json").read_text(encoding="utf-8"))
+            shard0 = output_root / "shards" / "shard_000"
+            shard1 = output_root / "shards" / "shard_001"
+            shard0_manifest = _read_jsonl(shard0 / "manifest.jsonl")
+            shard1_manifest = _read_jsonl(shard1 / "manifest.jsonl")
+            shard0_inspect = json.loads((shard0 / "inspect.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(root_run["run_id"], "20260616_1437")
+        self.assertEqual(root_run["status"], "running")
+        self.assertEqual(root_config["input"]["num_samples"], 2)
+        self.assertEqual(root_config["execution"]["shard_index"], None)
+        self.assertEqual(root_config["execution"]["num_shards"], 2)
+        for name in ("manifest.jsonl", "inspect.json", "errors.json", "summary.json"):
+            self.assertFalse((output_root / name).exists())
+        self.assertEqual([row["row_index"] for row in shard0_manifest], [0])
+        self.assertEqual([row["row_index"] for row in shard1_manifest], [1])
+        self.assertEqual(shard0_inspect["run_id"], "20260616_1437")
+        self.assertEqual(shard0_inspect["stage"], root_run["stage"])
+        self.assertEqual(shard0_inspect["direction"], root_run["direction"])
+
+    def test_create_or_verify_allows_matching_concurrent_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.json"
+            _write_text_create_or_verify(path, "{\n  \"schema_version\": 1\n}\n")
+            _write_text_create_or_verify(path, "{\n  \"schema_version\": 1\n}\n")
+
+            with self.assertRaisesRegex(RuntimeError, "differs"):
+                _write_text_create_or_verify(path, "{\n  \"schema_version\": 2\n}\n")
+
+    def test_v1_stage_shard_args_are_v1_only_and_paired(self) -> None:
+        with self.assertRaisesRegex(ValueError, "require --results-schema v1"):
+            _validate_v1_shard_args(_minimal_cascade_args(shard_index=0, num_shards=2))
+        with self.assertRaisesRegex(ValueError, "must be provided together"):
+            _validate_v1_shard_args(_minimal_cascade_args(results_schema="v1", shard_index=0))
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            _validate_v1_shard_args(_minimal_cascade_args(results_schema="v1", shard_index=-1, num_shards=2))
+        with self.assertRaisesRegex(ValueError, "smaller"):
+            _validate_v1_shard_args(_minimal_cascade_args(results_schema="v1", shard_index=2, num_shards=2))
 
     def test_v1_schema_resumes_config_only_interrupted_run(self) -> None:
         args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
@@ -1276,6 +1363,8 @@ def _minimal_cascade_args(**overrides) -> argparse.Namespace:
         "continue_on_error": False,
         "dry_run": False,
         "results_schema": "legacy",
+        "shard_index": None,
+        "num_shards": None,
         "asr": "reference",
         "captioner": "reference",
         "text_model": "template",

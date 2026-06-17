@@ -73,6 +73,8 @@ def parse_args() -> argparse.Namespace:
         default="legacy",
         help="Output artifact schema. v1 writes design-schema stage artifacts for single-stage runs.",
     )
+    parser.add_argument("--shard-index", type=int, default=None, help="Optional v1 stage shard index to write under shards/shard_NNN/.")
+    parser.add_argument("--num-shards", type=int, default=None, help="Total v1 stage shard count for this run.")
 
     parser.add_argument("--asr", default="audio_omni", choices=["audio_omni", "reference", "whisper", "qwen3_asr"])
     parser.add_argument("--captioner", default="audio_omni", choices=["audio_omni", "reference", "audio_flamingo_next", "qwen3_omni_captioner"])
@@ -114,17 +116,31 @@ def main() -> None:
     config = load_dataset_config(Path(args.dataset_config))
     split_path = Path(args.split_file) if args.split_file else Path(config["splits"][args.split])
     prompt_field = _pipeline_prompt_field(args.pipeline)
+    _validate_v1_shard_args(args)
+    selected_total_rows = count_jsonl_rows(split_path, args.start_index, args.num_samples)
+    row_start_index = args.start_index
+    row_num_samples = args.num_samples
+    if args.results_schema == "v1" and args.shard_index is not None:
+        shard_offset, shard_count = _shard_window(selected_total_rows, args.shard_index, args.num_shards)
+        row_start_index = args.start_index + shard_offset
+        row_num_samples = shard_count
     rows = list(
         iter_split_rows(
             split_path,
             prompt_field=prompt_field,
-            start_index=args.start_index,
-            num_samples=args.num_samples,
+            start_index=row_start_index,
+            num_samples=row_num_samples,
         )
     )
     rows = _enrich_rows_with_audio_metadata(rows, args.split)
-    total_rows = count_jsonl_rows(split_path, args.start_index, args.num_samples)
+    total_rows = count_jsonl_rows(split_path, row_start_index, row_num_samples)
     run_config = _run_config(args, split_path, prompt_field)
+    if args.results_schema == "v1" and args.shard_index is not None:
+        run_config["input_start_index"] = args.start_index
+        run_config["input_num_samples"] = selected_total_rows
+        run_config["current_shard_index"] = args.shard_index
+        run_config["shard_start_index"] = row_start_index
+        run_config["shard_num_samples"] = total_rows
     if rows and isinstance(rows[0].record.get("_cascaded_pipeline"), str):
         run_config["cascade_pipeline"] = rows[0].record["_cascaded_pipeline"]
     if args.results_schema == "v1" and args.pipeline in {"A2S", "S2A"}:
@@ -183,11 +199,14 @@ class ModularCascade:
         if schema_v1:
             rows = list(rows)
             _validate_v1_stage_inputs(self.args, rows)
+        is_v1_shard = schema_v1 and getattr(self.args, "shard_index", None) is not None
+        artifact_root = output_root / "shards" / _v1_shard_name(self.args.shard_index) if is_v1_shard else output_root
         output_root.mkdir(parents=True, exist_ok=True)
         log_root.mkdir(parents=True, exist_ok=True)
-        final_manifest = output_root / "manifest.jsonl"
-        inspection_manifest = output_root / ("inspect.json" if schema_v1 else "manifest.inspect.json")
-        run_config_path = output_root / ("config.json" if schema_v1 else "run_config.json")
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        final_manifest = artifact_root / "manifest.jsonl"
+        inspection_manifest = artifact_root / ("inspect.json" if schema_v1 else "manifest.inspect.json")
+        run_config_path = output_root / "config.json" if is_v1_shard else artifact_root / ("config.json" if schema_v1 else "run_config.json")
         self._run_config = run_config
         config_document = _design_config_document(run_config, total_rows) if schema_v1 else run_config
         config_payload = json.dumps(config_document, indent=2, sort_keys=not schema_v1) + "\n"
@@ -203,30 +222,48 @@ class ModularCascade:
             for component_manifest in (output_root / "components").glob("*/manifest.jsonl"):
                 _unlink_if_exists(component_manifest)
         elif schema_v1:
-            existing_run_doc = _read_optional_json(output_root / "run.json")
-            existing_samples = self._read_existing_v1_samples(final_manifest, rows, output_root)
-            resume_event = _validate_v1_resume_state(
-                output_root=output_root,
-                config_path=run_config_path,
-                manifest_path=final_manifest,
-                config_document=config_document,
-                requested_keys=[(row.row_index, row.sample_id) for row in rows],
-                existing_samples=existing_samples,
-                existing_run_doc=existing_run_doc,
-            )
+            existing_run_doc = _read_optional_json(output_root / "run.json") if is_v1_shard else _read_optional_json(artifact_root / "run.json")
+            existing_samples = self._read_existing_v1_samples(final_manifest, rows, artifact_root)
+            if is_v1_shard and not _has_v1_shard_artifacts(artifact_root):
+                resume_event = None
+            else:
+                resume_event = _validate_v1_resume_state(
+                    output_root=artifact_root,
+                    config_path=run_config_path,
+                    manifest_path=final_manifest,
+                    config_document=config_document,
+                    requested_keys=[(row.row_index, row.sample_id) for row in rows],
+                    existing_samples=existing_samples,
+                    existing_run_doc=existing_run_doc,
+                )
             if resume_event is not None:
-                self._validate_v1_output_files_match_manifest(output_root, rows, existing_samples)
+                self._validate_v1_output_files_match_manifest(artifact_root, rows, existing_samples)
         else:
             _validate_existing_run_config(run_config_path, final_manifest, run_config)
             existing_samples = _read_existing_samples(final_manifest)
         if schema_v1:
-            _validate_v1_artifact_targets(output_root, allow_resume=resume_event is not None)
+            _validate_v1_artifact_targets(
+                artifact_root,
+                allow_resume=resume_event is not None,
+                include_root_artifacts=not is_v1_shard,
+            )
         if schema_v1:
-            if not run_config_path.exists():
-                _write_text_create_only(run_config_path, config_payload)
+            if run_config_path.exists():
+                existing_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+                if existing_config != config_document:
+                    raise RuntimeError("Existing v1 output directory belongs to a different config.json")
+            else:
+                _write_text_create_or_verify(run_config_path, config_payload)
         else:
             run_config_path.write_text(config_payload, encoding="utf-8")
         code_state = _git_state() if schema_v1 else None
+        if is_v1_shard:
+            _write_v1_shard_root_run(
+                output_root=output_root,
+                log_root=log_root,
+                run_config=run_config,
+                code_state=code_state,
+            )
 
         processed = 0
         skipped = 0
@@ -260,7 +297,7 @@ class ModularCascade:
                     prior_lineage = row_lineage
                 elif row_lineage != prior_lineage:
                     raise ValueError(f"Row {row.row_index} carries different stage lineage")
-                output_path = self._final_output_path(output_root, row)
+                output_path = self._final_output_path(artifact_root, row)
                 sample_key = (row.row_index, row.sample_id)
                 if not self.args.overwrite and sample_key in existing_samples:
                     skipped += 1
@@ -272,9 +309,9 @@ class ModularCascade:
                 row_start = time.time()
                 try:
                     if self.args.pipeline in {"A2S", "S2A"}:
-                        sample = self._run_full_sample(row, output_root, output_path)
+                        sample = self._run_full_sample(row, artifact_root, output_path)
                     else:
-                        legacy_record = self._run_row(row, output_root, output_path, run_config)
+                        legacy_record = self._run_row(row, artifact_root, output_path, run_config)
                         inference_seconds = round(time.time() - row_start, 3)
                         sample = self._sample_from_record(row, legacy_record, inference_seconds)
                 except Exception as exc:
@@ -306,7 +343,7 @@ class ModularCascade:
         completed_at = eastern_now()
         if schema_v1:
             _write_design_run_artifacts(
-                output_root=output_root,
+                output_root=artifact_root,
                 log_root=log_root,
                 run_config=run_config,
                 samples=ordered_samples,
@@ -320,6 +357,8 @@ class ModularCascade:
                 upstream_lineage=prior_lineage,
                 resume_event=resume_event,
                 existing_run_doc=existing_run_doc,
+                run_root=output_root if is_v1_shard else None,
+                write_run_json=not is_v1_shard,
             )
         else:
             write_inspection_manifest(
@@ -1161,6 +1200,105 @@ def _cascade_output_root(args: argparse.Namespace, root: Path | None = None) -> 
     return baseline_output_root("cascaded", args.pipeline, _cascade_variant_name(args), args.dataset, base) / args.split
 
 
+def _validate_v1_shard_args(args: argparse.Namespace) -> None:
+    shard_index = getattr(args, "shard_index", None)
+    num_shards = getattr(args, "num_shards", None)
+    if shard_index is None and num_shards is None:
+        return
+    if getattr(args, "results_schema", "legacy") != "v1":
+        raise ValueError("--shard-index/--num-shards require --results-schema v1")
+    if shard_index is None or num_shards is None:
+        raise ValueError("--shard-index and --num-shards must be provided together")
+    if not isinstance(shard_index, int) or shard_index < 0:
+        raise ValueError("--shard-index must be a non-negative integer")
+    if not isinstance(num_shards, int) or num_shards <= 0:
+        raise ValueError("--num-shards must be a positive integer")
+    if shard_index >= num_shards:
+        raise ValueError("--shard-index must be smaller than --num-shards")
+
+
+def _shard_window(total_rows: int, shard_index: int, num_shards: int) -> tuple[int, int]:
+    if total_rows < 0:
+        raise ValueError("total_rows must be non-negative")
+    base = total_rows // num_shards
+    extra = total_rows % num_shards
+    if shard_index < extra:
+        return shard_index * (base + 1), base + 1
+    return extra * (base + 1) + (shard_index - extra) * base, base
+
+
+def _v1_shard_name(shard_index: int) -> str:
+    return f"shard_{shard_index:03d}"
+
+
+def _stage_name_for_run_config(run_config: dict) -> str | None:
+    return {
+        "A2T": "a2t",
+        "S2T": "s2t",
+        "T2T": "t2t",
+        "T2S": "t2s",
+        "T2A": "t2a",
+    }.get(run_config.get("pipeline"))
+
+
+def _write_v1_shard_root_run(
+    *,
+    output_root: Path,
+    log_root: Path,
+    run_config: dict,
+    code_state: dict | None,
+) -> None:
+    path = output_root / "run.json"
+    if path.exists():
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if document.get("status") in {"complete", "complete_with_errors"}:
+            raise RuntimeError(f"v1 run is already complete: {output_root}")
+        for key, expected in (
+            ("run_id", output_root.name),
+            ("stage", _stage_name_for_run_config(run_config)),
+            ("direction", _direction_for_run_config(run_config)),
+            ("dataset", run_config.get("dataset")),
+            ("split", run_config.get("split")),
+        ):
+            if expected is not None and document.get(key) != expected:
+                raise RuntimeError(f"Existing v1 shard root run.json has different {key}")
+        return
+    model = _design_model_config(run_config).get("name")
+    started_at = eastern_now()
+    document = {
+        "schema_version": 1,
+        "run_id": output_root.name,
+        "temporary": _is_temporary_path(output_root),
+        "stage": _stage_name_for_run_config(run_config),
+        "direction": _direction_for_run_config(run_config),
+        "status": "running",
+        "dataset": run_config.get("dataset"),
+        "split": run_config.get("split"),
+        "model": model,
+        "started_at": started_at,
+        "completed_at": None,
+        "code": code_state,
+        "slurm": _slurm_state(),
+        "paths": {
+            "result": _path_reference(output_root),
+            "logs": _path_reference(log_root),
+        },
+        "lineage": {
+            "direction": _direction_for_run_config(run_config),
+            "current_stage_index": None,
+            "stages": [],
+        },
+        "events": [
+            {
+                "type": "started",
+                "time": started_at,
+                "status": "running",
+            }
+        ],
+    }
+    _write_json_create_or_verify(path, document)
+
+
 def _v1_stage_paths(args: argparse.Namespace, run_config: dict, *, run_id: str):
     pipeline = run_config.get("pipeline")
     if pipeline == "A2T":
@@ -1367,6 +1505,8 @@ def _run_config(args: argparse.Namespace, split_path: Path, prompt_field: str) -
         "qwen_speaker": args.qwen_speaker,
         "qwen_template": args.qwen_template,
         "model_cache_dir": getattr(args, "model_cache_dir", None),
+        "shard_index": None,
+        "num_shards": getattr(args, "num_shards", None),
         "model_paths": {
             "fallback": args.model_path,
             "asr": args.asr_model_path,
@@ -1460,11 +1600,14 @@ def _write_design_run_artifacts(
     upstream_lineage: list[dict] | None = None,
     resume_event: dict | None = None,
     existing_run_doc: dict | None = None,
+    run_root: Path | None = None,
+    write_run_json: bool = True,
 ) -> None:
     status = "complete" if all(sample.get("status") == "success" for sample in samples) else "complete_with_errors"
     current_stage_index = max((len(sample.get("stages", [])) for sample in samples), default=len(definitions))
     stage_name = _design_stage_name(definitions[-1].get("task") if definitions else run_config.get("pipeline"))
-    run_id = output_root.name
+    lineage_root = run_root or output_root
+    run_id = lineage_root.name
     inspect_samples = [legacy_sample_to_inspect_sample(sample) for sample in samples]
     summary = _design_summary_document(
         run_id=run_id,
@@ -1477,7 +1620,7 @@ def _write_design_run_artifacts(
     lineage = _design_lineage(
         run_config=run_config,
         definitions=definitions,
-        output_root=output_root,
+        output_root=lineage_root,
         current_stage_index=current_stage_index,
         upstream_lineage=upstream_lineage or [],
     )
@@ -1492,7 +1635,7 @@ def _write_design_run_artifacts(
         "run.json": {
             "schema_version": 1,
             "run_id": run_id,
-            "temporary": _is_temporary_path(output_root),
+            "temporary": _is_temporary_path(lineage_root),
             "stage": stage_name,
             "direction": _direction_for_run_config(run_config),
             "status": status,
@@ -1504,7 +1647,7 @@ def _write_design_run_artifacts(
             "code": code_state,
             "slurm": _slurm_state(),
             "paths": {
-                "result": _path_reference(output_root),
+                "result": _path_reference(lineage_root),
                 "logs": _path_reference(log_root),
             },
             "lineage": lineage,
@@ -1530,6 +1673,8 @@ def _write_design_run_artifacts(
         "errors.json": _design_errors_document(run_id, samples),
         "summary.json": summary,
     }
+    if not write_run_json:
+        artifacts.pop("run.json", None)
     for name, document in artifacts.items():
         _write_json_replace(output_root / name, document)
 
@@ -1541,8 +1686,8 @@ def _design_config_document(run_config: dict, total_rows: int) -> dict:
         "input": {
             "manifest": run_config.get("split_file"),
             "input_field": run_config.get("prompt_field"),
-            "start_index": run_config.get("start_index"),
-            "num_samples": total_rows,
+            "start_index": run_config.get("input_start_index", run_config.get("start_index")),
+            "num_samples": run_config.get("input_num_samples", total_rows),
         },
         "model": _design_model_config(run_config),
         "prompt": _design_prompt_config(run_config),
@@ -1553,8 +1698,8 @@ def _design_config_document(run_config: dict, total_rows: int) -> dict:
         },
         "execution": {
             "continue_on_error": run_config.get("continue_on_error"),
-            "shard_index": None,
-            "num_shards": None,
+            "shard_index": run_config.get("shard_index"),
+            "num_shards": run_config.get("num_shards"),
             "legacy_pipeline": pipeline,
             "cascade_pipeline": run_config.get("cascade_pipeline"),
         },
@@ -1795,11 +1940,36 @@ def _median(values: list[float]) -> float | None:
     return (ordered[midpoint - 1] + ordered[midpoint]) / 2
 
 
-def _validate_v1_artifact_targets(output_root: Path, *, allow_resume: bool = False) -> None:
-    for name in ("manifest.jsonl", "config.json", "run.json", "inspect.json", "errors.json", "summary.json"):
+def _has_v1_shard_artifacts(artifact_root: Path) -> bool:
+    return any((artifact_root / name).exists() for name in ("manifest.jsonl", "inspect.json", "errors.json", "summary.json"))
+
+
+def _validate_v1_artifact_targets(
+    output_root: Path,
+    *,
+    allow_resume: bool = False,
+    include_root_artifacts: bool = True,
+) -> None:
+    names = ["manifest.jsonl", "inspect.json", "errors.json", "summary.json"]
+    if include_root_artifacts:
+        names.extend(["config.json", "run.json"])
+    for name in names:
         path = output_root / name
         if path.exists() and not allow_resume:
             raise FileExistsError(f"v1 artifact already exists: {path}")
+
+
+def _write_json_create_or_verify(path: Path, document: dict) -> None:
+    payload = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    _write_text_create_or_verify(path, payload)
+
+
+def _write_text_create_or_verify(path: Path, payload: str) -> None:
+    try:
+        _write_text_create_only(path, payload)
+    except FileExistsError:
+        if path.read_text(encoding="utf-8") != payload:
+            raise RuntimeError(f"Existing artifact differs from requested payload: {path}")
 
 
 def _write_json_create_only(path: Path, document: dict) -> None:
