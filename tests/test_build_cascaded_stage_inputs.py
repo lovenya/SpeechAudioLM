@@ -287,6 +287,78 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(sample["stages"][0]["input"], {"type": "speech_audio", "file": "speech/s.wav"})
         self.assertEqual(sample["stages"][0]["output"], {"type": "speech_text", "text": "spoken words"})
 
+    def test_v1_stage1_to_t2t_prefers_manifest_output_over_stale_inspect(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 4,
+                        "sample_id": "sample_a",
+                        "stage": "a2t",
+                        "model": "captioner",
+                        "status": "success",
+                        "input": {"audio_file": "audio/a.wav"},
+                        "output": {"type": "text", "audio_caption": "manifest caption"},
+                        "timing": {"inference_seconds": 1.5},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "samples": [
+                            {
+                                "sample_id": "sample_a",
+                                "reference": {
+                                    "audio_file": "audio/a.wav",
+                                    "speech_file": "speech/a.wav",
+                                    "reference_audio_caption": "reference caption",
+                                    "reference_speech_text": "reference speech",
+                                },
+                                "stages": [
+                                    {
+                                        "stage_index": 1,
+                                        "stage": "a2t",
+                                        "model": "old-captioner",
+                                        "status": "success",
+                                        "input": {"audio_file": "audio/a.wav"},
+                                        "runtime_prompt": None,
+                                        "output": {"type": "text", "audio_caption": "stale inspect caption"},
+                                        "timing": {"inference_seconds": 999.0},
+                                        "error": None,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows = _stage1_to_t2t(
+                argparse.Namespace(
+                    manifest=str(manifest),
+                    pipeline="A2S",
+                    upstream_backend="captioner",
+                    text_model="qwen3_32b",
+                    allow_partial=False,
+                )
+            )
+
+        sample = rows[0]["_cascaded_sample"]
+        self.assertEqual(rows[0]["speech_text"], "manifest caption")
+        self.assertEqual(sample["stages"][0]["model"], "captioner")
+        self.assertEqual(sample["stages"][0]["output"], {"type": "audio_caption", "text": "manifest caption"})
+        self.assertEqual(sample["stages"][0]["inference_seconds"], 1.5)
+
     def test_v1_stage1_to_t2t_rejects_stage_direction_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest = Path(tmpdir) / "manifest.jsonl"
@@ -374,8 +446,8 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
                                         "status": "success",
                                         "input": {"audio_caption": "generated caption"},
                                         "runtime_prompt": {"messages": [{"role": "user", "content": "convert"}]},
-                                        "output": {"type": "text", "generated_speech_text": "generated speech text"},
-                                        "timing": {"inference_seconds": 2.5},
+                                        "output": {"type": "text", "generated_speech_text": "stale inspect speech"},
+                                        "timing": {"inference_seconds": 999.0},
                                         "error": None,
                                     },
                                 ],
@@ -442,6 +514,7 @@ class CascadedStageInputBuilderTest(unittest.TestCase):
         self.assertEqual(sample["stages"][0]["output"], {"type": "audio_caption", "text": "generated caption"})
         self.assertEqual(sample["stages"][1]["mode"], "audio_description_to_speech")
         self.assertEqual(sample["stages"][1]["output"], {"type": "speech_text", "text": "generated speech text"})
+        self.assertEqual(sample["stages"][1]["inference_seconds"], 2.5)
         self.assertEqual([stage["run_id"] for stage in row["_cascaded_stage_lineage"]], ["20260616_1000", "20260616_1100"])
 
     def test_v1_t2t_to_final_requires_inspect_for_cumulative_context(self) -> None:

@@ -273,6 +273,7 @@ def _legacy_sample_from_v1_inspect(record: dict, inspect_sample: dict, *, stage_
     stages = inspect_sample.get("stages")
     if not isinstance(stages, list) or len(stages) < stage_number:
         raise ValueError(f"inspect sample {record.get('sample_id')} does not contain stage {stage_number}")
+    stages = _v1_manifest_authoritative_stages(record, stages, stage_number=stage_number)
     reference = _reference_from_v1_inspect(inspect_sample)
     sample: dict | None = None
     carried_record = reference
@@ -289,6 +290,45 @@ def _legacy_sample_from_v1_inspect(record: dict, inspect_sample: dict, *, stage_
     if sample is None:
         raise ValueError(f"inspect sample {record.get('sample_id')} has no usable stages")
     return sample
+
+
+def _v1_manifest_authoritative_stages(record: dict, stages: list, *, stage_number: int) -> list[dict]:
+    selected = [dict(stage) for stage in stages[:stage_number] if isinstance(stage, dict)]
+    if len(selected) != stage_number:
+        raise ValueError(f"inspect sample {record.get('sample_id')} does not contain stage {stage_number}")
+    current = selected[-1]
+    if current.get("stage") != record.get("stage"):
+        raise ValueError(
+            f"v1 row {record.get('sample_id')} stage {record.get('stage')!r} does not match inspect stage "
+            f"{current.get('stage')!r}"
+        )
+    input_value = record.get("input")
+    if isinstance(input_value, dict):
+        source_stage_index = input_value.get("source_stage_index")
+        if isinstance(source_stage_index, int) and source_stage_index != stage_number - 1:
+            raise ValueError(
+                f"v1 row {record.get('sample_id')} source_stage_index {source_stage_index} "
+                f"does not match expected {stage_number - 1}"
+            )
+        source_status = input_value.get("source_status")
+        if isinstance(source_stage_index, int) and source_stage_index > 0 and isinstance(source_status, str):
+            upstream = selected[source_stage_index - 1]
+            if upstream.get("status") != source_status:
+                raise ValueError(
+                    f"v1 row {record.get('sample_id')} source_status {source_status} "
+                    f"does not match inspect stage {source_stage_index}"
+                )
+    if isinstance(record.get("output"), dict):
+        current["output"] = dict(record["output"])
+    if isinstance(record.get("timing"), dict):
+        current["timing"] = dict(record["timing"])
+    if record.get("model") is not None:
+        current["model"] = record.get("model")
+    if record.get("status") is not None:
+        current["status"] = record.get("status")
+    if record.get("error") is not None:
+        current["error"] = record.get("error")
+    return selected
 
 
 def _legacy_stage_from_v1(stage: dict) -> dict:
