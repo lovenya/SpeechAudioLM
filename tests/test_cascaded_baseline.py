@@ -298,6 +298,93 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual([event["type"] for event in run_doc["events"]], ["started", "resumed", "completed"])
         self.assertEqual(run_doc["events"][1]["existing_successful_rows"], 1)
 
+    def test_v1_schema_resume_rejects_config_mismatch(self) -> None:
+        args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
+        rows = [
+            PromptRow(
+                row_index=0,
+                sample_id="sample-a",
+                prompt="first caption",
+                record={"audio_file": "audio/a.wav", "audio_cap": "first caption"},
+            ),
+            PromptRow(
+                row_index=1,
+                sample_id="sample-b",
+                prompt="second caption",
+                record={"audio_file": "audio/b.wav", "audio_cap": "second caption"},
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "20260616_1437"
+            log_root = root / "logs" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            ModularCascade(args, dataset_root=None).run(rows[:1], output_root, log_root, run_config, total_rows=2)
+            for name in ("run.json", "inspect.json", "errors.json", "summary.json"):
+                (output_root / name).unlink()
+            mismatched = dict(run_config)
+            mismatched["seed"] = 999
+
+            with self.assertRaisesRegex(RuntimeError, "different config"):
+                ModularCascade(args, dataset_root=None).run(rows, output_root, log_root, mismatched, total_rows=2)
+
+    def test_v1_schema_resume_rejects_missing_successful_media_output(self) -> None:
+        args = _minimal_cascade_args(pipeline="T2A", t2a="audiogen", results_schema="v1")
+
+        class FakeRunner:
+            model_path = None
+
+            def generate(self, row, output_path):
+                output_path.write_bytes(b"RIFFfake")
+                from baselines.models.base import GenerationResult
+
+                return GenerationResult(output_path=output_path, sample_rate=32000, extra={"shape": [320000]})
+
+        row = PromptRow(
+            row_index=0,
+            sample_id="sample-a",
+            prompt="engine turning",
+            record={
+                "audio_cap": "engine turning",
+                "_cascaded_sample": _carried_sample(
+                    row_index=0,
+                    sample_id="sample-a",
+                    stages=[
+                        {
+                            "stage": 1,
+                            "task": "asr",
+                            "model": "reference",
+                            "input": {"type": "speech_audio", "file": "speech/source.wav"},
+                            "output": {"type": "speech_text", "text": "turn the engine"},
+                        },
+                        {
+                            "stage": 2,
+                            "task": "text_to_text",
+                            "model": "template",
+                            "mode": "speech_to_audio_description",
+                            "input": {"type": "speech_text", "text": "turn the engine"},
+                            "output": {"type": "audio_description", "text": "engine turning"},
+                        },
+                    ],
+                ),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output_root = root / "results" / "cascaded" / "stages" / "t2a" / "audiogen" / "from-t2t" / "template" / "ttas" / "val" / "20260616_1437"
+            log_root = root / "logs" / "cascaded" / "stages" / "t2a" / "audiogen" / "from-t2t" / "template" / "ttas" / "val" / "20260616_1437"
+            run_config = _run_config(args, Path("data/splits/ttas_val.jsonl"), "audio_cap")
+            cascade = ModularCascade(args, dataset_root=None)
+            cascade._runners[("audiogen", "T2A")] = FakeRunner()
+            cascade.run([row], output_root, log_root, run_config, total_rows=1)
+            manifest = _read_jsonl(output_root / "manifest.jsonl")
+            (output_root / manifest[0]["output"]["audio_file"]).unlink()
+            for name in ("run.json", "inspect.json", "errors.json", "summary.json"):
+                (output_root / name).unlink()
+
+            with self.assertRaisesRegex(FileNotFoundError, "missing media file"):
+                ModularCascade(args, dataset_root=None).run([row], output_root, log_root, run_config, total_rows=1)
+
     def test_v1_schema_rejects_rerun_after_complete(self) -> None:
         args = _minimal_cascade_args(pipeline="A2T", captioner="reference", results_schema="v1")
         row = PromptRow(
