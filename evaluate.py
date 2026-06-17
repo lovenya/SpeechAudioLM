@@ -15,6 +15,7 @@ from evaluation.metric_contracts import EvaluationMode
 from evaluation.metrics import get_metric_specs
 from evaluation.runner import EvalOptions, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
+from project_conventions import DEFAULT_EVAL_ROOT
 from project_paths import result_path
 
 
@@ -31,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task-metric-map", default="configs/task_metric_map.json")
     parser.add_argument("--capabilities-config", default="configs/model_capabilities.json")
     parser.add_argument("--baseline-root", default=str(result_path("baselines")))
-    parser.add_argument("--output-root", default=str(result_path("evaluations")))
+    parser.add_argument("--output-root", default=str(DEFAULT_EVAL_ROOT))
     parser.add_argument("--cache-dir", default=str(result_path("evaluation_cache")))
     parser.add_argument("--device", default="cuda")
     parser.add_argument(

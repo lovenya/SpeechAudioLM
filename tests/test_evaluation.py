@@ -15,7 +15,7 @@ from evaluation.metrics.text import word_error_rate
 from evaluation.runner import EvalOptions, _dedicated_script_command, _evaluation_artifact_dir, _evaluation_work_dir, _prediction_text_for_metric, _run_backend_worker, dry_run, run_evaluation
 from evaluation.task_metrics import load_task_metric_map, select_metrics
 from project_conventions import baseline_output_root, eval_model_root
-from project_paths import result_path
+from project_paths import result_path, root_path
 
 
 class EvaluationScaffoldTest(unittest.TestCase):
@@ -54,8 +54,23 @@ class EvaluationScaffoldTest(unittest.TestCase):
         )
         self.assertEqual(
             eval_model_root("T2A", "ttas", "audio_omni"),
-            result_path("evaluations") / "T2A" / "ttas" / "audio_omni",
+            root_path("results_root") / "evals" / "T2A" / "ttas" / "audio_omni",
         )
+
+    def test_evaluate_cli_defaults_to_results_evals(self) -> None:
+        from evaluate import parse_args
+
+        argv = [
+            "evaluate.py",
+            "--model",
+            "audio_omni",
+            "--task",
+            "T2A",
+        ]
+        with patch.object(sys, "argv", argv):
+            args = parse_args()
+
+        self.assertEqual(Path(args.output_root), root_path("results_root") / "evals")
 
     def test_capability_validation(self) -> None:
         caps = load_capabilities(Path("configs/model_capabilities.json"))
