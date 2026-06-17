@@ -108,7 +108,11 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
             paths = run_evaluation(options)
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             validation = summary["result_validation"]
+            errors = json.loads(paths["errors"].read_text(encoding="utf-8"))
 
+            self.assertEqual(errors["error_count"], 0)
+            self.assertEqual(errors["skipped_count"], 1)
+            self.assertEqual(errors["errors"][0]["error_type"], "TargetRowNotSuccessful")
             self.assertEqual(validation["result_status"], "passed_with_errors")
             self.assertEqual(validation["metric_counts"]["wer"], {
                 "attempted_count": 2, "passed_count": 1, "error_count": 1,

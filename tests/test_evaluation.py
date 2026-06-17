@@ -123,6 +123,19 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertTrue(spec.requires_hypothesis_text)
         self.assertFalse(spec.requires_output_file)
 
+    def test_metric_specs_record_generated_side_inputs(self) -> None:
+        specs = {spec.name: spec for spec in get_metric_specs([
+            "wer",
+            "fad",
+            "prompt_adherence_clap_score",
+        ])}
+        self.assertEqual(specs["wer"].required_prediction_fields, ("generated_text",))
+        self.assertEqual(specs["fad"].required_prediction_fields, ("output_file",))
+        self.assertEqual(
+            specs["prompt_adherence_clap_score"].required_prediction_fields,
+            ("output_file", "conditioning_prompt"),
+        )
+
     def test_task_metric_mapping_allows_valid_pairs(self) -> None:
         mapping = load_task_metric_map(Path("configs/task_metric_map.json"))
         self.assertEqual(select_metrics("S2T", "wer", mapping).metric_names, ["wer"])

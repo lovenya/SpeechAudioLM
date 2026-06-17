@@ -85,6 +85,17 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertTrue(all(path.is_file() for path in paths.values()))
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             validation = summary["result_validation"]
+            errors = json.loads(paths["errors"].read_text(encoding="utf-8"))
+            self.assertEqual(
+                set(errors),
+                {"schema_version", "run_id", "metric_id", "error_count", "skipped_count", "errors"},
+            )
+            self.assertEqual(errors["schema_version"], 1)
+            self.assertTrue(errors["run_id"])
+            self.assertEqual(errors["metric_id"], "wer")
+            self.assertEqual(errors["error_count"], 2)
+            self.assertEqual(errors["skipped_count"], 0)
+            self.assertEqual([entry["sample_id"] for entry in errors["errors"]], ["sample-a", "sample-b"])
             self.assertEqual(validation["result_status"], "error")
             self.assertEqual(validation["metric_counts"]["wer"], {
                 "attempted_count": 2, "passed_count": 0, "error_count": 2,
@@ -100,11 +111,13 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(paths["run"].name, "run.json")
             self.assertEqual(paths["config"].name, "config.json")
             self.assertEqual(paths["manifest"].name, "manifest.jsonl")
+            self.assertEqual(paths["inspect"].name, "inspect.json")
             self.assertEqual(paths["summary"].name, "summary.json")
             self.assertEqual(paths["report"].name, "report.md")
             self.assertEqual(paths["errors"].name, "errors.json")
             self.assertTrue((paths["run"].parent / "artifacts").is_dir())
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+            inspect = json.loads(paths["inspect"].read_text(encoding="utf-8"))
             run_config = json.loads(paths["run_config"].read_text(encoding="utf-8"))
             report = summary["result_validation"]
             self.assertTrue(report["ok"])
@@ -112,6 +125,18 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(report["status"], "final_scientific")
             self.assertEqual(report["result_status"], "passed")
             self.assertEqual(run_config["result_validation"], report)
+            self.assertEqual(
+                set(inspect),
+                {"schema_version", "run_id", "metric", "target", "config_summary", "summary", "sample_policy", "samples", "backend_artifacts"},
+            )
+            self.assertEqual(inspect["schema_version"], 1)
+            self.assertTrue(inspect["run_id"])
+            self.assertEqual(inspect["metric"]["metric_id"], "wer")
+            self.assertEqual(inspect["target"]["stage"], "s2t")
+            self.assertEqual(inspect["target"]["direction"], "s2a")
+            self.assertEqual(inspect["config_summary"]["input_contract"]["prediction_fields"], ["generated_text"])
+            self.assertEqual(inspect["sample_policy"], {"mode": "all", "count": 2})
+            self.assertEqual(len(inspect["samples"]), 2)
 
     def test_temporary_eval_publishes_diagnostic_validation_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -155,6 +180,9 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertTrue(all("wer" not in row["metrics"] for row in rows))
             self.assertTrue(all("non-finite" in row["errors"]["wer"] for row in rows))
             summary = json.loads(paths["summary"].read_text())
+            errors = json.loads(paths["errors"].read_text())
+            self.assertEqual(errors["error_count"], 2)
+            self.assertTrue(all(entry["error_type"] == "MetricError" for entry in errors["errors"]))
             self.assertEqual(summary["result_validation"]["result_status"], "error")
 
     def test_timestamped_artifacts_refuse_overwrite(self) -> None:

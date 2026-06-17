@@ -109,6 +109,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         "config": output_dir / "config.json",
         "manifest": output_dir / "manifest.jsonl",
         "per_sample": output_dir / "manifest.jsonl",
+        "inspect": output_dir / "inspect.json",
         "errors": output_dir / "errors.json",
         "summary": output_dir / "summary.json",
         "report": output_dir / "report.md",
@@ -121,10 +122,19 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         validation_report,
     )
     run_doc = _run_document(options, eval_run_id, validation_report, paths)
-    errors_doc = _errors_document(summary, validation_report)
+    errors_doc = _errors_document(options, eval_run_id, per_sample_rows, validation_report)
+    inspect_doc = _inspect_document(
+        options,
+        eval_run_id,
+        per_sample_rows,
+        metric_backend_metadata,
+        summary,
+        validation_report,
+    )
     write_json_create_only(paths["run"], run_doc)
     write_json_create_only(paths["config"], run_config)
     write_jsonl_create_only(paths["manifest"], per_sample_rows)
+    write_json_create_only(paths["inspect"], inspect_doc)
     write_json_create_only(paths["errors"], errors_doc)
     write_json_create_only(paths["summary"], summary)
     write_text_create_only(paths["report"], _report_text(summary, run_config))
@@ -1306,6 +1316,8 @@ def _run_document(
         "paths": {
             "result": str(paths["run"].parent),
             "manifest": str(paths["manifest"]),
+            "inspect": str(paths["inspect"]),
+            "errors": str(paths["errors"]),
             "summary": str(paths["summary"]),
             "report": str(paths["report"]),
         },
@@ -1319,12 +1331,134 @@ def _slurm_identity() -> dict[str, str | None]:
     }
 
 
-def _errors_document(summary: dict, validation_report: dict[str, Any]) -> dict:
+def _errors_document(
+    options: EvalOptions,
+    eval_run_id: str,
+    rows: list[dict[str, Any]],
+    validation_report: dict[str, Any],
+) -> dict:
+    metric_id = options.metric_specs[0].name
+    failed_sample_ids = set(validation_report.get("failed_sample_ids", {}).get(metric_id, []))
+    entries = [
+        _error_entry(row, metric_id, row.get("sample_id") in failed_sample_ids)
+        for row in rows
+        if row.get("status") != "success" or row.get("errors") or row.get("sample_id") in failed_sample_ids
+    ]
     return {
-        "status": validation_report["status"],
-        "result_status": validation_report.get("result_status"),
-        "errors_by_metric": summary.get("errors_by_metric", {}),
-        "failed_sample_ids": validation_report.get("failed_sample_ids", {}),
+        "schema_version": 1,
+        "run_id": eval_run_id,
+        "metric_id": metric_id,
+        "error_count": sum(1 for entry in entries if entry["status"] == "error"),
+        "skipped_count": sum(1 for entry in entries if entry["status"] == "skipped"),
+        "errors": entries,
+    }
+
+
+def _error_entry(row: dict[str, Any], metric_id: str, validation_failed: bool) -> dict:
+    errors = row.get("errors") if isinstance(row.get("errors"), dict) else {}
+    error_type = _error_type(errors, metric_id, validation_failed)
+    status = "skipped" if error_type == "TargetRowNotSuccessful" else "error"
+    message = _error_message(errors)
+    if message is None and validation_failed:
+        message = "result validation failed for this sample"
+    return {
+        "row_index": row.get("row_index"),
+        "sample_id": row.get("sample_id"),
+        "status": status,
+        "error_type": error_type,
+        "message": message,
+        "input": {
+            "source": {},
+            "generated": _generated_input(row),
+            "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
+        },
+        "log_ref": None,
+        "artifact_ref": None,
+    }
+
+
+def _error_type(errors: dict[str, Any], metric_id: str, validation_failed: bool) -> str:
+    if "row" in errors:
+        return "TargetRowNotSuccessful"
+    if metric_id in errors:
+        return "MetricError"
+    if errors:
+        return "EvaluationError"
+    if validation_failed:
+        return "ResultValidationError"
+    return "EvaluationError"
+
+
+def _error_message(errors: dict[str, Any]) -> str | None:
+    if not errors:
+        return None
+    if len(errors) == 1:
+        return str(next(iter(errors.values())))
+    return json.dumps(errors, ensure_ascii=False, sort_keys=True)
+
+
+def _generated_input(row: dict[str, Any]) -> dict[str, Any]:
+    generated = {}
+    output_file = row.get("output_file")
+    if output_file is not None:
+        generated["output_file"] = output_file
+    predictions = row.get("predictions")
+    if isinstance(predictions, dict) and predictions:
+        generated["predictions"] = predictions
+    return generated
+
+
+def _inspect_document(
+    options: EvalOptions,
+    eval_run_id: str,
+    rows: list[dict[str, Any]],
+    backend_metadata: dict[str, dict],
+    summary: dict,
+    validation_report: dict[str, Any],
+) -> dict:
+    metric = options.metric_specs[0]
+    include_samples = metric.level == "sample"
+    return {
+        "schema_version": 1,
+        "run_id": eval_run_id,
+        "metric": {
+            "metric_id": metric.name,
+            "level": metric.level,
+        },
+        "target": {
+            "kind": "stage",
+            "stage": options.stage,
+            "direction": options.direction,
+            "model": options.model,
+            "dataset": options.dataset,
+            "split": options.split,
+            "run_id": options.evaluated_run_id,
+            "manifest": str(options.manifest_path),
+        },
+        "config_summary": {
+            "backend": backend_metadata.get(metric.name, {}),
+            "input_contract": {
+                "prediction_fields": list(metric.required_prediction_fields),
+                "source_fields": list(metric.required_source_fields),
+                "requires_output_file": metric.requires_output_file,
+                "requires_hypothesis_text": metric.requires_hypothesis_text,
+            },
+        },
+        "summary": {
+            "status": summary.get("status"),
+            "rows": summary.get("rows"),
+            "metric_summaries": summary.get("metric_summaries", {}),
+            "result_validation": validation_report,
+        },
+        "sample_policy": {
+            "mode": "all" if include_samples else "omitted",
+            "count": len(rows) if include_samples else 0,
+            **({} if include_samples else {"reason": "corpus_metric_has_no_sample_level_outputs; manifest.jsonl records included rows"}),
+        },
+        "samples": rows if include_samples else [],
+        "backend_artifacts": {
+            "directory": "artifacts/",
+        },
     }
 
 
