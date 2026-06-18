@@ -4,7 +4,6 @@
 
 #SBATCH --job-name=salm-text-cpu-eval
 #SBATCH --account=aip-ravanelm
-#SBATCH --partition=cpubase_bycore_b1
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=128G

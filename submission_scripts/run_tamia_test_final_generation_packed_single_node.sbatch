@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=240G
 #SBATCH --gpus=h100:4
-#SBATCH --time=06:00:00
+#SBATCH --time=04:00:00
 #SBATCH --output=/scratch/l/lovenya/salm_migration_clean/logs/slurm/%x-%j.out
 
 set -euo pipefail
