@@ -218,7 +218,7 @@ Scientific metric evaluation will not be sharded. Final evaluations must run eac
 
 Partial execution is allowed only when `temporary: true`, writes under temporary eval roots, and is labeled diagnostic/non-authoritative.
 
-Historical shard outputs remain provisional diagnostic artifacts. `scripts/aggregate_evaluation_shards.py` now labels every merge diagnostic-only and removes shard-derived SPIDEr values rather than presenting them as valid.
+Historical shard outputs remain provisional diagnostic artifacts. The legacy eval shard aggregation helper has been removed from the target eval structure; rerun each metric once on the complete evaluated manifest for publication.
 
 ## Required Metric Documentation
 
