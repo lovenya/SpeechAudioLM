@@ -571,9 +571,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
 
             paths = run_evaluation(options)
             per_sample = [json.loads(line) for line in paths["per_sample"].read_text(encoding="utf-8").splitlines()]
-            self.assertIn("nli_contradiction", per_sample[0]["metrics"])
-            self.assertIn("nli_contradiction", per_sample[0]["predictions"])
-            self.assertEqual(per_sample[0]["predictions"]["nli_contradiction"]["direction"], "speech_to_audio")
+            self.assertEqual(per_sample[0]["metric_id"], "nli_contradiction")
+            self.assertEqual(per_sample[0]["output"]["score_name"], "nli_contradiction")
+            self.assertEqual(per_sample[0]["output"]["details"]["direction"], "speech_to_audio")
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             self.assertEqual(summary["metric"]["metric_id"], "nli_contradiction")
             self.assertEqual(summary["scores"]["primary"]["name"], "nli_contradiction")
@@ -652,8 +652,9 @@ class EvaluationScaffoldTest(unittest.TestCase):
 
             paths = run_evaluation(options)
             per_sample = [json.loads(line) for line in paths["per_sample"].read_text(encoding="utf-8").splitlines()]
-            self.assertIn("g_eval_reference_free", per_sample[0]["metrics"])
-            g_eval = per_sample[0]["predictions"]["g_eval_reference_free"]
+            self.assertEqual(per_sample[0]["metric_id"], "g_eval_reference_free")
+            self.assertNotIn("g_eval_reference_free", per_sample[0]["input"]["generated"])
+            g_eval = per_sample[0]["output"]["details"]
             self.assertEqual(g_eval["direction"], "audio_to_speech")
             self.assertNotIn("nli_contradiction", g_eval)
 

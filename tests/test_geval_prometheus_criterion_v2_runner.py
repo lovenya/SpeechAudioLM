@@ -150,9 +150,10 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 self.assertIn(f"/stages/a2s/t2t/cascaded/ttas/val/20260616_1500/{metric}/", str(paths["per_sample"]))
 
             for metric, row in rows_by_metric.items():
-                self.assertEqual(row["metrics"][metric], 4)
-                self.assertEqual(row["predictions"][metric]["final_score"], 4)
-            anchors = rows_by_metric["g_eval_prometheus_criterion_v2_reference_grounded"]["predictions"]["g_eval_prometheus_criterion_v2_reference_grounded"]["reference_anchors"]
+                self.assertEqual(row["metric_id"], metric)
+                self.assertEqual(row["output"]["score"], 4)
+                self.assertEqual(row["output"]["details"]["final_score"], 4)
+            anchors = rows_by_metric["g_eval_prometheus_criterion_v2_reference_grounded"]["output"]["details"]["reference_anchors"]
             self.assertEqual(anchors[0]["text"], "Please let the dog inside.")
 
 
@@ -181,8 +182,8 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
             paths = run_evaluation(self._options(root, [metric]))
             row = json.loads(paths["per_sample"].read_text(encoding="utf-8"))
             self.assertEqual(row["status"], "error")
-            self.assertEqual(row["errors"][metric], "missing_required_reference_anchor")
-            self.assertIsNone(row["predictions"][metric]["final_score"])
+            self.assertEqual(row["error"]["message"], "missing_required_reference_anchor")
+            self.assertIsNone(row["output"]["details"]["final_score"])
 
 
 if __name__ == "__main__":

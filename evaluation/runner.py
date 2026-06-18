@@ -124,6 +124,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     )
     run_doc = _run_document(options, eval_run_id, validation_report, paths)
     errors_doc = _errors_document(options, eval_run_id, per_sample_rows, validation_report)
+    manifest_rows = _manifest_rows(options, per_sample_rows)
     inspect_doc = _inspect_document(
         options,
         eval_run_id,
@@ -134,7 +135,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     )
     write_json_create_only(paths["run"], run_doc)
     write_json_create_only(paths["config"], run_config)
-    write_jsonl_create_only(paths["manifest"], per_sample_rows)
+    write_jsonl_create_only(paths["manifest"], manifest_rows)
     write_json_create_only(paths["inspect"], inspect_doc)
     write_json_create_only(paths["errors"], errors_doc)
     write_json_create_only(paths["summary"], summary)
@@ -360,6 +361,68 @@ def _evaluate_row(row: dict, ordinal: int, specs: list[MetricSpec], dataset_root
             result["errors"][spec.name] = f"{type(exc).__name__}: {exc}"
     return result
 
+
+
+def _manifest_rows(options: EvalOptions, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    metric = options.metric_specs[0]
+    return [_manifest_row(metric, row) for row in rows]
+
+
+def _manifest_row(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "row_index": row.get("row_index"),
+        "sample_id": row.get("sample_id"),
+        "metric_id": metric.name,
+        "status": row.get("status"),
+        "input": {
+            "source": {},
+            "generated": _manifest_generated_input(metric, row),
+            "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
+        },
+        "output": _manifest_output(metric, row),
+        "error": _manifest_error(metric, row),
+    }
+
+
+def _manifest_generated_input(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
+    generated = _generated_input(row)
+    predictions = generated.pop("predictions", None)
+    if isinstance(predictions, dict):
+        for key, value in predictions.items():
+            if key == metric.name:
+                continue
+            generated.setdefault(key, value)
+    return generated
+
+
+def _manifest_output(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
+    metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    predictions = row.get("predictions") if isinstance(row.get("predictions"), dict) else {}
+    metric_details = predictions.get(metric.name) if isinstance(predictions.get(metric.name), dict) else {}
+    score = metrics.get(metric.name)
+    if metric.level == "corpus" and score is None:
+        details = {"score_location": "summary.json"}
+        if metric_details:
+            details["backend_output"] = metric_details
+    else:
+        details = dict(metric_details)
+    return {
+        "score": score if isinstance(score, (int, float)) and not isinstance(score, bool) else None,
+        "score_name": metric.name,
+        "higher_is_better": _higher_is_better(metric.name),
+        "details": details,
+    }
+
+
+def _manifest_error(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any] | None:
+    errors = row.get("errors") if isinstance(row.get("errors"), dict) else {}
+    if not errors:
+        return None
+    return {
+        "type": _error_type(errors, metric.name, False),
+        "message": _error_message(errors),
+    }
 
 def _compute_per_sample_metric(spec: MetricSpec, row: dict, source: dict) -> float | None:
     if spec.name == "wer":

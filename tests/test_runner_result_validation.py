@@ -162,6 +162,8 @@ class RunnerResultValidationTest(unittest.TestCase):
             rows = [json.loads(line) for line in paths["manifest"].read_text(encoding="utf-8").splitlines()]
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             self.assertEqual([row["status"] for row in rows], ["included", "included"])
+            self.assertTrue(all(set(row) == {"schema_version", "row_index", "sample_id", "metric_id", "status", "input", "output", "error"} for row in rows))
+            self.assertTrue(all(row["output"]["details"] == {"score_location": "summary.json"} for row in rows))
             self.assertIsNone(summary["samples"]["successful"])
             self.assertEqual(summary["samples"]["included"], 2)
             errors = json.loads(paths["errors"].read_text(encoding="utf-8"))
@@ -221,8 +223,8 @@ class RunnerResultValidationTest(unittest.TestCase):
 
             rows = [json.loads(line) for line in paths["per_sample"].read_text().splitlines()]
             self.assertTrue(all(row["status"] == "error" for row in rows))
-            self.assertTrue(all("wer" not in row["metrics"] for row in rows))
-            self.assertTrue(all("non-finite" in row["errors"]["wer"] for row in rows))
+            self.assertTrue(all(row["output"]["score"] is None for row in rows))
+            self.assertTrue(all("non-finite" in row["error"]["message"] for row in rows))
             summary = json.loads(paths["summary"].read_text())
             errors = json.loads(paths["errors"].read_text())
             self.assertEqual(errors["error_count"], 2)
