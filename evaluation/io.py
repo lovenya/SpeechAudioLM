@@ -170,8 +170,6 @@ def _v1_source(record: dict, inspect_sample: dict | None = None) -> dict:
 def _read_v1_inspect_samples(manifest_path: Path) -> dict[str, dict]:
     inspect_path = manifest_path.with_name("inspect.json")
     if not inspect_path.exists():
-        inspect_path = manifest_path.with_name("manifest.inspect.json")
-    if not inspect_path.exists():
         return {}
     with inspect_path.open("r", encoding="utf-8") as f:
         document = resolve_config_value(json.load(f))
