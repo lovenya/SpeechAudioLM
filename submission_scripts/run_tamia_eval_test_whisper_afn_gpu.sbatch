@@ -4,7 +4,7 @@
 # stage outputs only.
 
 #SBATCH --job-name=salm-test-w-afn-gpu
-#SBATCH --account=aip-csubakan
+#SBATCH --account=aip-ravanelm
 #SBATCH --time=01:15:00
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G

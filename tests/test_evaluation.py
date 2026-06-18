@@ -503,6 +503,18 @@ class EvaluationScaffoldTest(unittest.TestCase):
 
             self.assertIn("--local-files-only", command)
 
+    def test_nli_prediction_text_does_not_use_prompt_fallback(self) -> None:
+        self.assertIsNone(
+            _prediction_text_for_metric(
+                {"model_extra": {"generation_prompt": "Do not use this prompt", "converted_prompt": "Or this one"}},
+                "nli_contradiction",
+            )
+        )
+        self.assertEqual(
+            _prediction_text_for_metric({"model_extra": {"decoded_text": "Candidate text"}}, "nli_contradiction"),
+            "Candidate text",
+        )
+
     def test_nli_contradiction_runs_as_dedicated_script_metric(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -537,6 +549,30 @@ class EvaluationScaffoldTest(unittest.TestCase):
                 "        'reverse_entailment_probability': 0.1,\n"
                 "        'reverse_neutral_probability': 0.85,\n"
                 "        'reverse_contradiction_probability': 0.05,\n"
+                "        'forward_tokenization': {\n"
+                "            'tokenizer_max_length': 512,\n"
+                "            'truncation_enabled': True,\n"
+                "            'truncation_strategy': 'longest_first',\n"
+                "            'truncation_side': 'right',\n"
+                "            'premise_token_count_raw': 5,\n"
+                "            'hypothesis_token_count_raw': 6,\n"
+                "            'special_token_count_pair': 3,\n"
+                "            'pair_token_count_raw': 14,\n"
+                "            'pair_token_count_after_truncation': 14,\n"
+                "            'was_truncated': False,\n"
+                "        },\n"
+                "        'reverse_tokenization': {\n"
+                "            'tokenizer_max_length': 512,\n"
+                "            'truncation_enabled': True,\n"
+                "            'truncation_strategy': 'longest_first',\n"
+                "            'truncation_side': 'right',\n"
+                "            'premise_token_count_raw': 6,\n"
+                "            'hypothesis_token_count_raw': 5,\n"
+                "            'special_token_count_pair': 3,\n"
+                "            'pair_token_count_raw': 14,\n"
+                "            'pair_token_count_after_truncation': 14,\n"
+                "            'was_truncated': False,\n"
+                "        },\n"
                 "        'max_contradiction_probability': 0.05,\n"
                 "        'predicted_label_using_max_contradiction': 'not_contradiction'\n"
                 "    })\n"
@@ -617,10 +653,19 @@ class EvaluationScaffoldTest(unittest.TestCase):
             self.assertEqual(per_sample[0]["output"]["range"], {"min": 0.0, "max": 1.0})
             self.assertFalse(per_sample[0]["output"]["higher_is_better"])
             self.assertEqual(per_sample[0]["output"]["interpretation"], "contradiction_risk")
+            self.assertEqual(per_sample[0]["input"]["source"]["direction"], "speech_to_audio")
+            self.assertEqual(per_sample[0]["input"]["source"]["stage_input_text"], "Can someone close the window?")
+            self.assertEqual(per_sample[0]["input"]["generated"]["stage_output_text"], "A dog is barking loudly outside.")
+            self.assertEqual(per_sample[0]["input"]["reference"], {})
             self.assertEqual(per_sample[0]["output"]["details"]["direction"], "speech_to_audio")
             self.assertEqual(per_sample[0]["output"]["details"]["input_text"], "Can someone close the window?")
             self.assertEqual(per_sample[0]["output"]["details"]["generated_text"], "A dog is barking loudly outside.")
             self.assertEqual(per_sample[0]["output"]["details"]["source_to_candidate"]["contradiction_probability"], 0.05)
+            self.assertEqual(
+                per_sample[0]["output"]["details"]["source_to_candidate"]["tokenization"]["tokenizer_max_length"],
+                512,
+            )
+            self.assertFalse(per_sample[0]["output"]["details"]["candidate_to_source"]["tokenization"]["was_truncated"])
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             self.assertEqual(summary["metric"]["metric_id"], "nli_contradiction")
             self.assertFalse(summary["metric"]["higher_is_better"])

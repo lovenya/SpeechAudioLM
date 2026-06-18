@@ -16,6 +16,23 @@ class FixedScorer:
             return {"entailment": 0.04, "neutral": 0.16, "contradiction": 0.8}
         return {"entailment": 0.1, "neutral": 0.85, "contradiction": 0.05}
 
+    def tokenization_metadata(self, premise: str, hypothesis: str) -> dict[str, object]:
+        premise_count = len(premise.split())
+        hypothesis_count = len(hypothesis.split())
+        pair_count = premise_count + hypothesis_count + 3
+        return {
+            "tokenizer_max_length": 512,
+            "truncation_enabled": True,
+            "truncation_strategy": "longest_first",
+            "truncation_side": "right",
+            "premise_token_count_raw": premise_count,
+            "hypothesis_token_count_raw": hypothesis_count,
+            "special_token_count_pair": 3,
+            "pair_token_count_raw": pair_count,
+            "pair_token_count_after_truncation": min(pair_count, 512),
+            "was_truncated": pair_count > 512,
+        }
+
 
 class NliContradictionHelperTest(unittest.TestCase):
     def test_score_pair_uses_max_bidirectional_contradiction(self) -> None:
@@ -79,6 +96,10 @@ class NliContradictionHelperTest(unittest.TestCase):
             self.assertEqual(output_rows[1]["pair_id"], "b")
             self.assertIn("forward_entailment_probability", output_rows[0])
             self.assertIn("reverse_contradiction_probability", output_rows[0])
+            self.assertEqual(output_rows[0]["forward_tokenization"]["tokenizer_max_length"], 512)
+            self.assertEqual(output_rows[0]["forward_tokenization"]["truncation_strategy"], "longest_first")
+            self.assertFalse(output_rows[0]["forward_tokenization"]["was_truncated"])
+            self.assertIn("reverse_tokenization", output_rows[0])
             self.assertNotIn("nli_model", output_rows[0])
             self.assertEqual(output_rows[0]["predicted_label_using_max_contradiction"], "contradiction")
             self.assertEqual(output_rows[1]["predicted_label_using_max_contradiction"], "not_contradiction")

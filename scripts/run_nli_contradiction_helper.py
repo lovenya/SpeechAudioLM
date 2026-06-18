@@ -88,6 +88,9 @@ class HuggingFaceNliScorer:
                     )
         return outputs
 
+    def tokenization_metadata(self, premise: str, hypothesis: str) -> dict[str, Any]:
+        return _tokenization_metadata(self._tokenizer, premise, hypothesis)
+
 
 def score_pair(input_text: str, generated_text: str, scorer: NliScorer, *, contradiction_threshold: float) -> NliResult:
     forward = scorer.predict(input_text, generated_text)
@@ -122,7 +125,16 @@ def run_nli_helper(
             scorer,
             contradiction_threshold=contradiction_threshold,
         )
-        scored_rows.append(_output_row(row, input_text, generated_text, result, scorer.name))
+        scored_rows.append(
+            _output_row(
+                row,
+                input_text,
+                generated_text,
+                result,
+                scorer.name,
+                tokenization=_bidirectional_tokenization_metadata(scorer, input_text, generated_text),
+            )
+        )
 
     summary = _summary(scored_rows, input_path=input_path, output_path=output_path, scorer_name=scorer.name)
     _write_jsonl(output_path, scored_rows)
@@ -132,7 +144,15 @@ def run_nli_helper(
     return summary
 
 
-def _output_row(row: dict[str, Any], input_text: str, generated_text: str, result: NliResult, model_name: str) -> dict[str, Any]:
+def _output_row(
+    row: dict[str, Any],
+    input_text: str,
+    generated_text: str,
+    result: NliResult,
+    model_name: str,
+    *,
+    tokenization: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     pair_id = row.get("pair_id") or row.get("sample_id")
     output = {
         "row_index": row.get("row_index"),
@@ -152,7 +172,57 @@ def _output_row(row: dict[str, Any], input_text: str, generated_text: str, resul
         "max_contradiction_probability": result.max_contradiction_probability,
         "predicted_label_using_max_contradiction": result.predicted_label_using_max_contradiction,
     }
+    if tokenization:
+        output.update(tokenization)
     return {key: value for key, value in output.items() if value is not None}
+
+
+def _bidirectional_tokenization_metadata(scorer: NliScorer, input_text: str, generated_text: str) -> dict[str, dict[str, Any]]:
+    metadata_fn = getattr(scorer, "tokenization_metadata", None)
+    if not callable(metadata_fn):
+        return {}
+    return {
+        "forward_tokenization": metadata_fn(input_text, generated_text),
+        "reverse_tokenization": metadata_fn(generated_text, input_text),
+    }
+
+
+def _tokenization_metadata(tokenizer: Any, premise: str, hypothesis: str) -> dict[str, Any]:
+    premise_tokens = tokenizer(premise, add_special_tokens=False)["input_ids"]
+    hypothesis_tokens = tokenizer(hypothesis, add_special_tokens=False)["input_ids"]
+    raw_pair = tokenizer(
+        premise,
+        hypothesis,
+        truncation=False,
+        padding=False,
+        add_special_tokens=True,
+    )["input_ids"]
+    truncated_pair = tokenizer(
+        premise,
+        hypothesis,
+        truncation=True,
+        padding=False,
+        add_special_tokens=True,
+    )["input_ids"]
+    return {
+        "tokenizer_max_length": _tokenizer_max_length(tokenizer),
+        "truncation_enabled": True,
+        "truncation_strategy": "longest_first",
+        "truncation_side": getattr(tokenizer, "truncation_side", None),
+        "premise_token_count_raw": len(premise_tokens),
+        "hypothesis_token_count_raw": len(hypothesis_tokens),
+        "special_token_count_pair": int(tokenizer.num_special_tokens_to_add(pair=True)),
+        "pair_token_count_raw": len(raw_pair),
+        "pair_token_count_after_truncation": len(truncated_pair),
+        "was_truncated": len(raw_pair) > len(truncated_pair),
+    }
+
+
+def _tokenizer_max_length(tokenizer: Any) -> int | None:
+    max_length = getattr(tokenizer, "model_max_length", None)
+    if isinstance(max_length, int) and 0 < max_length < 1_000_000:
+        return max_length
+    return None
 
 
 def _summary(rows: list[dict[str, Any]], *, input_path: Path, output_path: Path, scorer_name: str) -> dict[str, Any]:
