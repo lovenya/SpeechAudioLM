@@ -144,6 +144,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     write_json_create_only(paths["errors"], errors_doc)
     write_json_create_only(paths["summary"], summary)
     write_text_create_only(paths["report"], _report_text(summary, run_config))
+    _write_eval_log(run_doc, summary, run_config)
 
     return paths
 
@@ -409,15 +410,34 @@ def _manifest_output(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
     if metric.level == "corpus" and score is None:
         details = {"score_location": "summary.json"}
         if metric_details:
-            details["backend_output"] = metric_details
+            details["backend_output"] = _canonical_metric_details(metric_details)
     else:
-        details = dict(metric_details)
+        details = _canonical_metric_details(metric_details)
     return {
         "score": score if isinstance(score, (int, float)) and not isinstance(score, bool) else None,
         "score_name": metric.name,
         "higher_is_better": _higher_is_better(metric.name),
         "details": details,
     }
+
+
+def _canonical_metric_details(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _canonical_metric_details(item)
+            for key, item in value.items()
+            if not _is_hash_or_fingerprint_field(key)
+        }
+    if isinstance(value, list):
+        return [_canonical_metric_details(item) for item in value]
+    return value
+
+
+def _is_hash_or_fingerprint_field(key: object) -> bool:
+    if not isinstance(key, str):
+        return False
+    normalized = key.lower().replace("-", "_")
+    return "hash" in normalized or "fingerprint" in normalized
 
 
 def _manifest_error(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any] | None:
@@ -1492,6 +1512,23 @@ def _run_document(
             "logs": _eval_logs_path(paths["run"].parent),
         },
     }
+
+
+def _write_eval_log(run_doc: dict[str, Any], summary: dict[str, Any], run_config: dict[str, Any]) -> None:
+    logs_path = ((run_doc.get("paths") or {}).get("logs"))
+    if not isinstance(logs_path, str) or not logs_path:
+        return
+    metric = summary.get("metric") if isinstance(summary.get("metric"), dict) else {}
+    samples = summary.get("samples") if isinstance(summary.get("samples"), dict) else {}
+    lines = [
+        f"run_id={run_doc.get('run_id')}",
+        f"status={run_doc.get('status')}",
+        f"metric_id={metric.get('metric_id')}",
+        f"num_samples={(run_config.get('execution') or {}).get('num_samples')}",
+        f"sample_total={samples.get('total')}",
+        f"result_path={(run_doc.get('paths') or {}).get('result')}",
+    ]
+    write_text_create_only(Path(logs_path) / "run.log", "\n".join(lines) + "\n")
 
 
 def _code_state() -> dict[str, Any]:

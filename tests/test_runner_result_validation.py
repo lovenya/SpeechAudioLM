@@ -172,6 +172,7 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(set(run_doc["slurm"]), {"job_id", "array_job_id", "array_task_id"})
             expected_logs = root / "logs" / "evals" / paths["run"].parent.relative_to(root / "evals")
             self.assertEqual(run_doc["paths"], {"result": str(paths["run"].parent), "logs": str(expected_logs)})
+            self.assertTrue((expected_logs / "run.log").is_file())
             self.assertEqual(
                 set(inspect),
                 {"schema_version", "run_id", "metric", "target", "config_summary", "summary", "sample_policy", "samples", "backend_artifacts"},
@@ -195,6 +196,39 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(inspect["samples"][0]["output"]["score_name"], "wer")
             self.assertNotIn("metrics", inspect["samples"][0])
             self.assertNotIn("predictions", inspect["samples"][0])
+
+    def test_canonical_metric_details_omit_hash_payload_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            options = self._options(root, metric_specs=[MetricSpec(name="judge_stub", level="sample")])
+
+            def judged_row(row: dict, ordinal: int, specs: list, dataset_root: Path) -> dict:
+                return {
+                    "row_index": row["row_index"],
+                    "sample_id": row["sample_id"],
+                    "status": "success",
+                    "output_file": None,
+                    "source": {},
+                    "references": {},
+                    "predictions": {
+                        "judge_stub": {
+                            "score": 0.5,
+                            "prompt_hash": "abc",
+                            "nested": {"cache_fingerprint": "def", "kept": "value"},
+                        }
+                    },
+                    "metrics": {"judge_stub": 0.5},
+                    "errors": {},
+                }
+
+            with patch("evaluation.runner._evaluate_row", side_effect=judged_row):
+                paths = run_evaluation(options)
+
+            manifest_row = json.loads(paths["manifest"].read_text(encoding="utf-8").splitlines()[0])
+            details = manifest_row["output"]["details"]
+            self.assertNotIn("prompt_hash", details)
+            self.assertNotIn("cache_fingerprint", details["nested"])
+            self.assertEqual(details["nested"], {"kept": "value"})
 
     def test_corpus_metric_manifest_marks_participants_included(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
