@@ -1635,7 +1635,8 @@ def _inspect_document(
             "backend": backend_metadata.get(metric.name, {}),
             "input_contract": {
                 "prediction_fields": list(metric.required_prediction_fields),
-                "source_fields": list(metric.required_source_fields),
+                "reference_fields": list(metric.required_source_fields),
+                "context_fields": [],
                 "requires_output_file": metric.requires_output_file,
                 "requires_hypothesis_text": metric.requires_hypothesis_text,
             },
@@ -1651,12 +1652,33 @@ def _inspect_document(
             "count": len(rows) if include_samples else 0,
             **({} if include_samples else {"reason": "corpus_metric_has_no_sample_level_outputs; manifest.jsonl records included rows"}),
         },
-        "samples": rows if include_samples else [],
+        "samples": _inspect_samples(metric, rows) if include_samples else [],
         "backend_artifacts": {
             "directory": "artifacts/",
         },
     }
 
+
+
+def _inspect_samples(metric: MetricSpec, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_inspect_sample(metric, row) for row in rows]
+
+
+def _inspect_sample(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "row_index": row.get("row_index"),
+        "sample_id": row.get("sample_id"),
+        "status": row.get("status"),
+        "input": {
+            "source": {},
+            "generated": _manifest_generated_input(metric, row),
+            "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
+        },
+        "intermediate": {},
+        "normalization": {},
+        "output": _manifest_output(metric, row),
+        "error": _manifest_error(metric, row),
+    }
 
 def _run_config(
     options: EvalOptions,

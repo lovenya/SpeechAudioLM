@@ -168,8 +168,17 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(inspect["target"]["stage"], "s2t")
             self.assertEqual(inspect["target"]["direction"], "s2a")
             self.assertEqual(inspect["config_summary"]["input_contract"]["prediction_fields"], ["generated_text"])
+            self.assertEqual(inspect["config_summary"]["input_contract"]["reference_fields"], ["speech_text"])
+            self.assertEqual(inspect["config_summary"]["input_contract"]["context_fields"], [])
             self.assertEqual(inspect["sample_policy"], {"mode": "all", "count": 2})
             self.assertEqual(len(inspect["samples"]), 2)
+            self.assertEqual(
+                set(inspect["samples"][0]),
+                {"row_index", "sample_id", "status", "input", "intermediate", "normalization", "output", "error"},
+            )
+            self.assertEqual(inspect["samples"][0]["output"]["score_name"], "wer")
+            self.assertNotIn("metrics", inspect["samples"][0])
+            self.assertNotIn("predictions", inspect["samples"][0])
 
     def test_corpus_metric_manifest_marks_participants_included(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -183,8 +192,11 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual([row["status"] for row in rows], ["included", "included"])
             self.assertTrue(all(set(row) == {"schema_version", "row_index", "sample_id", "metric_id", "status", "input", "output", "error"} for row in rows))
             self.assertTrue(all(row["output"]["details"] == {"score_location": "summary.json"} for row in rows))
+            inspect = json.loads(paths["inspect"].read_text(encoding="utf-8"))
             self.assertIsNone(summary["samples"]["successful"])
             self.assertEqual(summary["samples"]["included"], 2)
+            self.assertEqual(inspect["sample_policy"]["mode"], "omitted")
+            self.assertEqual(inspect["samples"], [])
             errors = json.loads(paths["errors"].read_text(encoding="utf-8"))
             self.assertEqual(errors["error_count"], 0)
             self.assertEqual(errors["skipped_count"], 0)
@@ -226,8 +238,11 @@ class RunnerResultValidationTest(unittest.TestCase):
                 paths = run_evaluation(options)
 
             manifest_row = json.loads(paths["manifest"].read_text(encoding="utf-8").splitlines()[0])
+            inspect_sample = json.loads(paths["inspect"].read_text(encoding="utf-8"))["samples"][0]
             error_entry = json.loads(paths["errors"].read_text(encoding="utf-8"))["errors"][0]
             self.assertEqual(manifest_row["output"]["details"], {"backend_payload": True})
+            self.assertEqual(inspect_sample["output"]["details"], {"backend_payload": True})
+            self.assertEqual(inspect_sample["input"]["generated"], {})
             self.assertEqual(error_entry["input"]["generated"], {})
             self.assertEqual(error_entry["input"]["reference"], {"speech_text": "hello world"})
             self.assertEqual(error_entry["message"], "missing generated text")
