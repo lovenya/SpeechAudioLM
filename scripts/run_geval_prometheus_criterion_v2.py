@@ -16,17 +16,55 @@ from statistics import mean, median, multimode, pstdev
 from typing import Any, Protocol
 
 
-EVALUATOR_VERSION = "geval_prometheus_criterion_v2"
+EVALUATOR_VERSION = "geval_prometheus_criterion_v3"
 SCORING_POLICY_VERSION = "geval_weighted_mean_v1_no_caps"
 DEFAULT_MODEL_PATH = str(model_path("prometheus_8x7b_v2"))
 METRIC_IDS = {
-    "plausibility": "g_eval_prometheus_criterion_v2_plausibility",
-    "reference_grounded": "g_eval_prometheus_criterion_v2_reference_grounded",
+    "plausibility": "g_eval_prometheus_plausibility",
+    "reference_grounded": "g_eval_prometheus_reference",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_prometheus_plausibility_direct_assessment_v3",
-    "reference_grounded": "geval_prometheus_reference_grounded_direct_assessment_v3",
+    "plausibility": "plausibility_v3",
+    "reference_grounded": "reference_grounded_v3",
 }
+PROMPT_TEMPLATE_NAME = "prometheus_direct_assessment_v1"
+PROMPT_TEMPLATE_TEXT = """###Task Description:
+You are evaluating a creative cross-modal generation system.
+
+{task_description}
+
+Judge only the requested criterion using the score rubric.
+Do not let qualities assigned to other criteria affect this score.
+
+Criterion boundary:
+{criterion_boundary}
+
+Direction: {direction}
+
+For audio_to_speech, the input is an environmental audio description and the response is a generated human utterance that could occur in, after, or because of the audio scene.
+
+For speech_to_audio, the input is a speech utterance and the response is a generated environmental audio description that could contextualize, accompany, explain, or be caused by the speech.
+
+Write concise feedback strictly based on the criterion and rubric. Then output the final score as:
+Feedback: <feedback> [RESULT] <integer score from 1 to 5>
+
+If the criterion genuinely cannot be assessed from the response, you may instead output [RESULT] N/A. Do not use
+N/A merely because the response is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
+
+###The instruction to evaluate:
+Input text:
+{input_text}
+
+###Response to evaluate:
+{generated_text}{reference_section}
+
+###Score Rubric:
+Criterion: {criterion}
+
+{rubric}
+
+###Feedback:
+"""
 
 CRITERION_WEIGHTS = {
     ("plausibility", "audio_to_speech"): {
@@ -214,8 +252,8 @@ class Judge(Protocol):
     name: str
     cache_identity: str
 
-    def generate(self, prompts: list[str]) -> list[str]:
-        """Return one raw judge response per prompt."""
+    def generate_with_traces(self, prompts: list[str]) -> list["JudgeGeneration"]:
+        """Return one raw judge response and exact backend prompt per prompt."""
 
 
 @dataclass(frozen=True)
@@ -224,14 +262,29 @@ class CriterionItem:
     criterion: str
     prompt: str
     prompt_hash: str
+    prompt_record: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class JudgeGeneration:
+    raw_response: str
+    backend_formatted_prompt: str
+    backend_format: str
 
 
 class StubJudge:
     name = "stub_geval_prometheus_criterion_v2"
     cache_identity = "stub_geval_prometheus_criterion_v2_v1"
 
-    def generate(self, prompts: list[str]) -> list[str]:
-        return ["Feedback: Stub deterministic criterion feedback. [RESULT] 4" for _ in prompts]
+    def generate_with_traces(self, prompts: list[str]) -> list[JudgeGeneration]:
+        return [
+            JudgeGeneration(
+                raw_response="Feedback: Stub deterministic criterion feedback. [RESULT] 4",
+                backend_formatted_prompt=prompt,
+                backend_format="identity",
+            )
+            for prompt in prompts
+        ]
 
 
 class VllmPrometheusJudge:
@@ -275,17 +328,24 @@ class VllmPrometheusJudge:
             sort_keys=True,
         )
 
-    def generate(self, prompts: list[str]) -> list[str]:
-        formatted = [
-            self._tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            for prompt in prompts
-        ]
+    def render_runtime_prompt(self, prompt: str) -> str:
+        return self._tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+    def generate_with_traces(self, prompts: list[str]) -> list[JudgeGeneration]:
+        formatted = [self.render_runtime_prompt(prompt) for prompt in prompts]
         responses = self._llm.generate(formatted, self._sampling_params)
-        return [item.outputs[0].text.strip() for item in responses]
+        return [
+            JudgeGeneration(
+                raw_response=response.outputs[0].text.strip(),
+                backend_formatted_prompt=formatted_prompt,
+                backend_format="chat_template" if formatted_prompt != prompt else "identity",
+            )
+            for prompt, formatted_prompt, response in zip(prompts, formatted, responses)
+        ]
 
 
 def parse_prometheus_result(raw: str) -> dict[str, Any]:
@@ -302,13 +362,22 @@ def parse_prometheus_result(raw: str) -> dict[str, Any]:
             "score": None,
             "feedback": feedback,
             "parse_status": "abstained",
-            "repair_applied": False,
+            "parse_repair_attempted": False,
+            "parse_repair_succeeded": False,
+            "parse_repair_method": None,
             "abstention_reason": "judge_returned_no_score",
         }
     score_match = re.fullmatch(r"([1-5])", result_text)
     if not score_match:
         raise ValueError(f"Final [RESULT] must contain one integer from 1 to 5 or N/A: {result_text!r}")
-    return {"score": int(score_match.group(1)), "feedback": feedback, "parse_status": "parsed", "repair_applied": False}
+    return {
+        "score": int(score_match.group(1)),
+        "feedback": feedback,
+        "parse_status": "parsed",
+        "parse_repair_attempted": False,
+        "parse_repair_succeeded": False,
+        "parse_repair_method": None,
+    }
 
 
 def weighted_final_score(criteria: dict[str, dict[str, Any]], weights: dict[str, float]) -> float | None:
@@ -346,7 +415,7 @@ def deterministic_diagnostics(criteria: dict[str, dict[str, Any]]) -> dict[str, 
     return {"failure_modes": failure_modes, "failure_mode_source": "deterministic"}
 
 
-def build_prompt(
+def build_prompt_record(
     *,
     variant: str,
     direction: str,
@@ -354,7 +423,7 @@ def build_prompt(
     input_text: str,
     generated_text: str,
     reference_anchors: list[dict[str, str]] | None = None,
-) -> str:
+) -> dict[str, Any]:
     if (variant, direction) not in CRITERION_WEIGHTS:
         raise ValueError(f"Unsupported variant/direction: {variant}/{direction}")
     rubric = REFERENCE_GROUNDING_RUBRICS[direction] if criterion == "reference_anchor_grounding" else RUBRICS[criterion]
@@ -366,44 +435,46 @@ def build_prompt(
         task_description = "Multiple outputs can be valid. Judge only the requested criterion using the score rubric. No reference comparison is part of this criterion."
         reference_section = ""
     criterion_boundary = CRITERION_BOUNDARIES[criterion]
-    return f"""###Task Description:
-You are evaluating a creative cross-modal generation system.
+    rendered_user_message = PROMPT_TEMPLATE_TEXT.format(
+        task_description=task_description,
+        criterion_boundary=criterion_boundary,
+        direction=direction,
+        input_text=input_text,
+        generated_text=generated_text,
+        reference_section=reference_section,
+        criterion=criterion,
+        rubric=rubric,
+    )
+    return {
+        "prompt_version": PROMPT_VERSIONS[variant],
+        "template_name": PROMPT_TEMPLATE_NAME,
+        "template": PROMPT_TEMPLATE_TEXT,
+        "messages": [{"role": "user", "content": rendered_user_message}],
+        "rendered_user_message": rendered_user_message,
+        "task_description": task_description,
+        "criterion_boundary": criterion_boundary,
+        "rubric": rubric,
+        "reference_section": reference_section,
+    }
 
-{task_description}
 
-Judge only the requested criterion using the score rubric.
-Do not let qualities assigned to other criteria affect this score.
-
-Criterion boundary:
-{criterion_boundary}
-
-Direction: {direction}
-
-For audio_to_speech, the input is an environmental audio description and the response is a generated human utterance that could occur in, after, or because of the audio scene.
-
-For speech_to_audio, the input is a speech utterance and the response is a generated environmental audio description that could contextualize, accompany, explain, or be caused by the speech.
-
-Write concise feedback strictly based on the criterion and rubric. Then output the final score as:
-Feedback: <feedback> [RESULT] <integer score from 1 to 5>
-
-If the criterion genuinely cannot be assessed from the response, you may instead output [RESULT] N/A. Do not use
-N/A merely because the response is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
-
-###The instruction to evaluate:
-Input text:
-{input_text}
-
-###Response to evaluate:
-{generated_text}{reference_section}
-
-###Score Rubric:
-Criterion: {criterion}
-
-{rubric}
-
-###Feedback:
-"""
-
+def build_prompt(
+    *,
+    variant: str,
+    direction: str,
+    criterion: str,
+    input_text: str,
+    generated_text: str,
+    reference_anchors: list[dict[str, str]] | None = None,
+) -> str:
+    return build_prompt_record(
+        variant=variant,
+        direction=direction,
+        criterion=criterion,
+        input_text=input_text,
+        generated_text=generated_text,
+        reference_anchors=reference_anchors,
+    )["rendered_user_message"]
 
 def format_reference_anchors(anchors: list[dict[str, str]]) -> str:
     return "\n\n".join(
@@ -436,6 +507,7 @@ def run_geval(
     cache_dir: Path | None,
     batch_size: int,
     max_samples: int | None = None,
+    criterion_judgments_output: Path | None = None,
 ) -> dict[str, Any]:
     rows = _read_input_rows(input_path, max_samples=max_samples)
     cache_identity = getattr(judge, "cache_identity", judge.name)
@@ -458,19 +530,22 @@ def run_geval(
     for start in range(0, len(items), batch_size):
         chunk = items[start : start + batch_size]
         generated = _generate_with_fallback(judge, chunk)
-        for item, raw, generation_error in generated:
+        for item, generation, generation_error in generated:
             if generation_error:
                 result = {
                     "score": None,
                     "feedback": "",
                     "parse_status": "judge_error",
-                    "repair_applied": False,
+                    "parse_repair_attempted": False,
+                    "parse_repair_succeeded": False,
+                    "parse_repair_method": None,
                     "judge_error": generation_error,
                     "raw_response": "",
                 }
             else:
-                assert raw is not None
-                result = _parse_with_repair(judge, raw)
+                assert generation is not None
+                result = _parse_with_repair(judge, generation.raw_response)
+                result["runtime_prompt"] = _runtime_prompt_trace(generation)
             states[item.row_position]["criteria"][item.criterion] = result
             if result.get("parse_status") in {"parsed", "abstained"}:
                 _write_cache(cache_dir, item.prompt_hash, result)
@@ -483,6 +558,10 @@ def run_geval(
             summary_csv_output=summary_csv_output,
             judge_name=judge.name,
             variant=variant,
+            input_rows=rows,
+            judge=judge,
+            cache_identity=cache_identity,
+            criterion_judgments_output=criterion_judgments_output,
         )
 
     summary = _write_progress(
@@ -494,6 +573,10 @@ def run_geval(
         summary_csv_output=summary_csv_output,
         judge_name=judge.name,
         variant=variant,
+        input_rows=rows,
+        judge=judge,
+        cache_identity=cache_identity,
+        criterion_judgments_output=criterion_judgments_output,
     )
     print(f"wrote {output_path} rows={summary['total_pairs_processed']}")
     print(f"wrote {summary_output}")
@@ -568,26 +651,63 @@ def _make_item(row: dict[str, Any], row_position: int, criterion: str, *, varian
         ensure_ascii=False,
         sort_keys=True,
     )
-    return CriterionItem(row_position, criterion, prompt, hashlib.sha256(cache_key.encode("utf-8")).hexdigest())
+    prompt_record = build_prompt_record(
+        variant=variant,
+        direction=direction,
+        criterion=criterion,
+        input_text=_required_str(row, "input_text"),
+        generated_text=_required_str(row, "generated_text"),
+        reference_anchors=anchors,
+    )
+    return CriterionItem(
+        row_position,
+        criterion,
+        prompt,
+        hashlib.sha256(cache_key.encode("utf-8")).hexdigest(),
+        prompt_record,
+    )
 
 
-def _generate_with_fallback(judge: Judge, items: list[CriterionItem]) -> list[tuple[CriterionItem, str | None, str | None]]:
+def _generate_with_fallback(
+    judge: Judge,
+    items: list[CriterionItem],
+) -> list[tuple[CriterionItem, JudgeGeneration | None, str | None]]:
     try:
-        responses = judge.generate([item.prompt for item in items])
-        if len(responses) != len(items):
-            raise RuntimeError(f"Judge returned {len(responses)} responses for {len(items)} prompts")
-        return [(item, raw, None) for item, raw in zip(items, responses)]
+        generations = judge.generate_with_traces([item.prompt for item in items])
+        if len(generations) != len(items):
+            raise RuntimeError(f"Judge returned {len(generations)} responses for {len(items)} prompts")
+        return [(item, generation, None) for item, generation in zip(items, generations)]
     except Exception:
         generated = []
         for item in items:
             try:
-                responses = judge.generate([item.prompt])
-                if len(responses) != 1:
-                    raise RuntimeError(f"Judge returned {len(responses)} responses for one prompt")
-                generated.append((item, responses[0], None))
+                generations = judge.generate_with_traces([item.prompt])
+                if len(generations) != 1:
+                    raise RuntimeError(f"Judge returned {len(generations)} responses for one prompt")
+                generated.append((item, generations[0], None))
             except Exception as exc:
                 generated.append((item, None, f"{type(exc).__name__}: {exc}"))
         return generated
+
+
+def _runtime_prompt_trace(generation: JudgeGeneration) -> dict[str, Any]:
+    return {
+        "backend_formatted_prompt": generation.backend_formatted_prompt,
+        "backend_format": generation.backend_format,
+        "trace_source": "generation_call",
+    }
+
+
+def _repair_prompt_trace(prompt: str, generation: JudgeGeneration | None) -> dict[str, Any]:
+    trace: dict[str, Any] = {
+        "messages": [{"role": "user", "content": prompt}],
+        "rendered_user_message": prompt,
+    }
+    if generation is None:
+        trace.update({"backend_formatted_prompt": None, "backend_format": "generation_failed"})
+    else:
+        trace.update(_runtime_prompt_trace(generation))
+    return trace
 
 
 def _parse_with_repair(judge: Judge, raw: str) -> dict[str, Any]:
@@ -597,29 +717,53 @@ def _parse_with_repair(judge: Judge, raw: str) -> dict[str, Any]:
         return parsed
     except Exception as exc:
         initial_error = f"{type(exc).__name__}: {exc}"
+        repair_prompt = build_repair_prompt(raw)
+        repair_generation: JudgeGeneration | None = None
         try:
-            responses = judge.generate([build_repair_prompt(raw)])
-            if len(responses) != 1:
-                raise RuntimeError(f"Judge returned {len(responses)} responses for one repair prompt")
-            repaired_raw = responses[0]
+            repair_generations = judge.generate_with_traces([repair_prompt])
+            if len(repair_generations) != 1:
+                raise RuntimeError(f"Judge returned {len(repair_generations)} responses for one repair prompt")
+            repair_generation = repair_generations[0]
+            repaired_raw = repair_generation.raw_response
             parsed = parse_prometheus_result(repaired_raw)
             parsed.update(
                 {
-                    "repair_applied": True,
+                    "parse_repair_attempted": True,
+                    "parse_repair_succeeded": True,
+                    "parse_repair_method": "judge_reformat",
+                    "parse_repair": {
+                        "attempted": True,
+                        "succeeded": True,
+                        "method": "judge_reformat",
+                        "prompt": _repair_prompt_trace(repair_prompt, repair_generation),
+                        "raw_response": repaired_raw,
+                    },
+                    "initial_parse_error": initial_error,
                     "initial_raw_response": raw,
                     "raw_response": repaired_raw,
                 }
             )
             return parsed
         except Exception as repair_exc:
+            repaired_raw = repair_generation.raw_response if repair_generation is not None else ""
             return {
                 "score": None,
                 "feedback": "",
                 "parse_status": "parse_failed",
-                "repair_applied": True,
+                "parse_repair_attempted": True,
+                "parse_repair_succeeded": False,
+                "parse_repair_method": "judge_reformat",
+                "parse_repair": {
+                    "attempted": True,
+                    "succeeded": False,
+                    "method": "judge_reformat",
+                    "prompt": _repair_prompt_trace(repair_prompt, repair_generation),
+                    "raw_response": repaired_raw,
+                },
                 "parse_error": f"initial={initial_error}; repair={type(repair_exc).__name__}: {repair_exc}",
+                "initial_parse_error": initial_error,
                 "initial_raw_response": raw,
-                "raw_response": repaired_raw if "repaired_raw" in locals() else "",
+                "raw_response": repaired_raw,
             }
 
 
@@ -657,6 +801,10 @@ def _write_progress(
     summary_csv_output: Path | None,
     judge_name: str,
     variant: str,
+    input_rows: list[dict[str, Any]] | None = None,
+    judge: Judge | None = None,
+    cache_identity: str | None = None,
+    criterion_judgments_output: Path | None = None,
 ) -> dict[str, Any]:
     for state in states:
         _finalize_state(state)
@@ -667,10 +815,135 @@ def _write_progress(
     summary["failed_pairs"] = sum(state.get("status") == "incomplete" for state in states)
     summary["complete"] = summary["remaining_pairs"] == 0 and summary["failed_pairs"] == 0
     _write_jsonl(output_path, states)
+    if criterion_judgments_output is not None and input_rows is not None and judge is not None:
+        _write_jsonl(
+            criterion_judgments_output,
+            _criterion_judgment_rows(
+                input_rows,
+                states,
+                variant=variant,
+                judge=judge,
+                cache_identity=cache_identity or judge_name,
+            ),
+        )
     _write_json(summary_output, summary)
     if summary_csv_output:
         _write_summary_csv(summary_csv_output, summary)
     return summary
+
+
+def _criterion_judgment_rows(
+    input_rows: list[dict[str, Any]],
+    states: list[dict[str, Any]],
+    *,
+    variant: str,
+    judge: Judge,
+    cache_identity: str,
+) -> list[dict[str, Any]]:
+    input_by_row_index = {str(row.get("row_index", index)): row for index, row in enumerate(input_rows)}
+    rows: list[dict[str, Any]] = []
+    for state in states:
+        input_row = input_by_row_index.get(str(state.get("row_index")), {})
+        for criterion, weight in state.get("criterion_weights", {}).items():
+            item = _make_item(input_row or state, int(state.get("row_index") or 0), criterion, variant=variant, cache_identity=cache_identity)
+            result = state.get("criteria", {}).get(criterion)
+            rows.append(_criterion_judgment_row(state, item, result, weight, judge))
+    rows.sort(key=lambda row: (int(row.get("row_index") or 0), str(row.get("criterion_id") or "")))
+    return rows
+
+
+def _criterion_judgment_row(
+    state: dict[str, Any],
+    item: CriterionItem,
+    result: dict[str, Any] | None,
+    weight: float,
+    judge: Judge,
+) -> dict[str, Any]:
+    prompt_record = dict(item.prompt_record)
+    runtime_prompt = result.get("runtime_prompt") if isinstance(result, dict) else None
+    if isinstance(runtime_prompt, dict):
+        prompt_record.update(runtime_prompt)
+    else:
+        prompt_record["backend_formatted_prompt"] = None
+        prompt_record["backend_format"] = "not_generated"
+        prompt_record["trace_source"] = "no_generation_result"
+    status = _criterion_judgment_status(state, result)
+    row = {
+        "schema_version": 1,
+        "row_index": state.get("row_index"),
+        "pair_id": state.get("pair_id"),
+        "sample_id": state.get("sample_id"),
+        "split": state.get("split"),
+        "metric_id": state.get("metric"),
+        "evaluator_version": state.get("evaluator_version"),
+        "evaluation_variant": state.get("evaluation_variant"),
+        "criterion_id": item.criterion,
+        "criterion_weight": weight,
+        "status": status,
+        "input": {
+            "direction": state.get("direction"),
+            "stage_input_text": state.get("input_text"),
+            "generated_text": state.get("generated_text"),
+            "reference_anchors": state.get("reference_anchors", []),
+        },
+        "prompt": prompt_record,
+        "judge": {"model": state.get("judge_model")},
+        "output": _criterion_judgment_output(result),
+        "error": _criterion_judgment_error(state, result),
+    }
+    return row
+
+
+def _criterion_judgment_status(state: dict[str, Any], result: dict[str, Any] | None) -> str:
+    if state.get("incomplete_reason") == "missing_required_reference_anchor" and not result:
+        return "skipped"
+    if not isinstance(result, dict):
+        return "pending" if state.get("status") == "pending" else "error"
+    outcome = _criterion_outcome(result)
+    if outcome == "parsed":
+        return "success"
+    if outcome == "abstained":
+        return "abstained"
+    return "error"
+
+
+def _criterion_judgment_output(result: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {
+            "score": None,
+            "range": {"min": 1, "max": 5},
+            "higher_is_better": True,
+            "feedback": None,
+            "raw_response": None,
+            "parse_status": "missing",
+        }
+    output = {
+        "score": result.get("score"),
+        "range": {"min": 1, "max": 5},
+        "higher_is_better": True,
+        "feedback": result.get("feedback"),
+        "raw_response": result.get("raw_response"),
+        "parse_status": result.get("parse_status"),
+        "parse_repair_attempted": result.get("parse_repair_attempted"),
+        "parse_repair_succeeded": result.get("parse_repair_succeeded"),
+        "parse_repair_method": result.get("parse_repair_method"),
+    }
+    for key in ("parse_repair", "initial_parse_error", "initial_raw_response", "abstention_reason", "judge_error", "parse_error"):
+        if key in result:
+            output[key] = result[key]
+    return output
+
+
+def _criterion_judgment_error(state: dict[str, Any], result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if state.get("incomplete_reason") == "missing_required_reference_anchor" and not result:
+        return {"type": "MissingReferenceAnchor", "message": "missing_required_reference_anchor"}
+    if not isinstance(result, dict):
+        return {"type": "CriterionPending", "message": "criterion has no result"}
+    outcome = _criterion_outcome(result)
+    if outcome in {"parsed", "abstained"}:
+        return None
+    message = result.get("judge_error") or result.get("parse_error") or outcome
+    return {"type": str(result.get("parse_status") or "CriterionError"), "message": str(message)}
 
 
 def _summary(rows: list[dict[str, Any]], *, input_path: Path, output_path: Path, judge_name: str, variant: str) -> dict[str, Any]:
@@ -949,6 +1222,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--summary-output", type=Path, required=True)
     parser.add_argument("--summary-csv-output", type=Path, default=None)
+    parser.add_argument("--criterion-judgments-output", type=Path, default=None)
     parser.add_argument("--variant", choices=sorted(METRIC_IDS), required=True)
     parser.add_argument("--cache-dir", type=Path, default=None)
     parser.add_argument("--backend", choices=["vllm", "stub"], default="vllm")
@@ -989,6 +1263,7 @@ def main() -> None:
         cache_dir=args.cache_dir,
         batch_size=args.batch_size,
         max_samples=args.max_samples,
+        criterion_judgments_output=args.criterion_judgments_output,
     )
 
 

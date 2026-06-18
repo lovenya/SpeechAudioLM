@@ -28,6 +28,12 @@ from project_conventions import eval_stage_root
 from project_paths import model_path
 
 
+GEVAL_METRICS = {
+    "g_eval_prometheus_plausibility",
+    "g_eval_prometheus_reference",
+}
+
+
 @dataclass(frozen=True)
 class EvalOptions:
     model: str
@@ -381,13 +387,33 @@ def _manifest_row(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
         "sample_id": row.get("sample_id"),
         "metric_id": metric.name,
         "status": row.get("status"),
-        "input": {
-            "source": row.get("source") if isinstance(row.get("source"), dict) else {},
-            "generated": _manifest_generated_input(metric, row),
-            "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
-        },
+        "input": _manifest_input(metric, row),
         "output": _manifest_output(metric, row),
         "error": _manifest_error(metric, row),
+    }
+
+
+def _manifest_input(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
+    if metric.name == "nli_contradiction" or _is_geval_metric(metric.name):
+        details = _metric_prediction_details(row, metric.name)
+        source = {
+            "direction": details.get("direction"),
+            "stage_input_text": details.get("input_text"),
+        }
+        generated = {"stage_output_text": details.get("generated_text")}
+        reference: dict[str, Any] = {}
+        if metric.name == "g_eval_prometheus_reference":
+            anchors = details.get("reference_anchors")
+            reference["reference_anchors"] = anchors if isinstance(anchors, list) else []
+        return {
+            "source": {key: value for key, value in source.items() if value is not None},
+            "generated": {key: value for key, value in generated.items() if value is not None},
+            "reference": reference,
+        }
+    return {
+        "source": row.get("source") if isinstance(row.get("source"), dict) else {},
+        "generated": _manifest_generated_input(metric, row),
+        "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
     }
 
 
@@ -413,6 +439,8 @@ def _manifest_output(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
             details["backend_output"] = _canonical_metric_details(metric_details)
     elif metric.name == "nli_contradiction":
         details = _nli_metric_details(metric_details)
+    elif _is_geval_metric(metric.name):
+        details = _geval_metric_details(metric_details)
     else:
         details = _canonical_metric_details(metric_details)
     output = {
@@ -430,20 +458,94 @@ def _manifest_output(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+def _is_geval_metric(metric_name: str) -> bool:
+    return metric_name in GEVAL_METRICS
+
+
+def _metric_prediction_details(row: dict[str, Any], metric_name: str) -> dict[str, Any]:
+    predictions = row.get("predictions") if isinstance(row.get("predictions"), dict) else {}
+    details = predictions.get(metric_name)
+    return details if isinstance(details, dict) else {}
+
+
+def _geval_metric_details(metric_details: dict[str, Any]) -> dict[str, Any]:
+    canonical = _canonical_metric_details(metric_details)
+    details: dict[str, Any] = {
+        "final_score": canonical.get("final_score"),
+        "status": canonical.get("status"),
+        "evaluation_variant": canonical.get("evaluation_variant"),
+        "criteria": _geval_criteria_details(canonical),
+    }
+    for key in ("reference_anchors", "diagnostics", "incomplete_reason"):
+        if key in canonical:
+            details[key] = canonical[key]
+    return details
+
+
+def _geval_criteria_details(metric_details: dict[str, Any]) -> dict[str, Any]:
+    criteria = metric_details.get("criteria")
+    weights = metric_details.get("criterion_weights")
+    if not isinstance(criteria, dict):
+        return {}
+    weights = weights if isinstance(weights, dict) else {}
+    compact: dict[str, Any] = {}
+    for criterion, result in sorted(criteria.items()):
+        if not isinstance(result, dict):
+            continue
+        outcome = _geval_criterion_status(result)
+        item: dict[str, Any] = {
+            "status": outcome,
+            "score": result.get("score"),
+            "score_name": "criterion_score",
+            "range": {"min": 1, "max": 5},
+            "higher_is_better": True,
+            "weight": weights.get(criterion),
+            "feedback": result.get("feedback"),
+            "parse_status": result.get("parse_status"),
+        }
+        for key in (
+            "parse_repair_attempted",
+            "parse_repair_succeeded",
+            "parse_repair_method",
+            "abstention_reason",
+            "judge_error",
+            "parse_error",
+        ):
+            if key in result:
+                item[key] = result[key]
+        compact[str(criterion)] = item
+    return compact
+
+
+def _geval_criterion_status(result: dict[str, Any]) -> str:
+    outcome = result.get("parse_status")
+    if outcome == "parsed":
+        return "success"
+    if outcome == "abstained":
+        return "abstained"
+    return "error"
+
+
 def _nli_metric_details(metric_details: dict[str, Any]) -> dict[str, Any]:
     canonical = _canonical_metric_details(metric_details)
+    source_to_candidate = {
+        "entailment_probability": canonical.get("forward_entailment_probability"),
+        "neutral_probability": canonical.get("forward_neutral_probability"),
+        "contradiction_probability": canonical.get("forward_contradiction_probability"),
+    }
+    candidate_to_source = {
+        "entailment_probability": canonical.get("reverse_entailment_probability"),
+        "neutral_probability": canonical.get("reverse_neutral_probability"),
+        "contradiction_probability": canonical.get("reverse_contradiction_probability"),
+    }
+    if "forward_tokenization" in canonical:
+        source_to_candidate["tokenization"] = canonical["forward_tokenization"]
+    if "reverse_tokenization" in canonical:
+        candidate_to_source["tokenization"] = canonical["reverse_tokenization"]
     details = {
         "label": canonical.get("predicted_label_using_max_contradiction"),
-        "source_to_candidate": {
-            "entailment_probability": canonical.get("forward_entailment_probability"),
-            "neutral_probability": canonical.get("forward_neutral_probability"),
-            "contradiction_probability": canonical.get("forward_contradiction_probability"),
-        },
-        "candidate_to_source": {
-            "entailment_probability": canonical.get("reverse_entailment_probability"),
-            "neutral_probability": canonical.get("reverse_neutral_probability"),
-            "contradiction_probability": canonical.get("reverse_contradiction_probability"),
-        },
+        "source_to_candidate": source_to_candidate,
+        "candidate_to_source": candidate_to_source,
     }
     for key in ("direction", "input_text", "generated_text", "row_index", "pair_id", "sample_id", "split", "primary_audio_class"):
         if key in canonical:
@@ -515,8 +617,8 @@ def _compute_external_metrics(
         ],
         "dedicated-script": [
             "nli_contradiction",
-            "g_eval_prometheus_criterion_v2_plausibility",
-            "g_eval_prometheus_criterion_v2_reference_grounded",
+            "g_eval_prometheus_plausibility",
+            "g_eval_prometheus_reference",
         ],
     }
     supported = {name for names in backend_metrics.values() for name in names}
@@ -561,8 +663,8 @@ def _run_dedicated_script_metrics(
 ) -> dict[str, Any]:
     supported_order = [
         "nli_contradiction",
-        "g_eval_prometheus_criterion_v2_plausibility",
-        "g_eval_prometheus_criterion_v2_reference_grounded",
+        "g_eval_prometheus_plausibility",
+        "g_eval_prometheus_reference",
     ]
     ordered_names = [name for name in supported_order if name in metric_names]
     if sorted(ordered_names) != sorted(metric_names):
@@ -659,8 +761,8 @@ def _run_single_dedicated_script_metric(
             if metric_value is not None:
                 sample_metrics[row_index] = {metric_name: metric_value}
             elif metric_name in {
-                "g_eval_prometheus_criterion_v2_plausibility",
-                "g_eval_prometheus_criterion_v2_reference_grounded",
+                "g_eval_prometheus_plausibility",
+                "g_eval_prometheus_reference",
             } and result.get("status") != "complete":
                 errors.setdefault(row_index, {})[metric_name] = str(
                     result.get("incomplete_reason") or "incomplete_criterion_judgment"
@@ -677,6 +779,7 @@ def _run_single_dedicated_script_metric(
                 "work_dir": str(metric_work_dir),
                 "output": str(output_path),
                 "summary": str(summary_path),
+                "criterion_judgments": str(metric_work_dir / "criterion_judgments.jsonl"),
             }
         },
     }
@@ -685,8 +788,8 @@ def _run_single_dedicated_script_metric(
 def _default_dedicated_script(metric_name: str) -> str:
     defaults = {
         "nli_contradiction": "scripts/run_nli_contradiction_helper.py",
-        "g_eval_prometheus_criterion_v2_plausibility": "scripts/run_geval_prometheus_criterion_v2.py",
-        "g_eval_prometheus_criterion_v2_reference_grounded": "scripts/run_geval_prometheus_criterion_v2.py",
+        "g_eval_prometheus_plausibility": "scripts/run_geval_prometheus_criterion_v2.py",
+        "g_eval_prometheus_reference": "scripts/run_geval_prometheus_criterion_v2.py",
     }
     if metric_name not in defaults:
         raise MetricUnavailableError(f"No default dedicated script for metric {metric_name!r}")
@@ -708,8 +811,8 @@ def _dedicated_text_pair_rows(
         try:
             source = source_record(row)
             if metric_name in {
-                "g_eval_prometheus_criterion_v2_plausibility",
-                "g_eval_prometheus_criterion_v2_reference_grounded",
+                "g_eval_prometheus_plausibility",
+                "g_eval_prometheus_reference",
             }:
                 stage_input, stage_output, stage_direction = _final_text_stage(row)
                 generated_text = stage_output or _prediction_text_for_metric(row, metric_name)
@@ -744,7 +847,7 @@ def _dedicated_text_pair_rows(
                 "input_text": input_text,
                 "generated_text": generated_text,
             }
-            if metric_name == "g_eval_prometheus_criterion_v2_reference_grounded":
+            if metric_name == "g_eval_prometheus_reference":
                 reference_text = _paired_reference_text(source, direction)
                 helper_row["reference_anchors"] = (
                     [
@@ -809,13 +912,14 @@ def _dedicated_script_command(
             command.append("--local-files-only")
         return command
     if metric_name in {
-        "g_eval_prometheus_criterion_v2_plausibility",
-        "g_eval_prometheus_criterion_v2_reference_grounded",
+        "g_eval_prometheus_plausibility",
+        "g_eval_prometheus_reference",
     }:
-        variant = "reference_grounded" if metric_name.endswith("reference_grounded") else "plausibility"
+        variant = "reference_grounded" if metric_name == "g_eval_prometheus_reference" else "plausibility"
         command = [
             str(python), str(script), "--input", str(input_path), "--output", str(output_path),
             "--summary-output", str(summary_path), "--summary-csv-output", str(metric_work_dir / "summary.csv"),
+            "--criterion-judgments-output", str(metric_work_dir / "criterion_judgments.jsonl"),
             "--variant", variant,
             "--backend", str(config.get("script_backend", config.get("runtime_backend", "vllm"))),
             "--model", str(config.get("model_name", config.get("model_path") or str(model_path("prometheus_8x7b_v2")))),
@@ -847,8 +951,8 @@ def _dedicated_metric_value(metric_name: str, result: dict[str, Any]) -> float |
     if metric_name == "nli_contradiction":
         return float(result["max_contradiction_probability"])
     if metric_name in {
-        "g_eval_prometheus_criterion_v2_plausibility",
-        "g_eval_prometheus_criterion_v2_reference_grounded",
+        "g_eval_prometheus_plausibility",
+        "g_eval_prometheus_reference",
     } and isinstance(result.get("final_score"), (int, float)):
         return float(result["final_score"])
     return None
@@ -1185,7 +1289,7 @@ def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> st
     elif metric_name in {"mace", "spider", "aac_clapsim", "fense"}:
         keys = ("converted_prompt", "generation_prompt", "decoded_text", "understanding_text")
     elif metric_name == "nli_contradiction":
-        keys = ("generated_text", "generation_prompt", "converted_prompt", "understanding_text", "decoded_text")
+        keys = ("generated_text", "understanding_text", "decoded_text")
     else:
         keys = ("generation_prompt", "converted_prompt", "understanding_text", "decoded_text")
     for key in keys:
@@ -1450,6 +1554,8 @@ def _higher_is_better(metric_name: str) -> bool | None:
 def _metric_score_name(metric_name: str) -> str:
     if metric_name == "nli_contradiction":
         return "max_contradiction_probability"
+    if _is_geval_metric(metric_name):
+        return "weighted_final_score"
     return metric_name
 
 
@@ -1457,8 +1563,8 @@ def _metric_score_range(metric_name: str) -> dict[str, float] | None:
     if metric_name == "nli_contradiction":
         return {"min": 0.0, "max": 1.0}
     if metric_name in {
-        "g_eval_prometheus_criterion_v2_plausibility",
-        "g_eval_prometheus_criterion_v2_reference_grounded",
+        "g_eval_prometheus_plausibility",
+        "g_eval_prometheus_reference",
     }:
         return {"min": 1.0, "max": 5.0}
     return None
@@ -1650,11 +1756,7 @@ def _error_entry(row: dict[str, Any], metric: MetricSpec, validation_failed: boo
         "status": status,
         "error_type": error_type,
         "message": message,
-        "input": {
-            "source": row.get("source") if isinstance(row.get("source"), dict) else {},
-            "generated": _manifest_generated_input(metric, row),
-            "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
-        },
+        "input": _manifest_input(metric, row),
         "log_ref": None,
         "artifact_ref": None,
     }
@@ -1755,11 +1857,7 @@ def _inspect_sample(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
         "row_index": row.get("row_index"),
         "sample_id": row.get("sample_id"),
         "status": row.get("status"),
-        "input": {
-            "source": row.get("source") if isinstance(row.get("source"), dict) else {},
-            "generated": _manifest_generated_input(metric, row),
-            "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
-        },
+        "input": _manifest_input(metric, row),
         "intermediate": {},
         "normalization": {},
         "output": _manifest_output(metric, row),

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from scripts.run_geval_prometheus_criterion_v2 import (
     CRITERION_WEIGHTS,
+    JudgeGeneration,
     deterministic_diagnostics,
     build_prompt,
     parse_prometheus_result,
@@ -14,6 +15,14 @@ from scripts.run_geval_prometheus_criterion_v2 import (
     run_geval,
     weighted_final_score,
 )
+
+
+def _test_generation(prompt: str, raw_response: str) -> JudgeGeneration:
+    return JudgeGeneration(
+        raw_response=raw_response,
+        backend_formatted_prompt=f"<runtime>{prompt}</runtime>",
+        backend_format="test_runtime",
+    )
 
 
 class GEvalPrometheusCriterionV2Test(unittest.TestCase):
@@ -114,9 +123,9 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             def __init__(self) -> None:
                 self.calls = 0
 
-            def generate(self, prompts: list[str]) -> list[str]:
+            def generate_with_traces(self, prompts: list[str]) -> list[JudgeGeneration]:
                 self.calls += len(prompts)
-                return ["Feedback: Criterion is good. [RESULT] 4" for _ in prompts]
+                return [_test_generation(prompt, "Feedback: Criterion is good. [RESULT] 4") for prompt in prompts]
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -155,6 +164,36 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             self.assertTrue(all(result["feedback"] for result in row["criteria"].values()))
             self.assertTrue(all("raw_response" in result for result in row["criteria"].values()))
 
+            judgments_path = root / "criterion_judgments.jsonl"
+            run_geval(
+                input_path=input_path,
+                output_path=output_path,
+                summary_output=summary_path,
+                summary_csv_output=None,
+                judge=FakeJudge(),
+                variant="plausibility",
+                cache_dir=root / "cache",
+                batch_size=3,
+                criterion_judgments_output=judgments_path,
+            )
+            judgments = [json.loads(line) for line in judgments_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(judgments), len(CRITERION_WEIGHTS[("plausibility", "audio_to_speech")]))
+            first_judgment = judgments[0]
+            self.assertEqual(first_judgment["metric_id"], "g_eval_prometheus_plausibility")
+            self.assertIn(first_judgment["criterion_id"], CRITERION_WEIGHTS[("plausibility", "audio_to_speech")])
+            self.assertEqual(first_judgment["status"], "success")
+            self.assertEqual(first_judgment["output"]["score"], 4)
+            self.assertEqual(first_judgment["prompt"]["messages"][0]["role"], "user")
+            self.assertEqual(
+                first_judgment["prompt"]["messages"][0]["content"],
+                first_judgment["prompt"]["rendered_user_message"],
+            )
+            self.assertIn("Score 5:", first_judgment["prompt"]["rubric"])
+            self.assertIn("###Score Rubric:", first_judgment["prompt"]["rendered_user_message"])
+            self.assertEqual(first_judgment["prompt"]["backend_format"], "test_runtime")
+            self.assertEqual(first_judgment["prompt"]["trace_source"], "generation_call")
+            self.assertTrue(first_judgment["prompt"]["backend_formatted_prompt"].startswith("<runtime>"))
+
             run_geval(
                 input_path=input_path,
                 output_path=output_path,
@@ -175,13 +214,14 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             name = "one-failure"
             cache_identity = "one-failure-v1"
 
-            def generate(self, prompts: list[str]) -> list[str]:
+            def generate_with_traces(self, prompts: list[str]) -> list[JudgeGeneration]:
                 outputs = []
                 for prompt in prompts:
                     if "Criterion: non_contradiction" in prompt or prompt.startswith("Repair the evaluator response"):
-                        outputs.append("unparseable")
+                        raw = "unparseable"
                     else:
-                        outputs.append("Feedback: Fine. [RESULT] 4")
+                        raw = "Feedback: Fine. [RESULT] 4"
+                    outputs.append(_test_generation(prompt, raw))
                 return outputs
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -217,6 +257,8 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             self.assertEqual(row["criteria"]["non_contradiction"]["parse_status"], "parse_failed")
             self.assertEqual(row["criteria"]["non_contradiction"]["initial_raw_response"], "unparseable")
             self.assertEqual(row["criteria"]["non_contradiction"]["raw_response"], "unparseable")
+            self.assertTrue(row["criteria"]["non_contradiction"]["parse_repair_attempted"])
+            self.assertFalse(row["criteria"]["non_contradiction"]["parse_repair_succeeded"])
 
 
     def test_abstention_is_valid_but_excluded_from_final_score_and_statistics(self) -> None:
@@ -224,11 +266,14 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             name = "abstaining-judge"
             cache_identity = "abstaining-judge-v1"
 
-            def generate(self, prompts: list[str]) -> list[str]:
+            def generate_with_traces(self, prompts: list[str]) -> list[JudgeGeneration]:
                 return [
-                    "Feedback: Too little language to assess this criterion. [RESULT] N/A"
-                    if "Criterion: spoken_naturalness" in prompt
-                    else "Feedback: Assessable criterion. [RESULT] 4"
+                    _test_generation(
+                        prompt,
+                        "Feedback: Too little language to assess this criterion. [RESULT] N/A"
+                        if "Criterion: spoken_naturalness" in prompt
+                        else "Feedback: Assessable criterion. [RESULT] 4",
+                    )
                     for prompt in prompts
                 ]
 
@@ -281,7 +326,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             root = Path(tmpdir)
             output_path = root / "output.jsonl"
             base = {
-                "metric": "g_eval_prometheus_criterion_v2_plausibility",
+                "metric": "g_eval_prometheus_plausibility",
                 "evaluator_version": "geval_prometheus_criterion_v2",
                 "evaluation_variant": "plausibility",
                 "direction": "audio_to_speech",
@@ -346,12 +391,15 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             def __init__(self) -> None:
                 self.calls = 0
 
-            def generate(self, prompts: list[str]) -> list[str]:
+            def generate_with_traces(self, prompts: list[str]) -> list[JudgeGeneration]:
                 self.calls += len(prompts)
                 return [
-                    "Feedback: Repaired feedback. [RESULT] 3"
-                    if prompt.startswith("Repair the evaluator response")
-                    else "not parseable"
+                    _test_generation(
+                        prompt,
+                        "Feedback: Repaired feedback. [RESULT] 3"
+                        if prompt.startswith("Repair the evaluator response")
+                        else "not parseable",
+                    )
                     for prompt in prompts
                 ]
 
@@ -378,8 +426,11 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             )
             row = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(row["final_score"], 3)
-            self.assertTrue(all(result["repair_applied"] for result in row["criteria"].values()))
+            self.assertTrue(all(result["parse_repair_attempted"] for result in row["criteria"].values()))
+            self.assertTrue(all(result["parse_repair_succeeded"] for result in row["criteria"].values()))
+            self.assertTrue(all(result["parse_repair_method"] == "judge_reformat" for result in row["criteria"].values()))
             self.assertTrue(all("initial_raw_response" in result for result in row["criteria"].values()))
+            self.assertTrue(all(result["parse_repair"]["prompt"]["trace_source"] == "generation_call" for result in row["criteria"].values()))
 
             second_judge = RepairJudge()
             run_geval(

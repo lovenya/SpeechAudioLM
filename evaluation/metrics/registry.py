@@ -40,15 +40,15 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
-    "g_eval_prometheus_criterion_v2_plausibility": MetricSpec(
-        name="g_eval_prometheus_criterion_v2_plausibility",
+    "g_eval_prometheus_plausibility": MetricSpec(
+        name="g_eval_prometheus_plausibility",
         level="sample",
         required_prediction_fields=("generated_text",),
         requires_hypothesis_text=True,
         external=True,
     ),
-    "g_eval_prometheus_criterion_v2_reference_grounded": MetricSpec(
-        name="g_eval_prometheus_criterion_v2_reference_grounded",
+    "g_eval_prometheus_reference": MetricSpec(
+        name="g_eval_prometheus_reference",
         level="sample",
         required_prediction_fields=("generated_text",),
         requires_hypothesis_text=True,

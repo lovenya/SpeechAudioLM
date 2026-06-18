@@ -8,8 +8,8 @@ NLI and Prometheus G-Eval schemas are refactored.
 Metrics in scope:
 
 - `nli_contradiction`
-- `g_eval_prometheus_criterion_v2_plausibility`
-- `g_eval_prometheus_criterion_v2_reference_grounded`
+- `g_eval_prometheus_plausibility`
+- `g_eval_prometheus_reference`
 
 The stale `g_eval_reference_free` metric is unsupported and removed.
 
@@ -24,7 +24,13 @@ The stale `g_eval_reference_free` metric is unsupported and removed.
 - The scalar value currently used by the main runner is
   `max_contradiction_probability`. This is a risk score, not a quality score.
 - Higher NLI contradiction is worse.
-- NLI score range should be explicit in output/config metadata:
+- NLI score range should be explicit in output/config metadata.
+- NLI is not prompt-based. It uses a Hugging Face sequence-pair classifier over
+  `(premise, hypothesis)` text pairs.
+- Per-sample NLI outputs should record tokenization/truncation metadata for both
+  classifier directions, because `truncation=True` can affect either side of the
+  pair before scoring.
+
 
 ```json
 {
@@ -83,12 +89,36 @@ Target compact row:
       "source_to_candidate": {
         "entailment_probability": 0.10,
         "neutral_probability": 0.80,
-        "contradiction_probability": 0.10
+        "contradiction_probability": 0.10,
+        "tokenization": {
+          "tokenizer_max_length": 512,
+          "truncation_enabled": true,
+          "truncation_strategy": "longest_first",
+          "truncation_side": "right",
+          "premise_token_count_raw": 72,
+          "hypothesis_token_count_raw": 89,
+          "special_token_count_pair": 3,
+          "pair_token_count_raw": 164,
+          "pair_token_count_after_truncation": 164,
+          "was_truncated": false
+        }
       },
       "candidate_to_source": {
         "entailment_probability": 0.20,
         "neutral_probability": 0.65,
-        "contradiction_probability": 0.15
+        "contradiction_probability": 0.15,
+        "tokenization": {
+          "tokenizer_max_length": 512,
+          "truncation_enabled": true,
+          "truncation_strategy": "longest_first",
+          "truncation_side": "right",
+          "premise_token_count_raw": 89,
+          "hypothesis_token_count_raw": 72,
+          "special_token_count_pair": 3,
+          "pair_token_count_raw": 164,
+          "pair_token_count_after_truncation": 164,
+          "was_truncated": false
+        }
       }
     }
   },

@@ -41,7 +41,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, ["g_eval_prometheus_criterion_v2_reference_grounded"])
+            options = self._options(root, ["g_eval_prometheus_reference"])
             for pipeline, direction, expected_reference, input_field, input_text in cases:
                 reference = {
                     "speech_text": "Reference speech.",
@@ -70,7 +70,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 helper_rows, errors = _dedicated_text_pair_rows(
                     options,
                     [row],
-                    "g_eval_prometheus_criterion_v2_reference_grounded",
+                    "g_eval_prometheus_reference",
                     {},
                 )
                 self.assertFalse(errors)
@@ -82,7 +82,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
     def test_canonical_stage_fields_override_conflicting_flattened_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, ["g_eval_prometheus_criterion_v2_plausibility"])
+            options = self._options(root, ["g_eval_prometheus_plausibility"])
             row = {
                 "status": "success",
                 "row_index": 0,
@@ -98,7 +98,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 }]},
             }
             helper_rows, errors = _dedicated_text_pair_rows(
-                options, [row], "g_eval_prometheus_criterion_v2_plausibility", {},
+                options, [row], "g_eval_prometheus_plausibility", {},
             )
             self.assertFalse(errors)
             self.assertEqual(helper_rows[0]["direction"], "speech_to_audio")
@@ -107,8 +107,8 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
 
     def test_runner_executes_both_new_metric_ids_separately(self) -> None:
         metric_ids = [
-            "g_eval_prometheus_criterion_v2_plausibility",
-            "g_eval_prometheus_criterion_v2_reference_grounded",
+            "g_eval_prometheus_plausibility",
+            "g_eval_prometheus_reference",
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -148,17 +148,32 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 paths = run_evaluation(self._options(root, [metric]))
                 rows_by_metric[metric] = json.loads(paths["per_sample"].read_text(encoding="utf-8"))
                 self.assertIn(f"/stages/a2s/t2t/cascaded/ttas/val/20260616_1500/{metric}/", str(paths["per_sample"]))
+                artifact = paths["per_sample"].parent / "artifacts" / "dedicated-script" / metric / "criterion_judgments.jsonl"
+                self.assertTrue(artifact.is_file())
+                judgment = json.loads(artifact.read_text(encoding="utf-8").splitlines()[0])
+                self.assertEqual(judgment["metric_id"], metric)
+                self.assertIn("messages", judgment["prompt"])
+                self.assertIn("Score 5:", judgment["prompt"]["rubric"])
+                backend = json.loads(paths["inspect"].read_text(encoding="utf-8"))["config_summary"]["backend"]
+                self.assertEqual(backend["criterion_judgments"], str(artifact))
 
             for metric, row in rows_by_metric.items():
                 self.assertEqual(row["metric_id"], metric)
                 self.assertEqual(row["output"]["score"], 4)
+                self.assertEqual(row["output"]["score_name"], "weighted_final_score")
                 self.assertEqual(row["output"]["details"]["final_score"], 4)
-            anchors = rows_by_metric["g_eval_prometheus_criterion_v2_reference_grounded"]["output"]["details"]["reference_anchors"]
+                criterion = next(iter(row["output"]["details"]["criteria"].values()))
+                self.assertEqual(criterion["status"], "success")
+                self.assertEqual(criterion["score"], 4)
+                self.assertNotIn("raw_response", criterion)
+                self.assertEqual(row["input"]["source"]["stage_input_text"], "A dog is barking at a door.")
+                self.assertEqual(row["input"]["generated"]["stage_output_text"], "Please let the dog inside.")
+            anchors = rows_by_metric["g_eval_prometheus_reference"]["input"]["reference"]["reference_anchors"]
             self.assertEqual(anchors[0]["text"], "Please let the dog inside.")
 
 
     def test_missing_grounded_reference_marks_top_level_row_error(self) -> None:
-        metric = "g_eval_prometheus_criterion_v2_reference_grounded"
+        metric = "g_eval_prometheus_reference"
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "dataset").mkdir()

@@ -164,7 +164,7 @@
       "transformers_offline": "1",
       "python": "{environment:shared_metrics_py312}/bin/python"
     },
-    "g_eval_prometheus_criterion_v2_plausibility": {
+    "g_eval_prometheus_plausibility": {
       "backend": "dedicated-script",
       "script": "scripts/run_geval_prometheus_criterion_v2.py",
       "script_backend": "vllm",
@@ -177,10 +177,10 @@
       "gpu_memory_utilization": 0.85,
       "enforce_eager": true,
       "trust_remote_code": true,
-      "cache_dir": "{cache:g_eval_prometheus_criterion_v2_plausibility}",
+      "cache_dir": "{cache:g_eval_prometheus_plausibility}",
       "note": "Criterion-wise reference-free Prometheus G-Eval v2 with deterministic weighted final score."
     },
-    "g_eval_prometheus_criterion_v2_reference_grounded": {
+    "g_eval_prometheus_reference": {
       "backend": "dedicated-script",
       "script": "scripts/run_geval_prometheus_criterion_v2.py",
       "script_backend": "vllm",
@@ -193,7 +193,7 @@
       "gpu_memory_utilization": 0.85,
       "enforce_eager": true,
       "trust_remote_code": true,
-      "cache_dir": "{cache:g_eval_prometheus_criterion_v2_reference_grounded}",
+      "cache_dir": "{cache:g_eval_prometheus_reference}",
       "note": "Criterion-wise paired-reference-grounded Prometheus G-Eval v2 with deterministic weighted final score."
     },
     "prompt_adherence_clap_score": {
