@@ -171,8 +171,8 @@ results/evals/stages/<direction>/<stage>/<model>/<dataset>/<split>/<evaluated_ru
 ```
 
 Each metric run writes stable files in its eval run directory: `run.json`,
-`config.json`, `manifest.jsonl`, `errors.json`, `summary.json`, and `report.md`,
-with metric backend artifacts under `artifacts/`. Heavy metrics are configurable
+`config.json`, `manifest.jsonl`, `inspect.json`, `errors.json`, `summary.json`,
+and `report.md`, with metric backend artifacts under `artifacts/`. Heavy metrics are configurable
 through `configs/eval_metrics.json`; missing external packages or model weights
 fail only when the corresponding metric is selected.
 
