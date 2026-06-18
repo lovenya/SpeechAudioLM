@@ -40,13 +40,6 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
-    "g_eval_reference_free": MetricSpec(
-        name="g_eval_reference_free",
-        level="sample",
-        required_prediction_fields=("generated_text",),
-        requires_hypothesis_text=True,
-        external=True,
-    ),
     "g_eval_prometheus_criterion_v2_plausibility": MetricSpec(
         name="g_eval_prometheus_criterion_v2_plausibility",
         level="sample",

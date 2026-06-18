@@ -165,22 +165,6 @@
       "transformers_offline": "1",
       "python": "{environment:shared_metrics_py312}/bin/python"
     },
-    "g_eval_reference_free": {
-      "backend": "dedicated-script",
-      "script": "scripts/run_g_eval_reference_free.py",
-      "script_backend": "vllm",
-      "python": "{environment:prometheus_vllm}/bin/python",
-      "model_name": "{model:prometheus_8x7b_v2}",
-      "tensor_parallel_size": 4,
-      "temperature": 0.0,
-      "max_tokens": 512,
-      "batch_size": 8,
-      "gpu_memory_utilization": 0.85,
-      "enforce_eager": true,
-      "trust_remote_code": true,
-      "cache_dir": "{cache:g_eval_reference_free}",
-      "note": "Reference-free T2T G-Eval judge using Prometheus 2 8x7B via vLLM on 4 H100s."
-    },
     "g_eval_prometheus_criterion_v2_plausibility": {
       "backend": "dedicated-script",
       "script": "scripts/run_geval_prometheus_criterion_v2.py",

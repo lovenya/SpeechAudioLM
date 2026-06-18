@@ -152,7 +152,6 @@ class EvaluationScaffoldTest(unittest.TestCase):
         self.assertEqual(select_metrics("S2A", "fad", mapping).metric_names, ["fad"])
         self.assertEqual(select_metrics("A2S", "asr_wer", mapping).metric_names, ["asr_wer"])
         self.assertEqual(select_metrics("T2T", "nli_contradiction", mapping).metric_names, ["nli_contradiction"])
-        self.assertEqual(select_metrics("T2T", "g_eval_reference_free", mapping).metric_names, ["g_eval_reference_free"])
         self.assertEqual(select_metrics("A2T", "mace", mapping).metric_names, ["mace"])
         self.assertEqual(select_metrics("A2T", "aac_clapsim", mapping).metric_names, ["aac_clapsim"])
         self.assertEqual(select_metrics("A2T", "fense", mapping).metric_names, ["fense"])
@@ -577,86 +576,6 @@ class EvaluationScaffoldTest(unittest.TestCase):
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             self.assertEqual(summary["metric"]["metric_id"], "nli_contradiction")
             self.assertEqual(summary["scores"]["primary"]["name"], "nli_contradiction")
-
-
-    def test_g_eval_reference_free_runs_after_nli_when_selected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            dataset_root = root / "dataset"
-            output_root = root / "temporary" / "results" / "evals"
-            dataset_root.mkdir()
-            dataset_config = root / "dataset.json"
-            dataset_config.write_text(json.dumps({"dataset_root": str(dataset_root)}), encoding="utf-8")
-            metrics_config = root / "metrics.json"
-            metrics_config.write_text(
-                json.dumps(
-                    {
-                        "metrics": {
-                            "nli_contradiction": {
-                                "backend": "dedicated-script",
-                                "script": "scripts/run_nli_contradiction_helper.py",
-                                "script_backend": "stub",
-                                "contradiction_threshold": 0.7,
-                            },
-                            "g_eval_reference_free": {
-                                "backend": "dedicated-script",
-                                "script": "scripts/run_g_eval_reference_free.py",
-                                "script_backend": "stub",
-                                "batch_size": 1,
-                            },
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-            manifest = root / "manifest.jsonl"
-            manifest.write_text(
-                json.dumps(
-                    {
-                        "model": "cascaded",
-                        "task": "T2T",
-                        "pipeline": "A2S",
-                        "row_index": 0,
-                        "sample_id": "sample",
-                        "generated_text": "Can someone close the window?",
-                        "source": {
-                            "audio_cap": "A dog is barking loudly outside.",
-                            "primary_audio_class": "domestic_pets",
-                        },
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            options = EvalOptions(
-                model="cascaded",
-                task="T2T",
-                stage="t2t",
-                direction="a2s",
-                evaluated_run_id="20260616_1500",
-                dataset="ttas",
-                split="val",
-                manifest_path=manifest,
-                dataset_config_path=dataset_config,
-                metrics_config_path=metrics_config,
-                task_metric_map_path=root / "task_metric_map.json",
-                output_root=output_root,
-                metric_specs=get_metric_specs(["g_eval_reference_free"]),
-                max_samples=None,
-                start_index=0,
-                cache_dir=root / "cache",
-                device="cpu",
-                command=["evaluate.py"],
-                temporary=True,
-            )
-
-            paths = run_evaluation(options)
-            per_sample = [json.loads(line) for line in paths["per_sample"].read_text(encoding="utf-8").splitlines()]
-            self.assertEqual(per_sample[0]["metric_id"], "g_eval_reference_free")
-            self.assertNotIn("g_eval_reference_free", per_sample[0]["input"]["generated"])
-            g_eval = per_sample[0]["output"]["details"]
-            self.assertEqual(g_eval["direction"], "audio_to_speech")
-            self.assertNotIn("nli_contradiction", g_eval)
 
 
 if __name__ == "__main__":

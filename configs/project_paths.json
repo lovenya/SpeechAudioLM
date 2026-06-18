@@ -100,7 +100,6 @@
     "utmosv2": "metrics/utmosv2",
     "runtime_home": "metrics/runtime_home",
     "huggingface": "metrics/huggingface",
-    "g_eval_reference_free": "metrics/g_eval_reference_free",
     "g_eval_prometheus_criterion_v2_plausibility": "metrics/g_eval_prometheus_criterion_v2_plausibility",
     "g_eval_prometheus_criterion_v2_reference_grounded": "metrics/g_eval_prometheus_criterion_v2_reference_grounded"
   },

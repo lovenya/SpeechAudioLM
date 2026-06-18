@@ -485,7 +485,6 @@ def _compute_external_metrics(
         ],
         "dedicated-script": [
             "nli_contradiction",
-            "g_eval_reference_free",
             "g_eval_prometheus_criterion_v2_plausibility",
             "g_eval_prometheus_criterion_v2_reference_grounded",
         ],
@@ -532,7 +531,6 @@ def _run_dedicated_script_metrics(
 ) -> dict[str, Any]:
     supported_order = [
         "nli_contradiction",
-        "g_eval_reference_free",
         "g_eval_prometheus_criterion_v2_plausibility",
         "g_eval_prometheus_criterion_v2_reference_grounded",
     ]
@@ -657,7 +655,6 @@ def _run_single_dedicated_script_metric(
 def _default_dedicated_script(metric_name: str) -> str:
     defaults = {
         "nli_contradiction": "scripts/run_nli_contradiction_helper.py",
-        "g_eval_reference_free": "scripts/run_g_eval_reference_free.py",
         "g_eval_prometheus_criterion_v2_plausibility": "scripts/run_geval_prometheus_criterion_v2.py",
         "g_eval_prometheus_criterion_v2_reference_grounded": "scripts/run_geval_prometheus_criterion_v2.py",
     }
@@ -774,42 +771,6 @@ def _dedicated_script_command(
         if config.get("allow_stub_fallback"):
             command.append("--allow-stub-fallback")
         return command
-    if metric_name == "g_eval_reference_free":
-        command = [
-            str(python),
-            str(script),
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-            "--summary-output",
-            str(summary_path),
-            "--summary-csv-output",
-            str(metric_work_dir / "summary.csv"),
-            "--backend",
-            str(config.get("script_backend", config.get("runtime_backend", "vllm"))),
-            "--model",
-            str(config.get("model_name", config.get("model_path") or str(model_path("prometheus_8x7b_v2")))),
-            "--batch-size",
-            str(config.get("batch_size", 8)),
-            "--cache-dir",
-            str(config.get("cache_dir") or metric_work_dir / "cache"),
-            "--tensor-parallel-size",
-            str(config.get("tensor_parallel_size", 4)),
-            "--temperature",
-            str(config.get("temperature", 0.0)),
-            "--max-tokens",
-            str(config.get("max_tokens", 512)),
-            "--gpu-memory-utilization",
-            str(config.get("gpu_memory_utilization", 0.9)),
-        ]
-        if config.get("max_model_len") is not None:
-            command.extend(["--max-model-len", str(config["max_model_len"])])
-        if config.get("enforce_eager"):
-            command.append("--enforce-eager")
-        if config.get("trust_remote_code", True):
-            command.append("--trust-remote-code")
-        return command
     if metric_name in {
         "g_eval_prometheus_criterion_v2_plausibility",
         "g_eval_prometheus_criterion_v2_reference_grounded",
@@ -848,8 +809,6 @@ def _truthy_config(value: Any) -> bool:
 def _dedicated_metric_value(metric_name: str, result: dict[str, Any]) -> float | None:
     if metric_name == "nli_contradiction":
         return float(result["max_contradiction_probability"])
-    if metric_name == "g_eval_reference_free" and isinstance(result.get("overall_score"), (int, float)):
-        return float(result["overall_score"])
     if metric_name in {
         "g_eval_prometheus_criterion_v2_plausibility",
         "g_eval_prometheus_criterion_v2_reference_grounded",
