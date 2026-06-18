@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -395,8 +394,3 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
 
 def utc_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def update_latest(path: Path, latest_path: Path) -> None:
-    latest_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(path, latest_path)
