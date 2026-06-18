@@ -4,7 +4,7 @@
 
 #SBATCH --job-name=salm-audio-omni-cosy-eval
 #SBATCH --account=aip-csubakan
-#SBATCH --time=05:00:00
+#SBATCH --time=02:30:00
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
 #SBATCH --gpus=h100:4
