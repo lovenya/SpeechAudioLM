@@ -4,7 +4,7 @@
 
 #SBATCH --job-name=salm-text-gpu-eval
 #SBATCH --account=aip-csubakan
-#SBATCH --time=03:00:00
+#SBATCH --time=01:15:00
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
 #SBATCH --gpus=h100:4
