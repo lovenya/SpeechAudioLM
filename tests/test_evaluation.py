@@ -511,6 +511,39 @@ class EvaluationScaffoldTest(unittest.TestCase):
             dataset_root.mkdir()
             dataset_config = root / "dataset.json"
             dataset_config.write_text(json.dumps({"dataset_root": str(dataset_root)}), encoding="utf-8")
+            helper_script = root / "fake_nli_helper.py"
+            helper_script.write_text(
+                "import argparse, json\n"
+                "from pathlib import Path\n"
+                "parser = argparse.ArgumentParser()\n"
+                "parser.add_argument('--input', type=Path, required=True)\n"
+                "parser.add_argument('--output', type=Path, required=True)\n"
+                "parser.add_argument('--summary-output', type=Path, required=True)\n"
+                "args, _ = parser.parse_known_args()\n"
+                "rows = [json.loads(line) for line in args.input.read_text(encoding='utf-8').splitlines() if line.strip()]\n"
+                "out = []\n"
+                "for row in rows:\n"
+                "    out.append({\n"
+                "        'row_index': row['row_index'],\n"
+                "        'pair_id': row.get('pair_id'),\n"
+                "        'sample_id': row.get('sample_id'),\n"
+                "        'split': row.get('split'),\n"
+                "        'direction': row.get('direction'),\n"
+                "        'input_text': row.get('input_text'),\n"
+                "        'generated_text': row.get('generated_text'),\n"
+                "        'forward_entailment_probability': 0.1,\n"
+                "        'forward_neutral_probability': 0.85,\n"
+                "        'forward_contradiction_probability': 0.05,\n"
+                "        'reverse_entailment_probability': 0.1,\n"
+                "        'reverse_neutral_probability': 0.85,\n"
+                "        'reverse_contradiction_probability': 0.05,\n"
+                "        'max_contradiction_probability': 0.05,\n"
+                "        'predicted_label_using_max_contradiction': 'not_contradiction'\n"
+                "    })\n"
+                "args.output.write_text(''.join(json.dumps(item) + '\\n' for item in out), encoding='utf-8')\n"
+                "args.summary_output.write_text(json.dumps({'schema_version': 1, 'total_pairs_processed': len(out)}) + '\\n', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
             metrics_config = root / "metrics.json"
             metrics_config.write_text(
                 json.dumps(
@@ -518,8 +551,8 @@ class EvaluationScaffoldTest(unittest.TestCase):
                         "metrics": {
                             "nli_contradiction": {
                                 "backend": "dedicated-script",
-                                "script": "scripts/run_nli_contradiction_helper.py",
-                                "script_backend": "stub",
+                                "script": str(helper_script),
+                                "script_backend": "hf",
                                 "contradiction_threshold": 0.7,
                             }
                         }

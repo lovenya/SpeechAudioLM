@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_nli_contradiction_helper import StubNliScorer, run_nli_helper, score_pair
+from scripts.run_nli_contradiction_helper import run_nli_helper, score_pair
 
 
 class FixedScorer:
@@ -38,17 +38,6 @@ class NliContradictionHelperTest(unittest.TestCase):
         )
 
         self.assertEqual(result.forward["neutral"], 0.85)
-        self.assertEqual(result.predicted_label_using_max_contradiction, "not_contradiction")
-
-    def test_stub_is_deterministic_and_schema_compatible(self) -> None:
-        result = score_pair(
-            "Can someone close the window?",
-            "A dog is barking loudly outside.",
-            StubNliScorer(),
-            contradiction_threshold=0.7,
-        )
-
-        self.assertEqual(set(result.forward), {"entailment", "neutral", "contradiction"})
         self.assertEqual(result.predicted_label_using_max_contradiction, "not_contradiction")
 
     def test_run_nli_helper_writes_rows_and_summary(self) -> None:

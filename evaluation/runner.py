@@ -768,8 +768,6 @@ def _dedicated_script_command(
             or _truthy_config(config.get("transformers_offline"))
         ):
             command.append("--local-files-only")
-        if config.get("allow_stub_fallback"):
-            command.append("--allow-stub-fallback")
         return command
     if metric_name in {
         "g_eval_prometheus_criterion_v2_plausibility",

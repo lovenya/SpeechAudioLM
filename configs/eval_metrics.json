@@ -157,7 +157,6 @@
       "model_name": "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli",
       "contradiction_threshold": 0.7,
       "batch_size": 8,
-      "allow_stub_fallback": false,
       "note": "Helper metric for contradiction detection only; neutral is not failure and entailment is not required.",
       "local_files_only": true,
       "hf_home": "{cache:huggingface}",

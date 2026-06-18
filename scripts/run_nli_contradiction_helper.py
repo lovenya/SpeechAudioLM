@@ -31,23 +31,6 @@ class NliResult:
     predicted_label_using_max_contradiction: str
 
 
-class StubNliScorer:
-    """Deterministic fallback that keeps pipeline wiring runnable without a model."""
-
-    name = "stub_nli_no_model"
-
-    def predict(self, premise: str, hypothesis: str) -> dict[str, float]:
-        premise_words = _content_words(premise)
-        hypothesis_words = _content_words(hypothesis)
-        if not premise_words or not hypothesis_words:
-            return {"entailment": 0.0, "neutral": 1.0, "contradiction": 0.0}
-        overlap = len(premise_words & hypothesis_words) / max(len(premise_words | hypothesis_words), 1)
-        contradiction = 0.15 if overlap < 0.05 else 0.05
-        entailment = min(0.35, overlap)
-        neutral = max(0.0, 1.0 - contradiction - entailment)
-        return {"entailment": entailment, "neutral": neutral, "contradiction": contradiction}
-
-
 class HuggingFaceNliScorer:
     """Hugging Face sequence-classification NLI adapter."""
 
@@ -227,12 +210,6 @@ def _required_str(row: dict[str, Any], field: str) -> str:
         raise ValueError(f"Row has no usable {field!r}: {row}")
     return value
 
-
-def _content_words(text: str) -> set[str]:
-    stop = {"a", "an", "the", "with", "and", "or", "to", "of", "in", "on", "this", "that", "is", "are"}
-    return {word.strip(".,!?;:'\"()[]{}").lower() for word in text.split() if word.lower() not in stop}
-
-
 def _label_indices(config: Any) -> dict[str, int]:
     id2label = {int(index): str(label).lower() for index, label in config.id2label.items()}
     indices: dict[str, int] = {}
@@ -263,19 +240,12 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def _build_scorer(args: argparse.Namespace) -> NliScorer:
-    if args.backend == "stub":
-        return StubNliScorer()
-    try:
-        return HuggingFaceNliScorer(
-            args.model,
-            device=args.device,
-            batch_size=args.batch_size,
-            local_files_only=args.local_files_only,
-        )
-    except Exception:
-        if not args.allow_stub_fallback:
-            raise
-        return StubNliScorer()
+    return HuggingFaceNliScorer(
+        args.model,
+        device=args.device,
+        batch_size=args.batch_size,
+        local_files_only=args.local_files_only,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -283,7 +253,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", type=Path, required=True, help="Input JSONL with direction, input_text, and generated_text.")
     parser.add_argument("--output", type=Path, required=True, help="Output NLI result JSONL.")
     parser.add_argument("--summary-output", type=Path, required=True)
-    parser.add_argument("--backend", choices=["hf", "stub"], default="hf")
+    parser.add_argument("--backend", choices=["hf"], default="hf")
     parser.add_argument("--model", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--batch-size", type=int, default=8)
@@ -294,7 +264,6 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not contact Hugging Face; load only local model files.",
     )
-    parser.add_argument("--allow-stub-fallback", action="store_true")
     return parser
 
 
