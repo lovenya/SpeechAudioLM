@@ -204,6 +204,34 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(errors["error_count"], 0)
             self.assertEqual(summary["errors"]["validation"]["result_status"], "error")
 
+
+    def test_errors_document_does_not_duplicate_backend_payload_as_generated_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            options = self._options(root)
+
+            def backend_error_row(row: dict, ordinal: int, specs: list, dataset_root: Path) -> dict:
+                return {
+                    "row_index": row["row_index"],
+                    "sample_id": row["sample_id"],
+                    "status": "error",
+                    "output_file": None,
+                    "references": {"speech_text": "hello world"},
+                    "predictions": {"wer": {"backend_payload": True}},
+                    "metrics": {},
+                    "errors": {"wer": "missing generated text"},
+                }
+
+            with patch("evaluation.runner._evaluate_row", side_effect=backend_error_row):
+                paths = run_evaluation(options)
+
+            manifest_row = json.loads(paths["manifest"].read_text(encoding="utf-8").splitlines()[0])
+            error_entry = json.loads(paths["errors"].read_text(encoding="utf-8"))["errors"][0]
+            self.assertEqual(manifest_row["output"]["details"], {"backend_payload": True})
+            self.assertEqual(error_entry["input"]["generated"], {})
+            self.assertEqual(error_entry["input"]["reference"], {"speech_text": "hello world"})
+            self.assertEqual(error_entry["message"], "missing generated text")
+
     def test_temporary_eval_publishes_diagnostic_validation_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

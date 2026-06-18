@@ -1534,7 +1534,7 @@ def _errors_document(
     metric_id = options.metric_specs[0].name
     failed_sample_ids = set(validation_report.get("failed_sample_ids", {}).get(metric_id, []))
     entries = [
-        _error_entry(row, metric_id, row.get("sample_id") in failed_sample_ids)
+        _error_entry(row, options.metric_specs[0], row.get("sample_id") in failed_sample_ids)
         for row in rows
         if row.get("status") in {"skipped", "error"}
         or row.get("errors")
@@ -1550,9 +1550,9 @@ def _errors_document(
     }
 
 
-def _error_entry(row: dict[str, Any], metric_id: str, validation_failed: bool) -> dict:
+def _error_entry(row: dict[str, Any], metric: MetricSpec, validation_failed: bool) -> dict:
     errors = row.get("errors") if isinstance(row.get("errors"), dict) else {}
-    error_type = _error_type(errors, metric_id, validation_failed)
+    error_type = _error_type(errors, metric.name, validation_failed)
     status = "skipped" if error_type == "TargetRowNotSuccessful" else "error"
     message = _error_message(errors)
     if message is None and validation_failed:
@@ -1565,7 +1565,7 @@ def _error_entry(row: dict[str, Any], metric_id: str, validation_failed: bool) -
         "message": message,
         "input": {
             "source": {},
-            "generated": _generated_input(row),
+            "generated": _manifest_generated_input(metric, row),
             "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
         },
         "log_ref": None,
