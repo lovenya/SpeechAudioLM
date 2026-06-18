@@ -44,7 +44,7 @@ class ImmutableArtifactTest(unittest.TestCase):
             self.assertEqual(path.read_bytes(), b"first")
             self.assert_no_temporary_files(root)
 
-    def test_json_is_sorted_deterministic_and_rejects_non_finite_numbers(self) -> None:
+    def test_json_preserves_schema_order_and_rejects_non_finite_numbers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             first = root / "first.json"
@@ -56,11 +56,11 @@ class ImmutableArtifactTest(unittest.TestCase):
 
             expected = (
                 '{\n'
+                '  "z": "caf\u00e9",\n'
                 '  "a": {\n'
-                '    "x": 1,\n'
-                '    "y": 2\n'
-                '  },\n'
-                '  "z": "caf\u00e9"\n'
+                '    "y": 2,\n'
+                '    "x": 1\n'
+                '  }\n'
                 '}\n'
             )
             self.assertEqual(first.read_text(encoding="utf-8"), expected)
@@ -72,7 +72,7 @@ class ImmutableArtifactTest(unittest.TestCase):
             self.assertFalse(failed.exists())
             self.assert_no_temporary_files(root)
 
-    def test_jsonl_validates_rows_and_serializes_deterministically(self) -> None:
+    def test_jsonl_validates_rows_and_preserves_schema_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             path = root / "rows.jsonl"
@@ -83,7 +83,7 @@ class ImmutableArtifactTest(unittest.TestCase):
 
             self.assertEqual(
                 path.read_text(encoding="utf-8"),
-                '{"a":1,"z":2}\n{"nested":{"a":1,"b":2},"text":"caf\u00e9"}\n',
+                '{"z":2,"a":1}\n{"text":"caf\u00e9","nested":{"b":2,"a":1}}\n',
             )
 
             invalid_row = root / "invalid-row.jsonl"
