@@ -22,6 +22,8 @@ class RunnerResultValidationTest(unittest.TestCase):
     ) -> EvalOptions:
         dataset_root = root / "dataset"
         dataset_root.mkdir()
+        speech_file = dataset_root / "speech.wav"
+        speech_file.write_bytes(b"placeholder")
         dataset_config = root / "dataset.json"
         dataset_config.write_text(
             json.dumps({"dataset_root": str(dataset_root)}), encoding="utf-8"
@@ -38,7 +40,7 @@ class RunnerResultValidationTest(unittest.TestCase):
                 "sample_id": sample_id,
                 "status": "success",
                 "candidate_text": "hello world",
-                "source": {"speech_text": "hello world"},
+                "source": {"speech_text": "hello world", "speech_file": "speech.wav"},
             }
             for index, sample_id in enumerate(("sample-a", "sample-b"))
         ]
@@ -123,7 +125,7 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(paths["summary"].name, "summary.json")
             self.assertEqual(paths["report"].name, "report.md")
             self.assertEqual(paths["errors"].name, "errors.json")
-            self.assertTrue((paths["run"].parent / "artifacts").is_dir())
+            self.assertFalse((paths["run"].parent / "artifacts").exists())
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             inspect = json.loads(paths["inspect"].read_text(encoding="utf-8"))
             run_doc = json.loads(paths["run"].read_text(encoding="utf-8"))
@@ -139,6 +141,7 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(summary["metric"]["metric_id"], "wer")
             self.assertEqual(summary["samples"]["total"], 2)
             self.assertEqual(summary["scores"]["primary"]["name"], "wer")
+            self.assertIsInstance(summary["timing"]["total_seconds"], float)
             self.assertEqual(
                 list(manifest_row),
                 ["schema_version", "row_index", "sample_id", "metric_id", "status", "input", "output", "error"],
@@ -148,6 +151,7 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(set(run_config), {"schema_version", "input", "metric", "backend", "execution"})
             self.assertEqual(run_config["metric"]["input_contract"]["prediction_fields"], ["generated_text"])
             self.assertEqual(run_config["backend"]["name"], "metric_algorithm")
+            self.assertEqual(run_config["execution"]["num_samples"], 2)
             self.assertEqual(
                 list(run_doc),
                 ["schema_version", "run_id", "temporary", "status", "metric", "target", "dataset", "split", "started_at", "completed_at", "code", "slurm", "paths"],
@@ -186,6 +190,8 @@ class RunnerResultValidationTest(unittest.TestCase):
                 set(inspect["samples"][0]),
                 {"row_index", "sample_id", "status", "input", "intermediate", "normalization", "output", "error"},
             )
+            self.assertEqual(manifest_row["input"]["source"], {"speech_file": str(root / "dataset" / "speech.wav")})
+            self.assertEqual(inspect["samples"][0]["input"]["source"], {"speech_file": str(root / "dataset" / "speech.wav")})
             self.assertEqual(inspect["samples"][0]["output"]["score_name"], "wer")
             self.assertNotIn("metrics", inspect["samples"][0])
             self.assertNotIn("predictions", inspect["samples"][0])

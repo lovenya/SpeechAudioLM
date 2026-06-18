@@ -7,6 +7,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,7 @@ class EvalOptions:
 
 
 def run_evaluation(options: EvalOptions) -> dict[str, Path]:
+    started_monotonic = time.perf_counter()
     started_at = utc_timestamp()
     dataset_config = read_json(options.dataset_config_path)
     metrics_config = read_json(options.metrics_config_path).get("metrics", {})
@@ -76,7 +78,6 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
     output_dir = _evaluation_output_dir(options, eval_run_id)
     timestamp = eval_run_id
     artifact_dir = _evaluation_artifact_dir(output_dir, options.split, timestamp)
-    artifact_dir.mkdir(parents=True, exist_ok=True)
     work_dir = _evaluation_work_dir(output_dir, options.split, timestamp)
     corpus_metrics = _compute_external_metrics(
         options,
@@ -104,6 +105,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         metric_backend_metadata,
         corpus_metrics,
         validation_report,
+        total_seconds=time.perf_counter() - started_monotonic,
     )
 
     paths = {
@@ -122,6 +124,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         options,
         metric_backend_metadata,
         validation_report,
+        num_samples=len(rows),
     )
     run_doc = _run_document(options, eval_run_id, started_at, validation_report, paths)
     errors_doc = _errors_document(options, eval_run_id, per_sample_rows, validation_report)
@@ -341,6 +344,7 @@ def _evaluate_row(row: dict, ordinal: int, specs: list[MetricSpec], dataset_root
         "sample_id": sid,
         "status": row_status,
         "output_file": output_file,
+        "source": _source_context(source, dataset_root),
         "references": _references(source, specs, dataset_root),
         "predictions": _predictions(row, specs),
         "metrics": {},
@@ -377,7 +381,7 @@ def _manifest_row(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
         "metric_id": metric.name,
         "status": row.get("status"),
         "input": {
-            "source": {},
+            "source": row.get("source") if isinstance(row.get("source"), dict) else {},
             "generated": _manifest_generated_input(metric, row),
             "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
         },
@@ -1215,6 +1219,25 @@ def _text_value(value: object) -> str | None:
     return None
 
 
+def _source_context(source: dict, dataset_root: Path) -> dict:
+    context: dict[str, Any] = {}
+    for field in ("audio_file", "speech_file"):
+        value = _source_field_value(source, field, dataset_root)
+        if isinstance(value, str) and value:
+            context[field] = str(_resolve_reference(dataset_root, value))
+    for field in ("primary_audio_class", "primary_audio_tag", "pipeline"):
+        value = source.get(field)
+        if value is not None:
+            context[field] = value
+    provenance = source.get("stage_provenance")
+    if isinstance(provenance, dict):
+        for field in ("stage", "direction", "mode", "pipeline"):
+            value = provenance.get(field)
+            if value is not None:
+                context[f"source_{field}"] = value
+    return context
+
+
 def _references(source: dict, specs: list[MetricSpec], dataset_root: Path) -> dict:
     fields = sorted({field for spec in specs for field in spec.required_source_fields})
     refs = {}
@@ -1272,6 +1295,7 @@ def _summarize(
     backend_metadata: dict[str, dict],
     corpus_metrics: dict[str, Any] | None,
     validation_report: dict[str, Any],
+    total_seconds: float | None = None,
 ) -> dict:
     corpus_metrics = corpus_metrics or {}
     metric = options.metric_specs[0]
@@ -1305,7 +1329,7 @@ def _summarize(
             "backend_outputs": "artifacts/",
         },
         "timing": {
-            "total_seconds": None,
+            "total_seconds": round(total_seconds, 3) if isinstance(total_seconds, (int, float)) else None,
             "backend_seconds": None,
             "mean_seconds_per_sample": None,
         },
@@ -1564,7 +1588,7 @@ def _error_entry(row: dict[str, Any], metric: MetricSpec, validation_failed: boo
         "error_type": error_type,
         "message": message,
         "input": {
-            "source": {},
+            "source": row.get("source") if isinstance(row.get("source"), dict) else {},
             "generated": _manifest_generated_input(metric, row),
             "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
         },
@@ -1659,7 +1683,6 @@ def _inspect_document(
     }
 
 
-
 def _inspect_samples(metric: MetricSpec, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [_inspect_sample(metric, row) for row in rows]
 
@@ -1670,7 +1693,7 @@ def _inspect_sample(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
         "sample_id": row.get("sample_id"),
         "status": row.get("status"),
         "input": {
-            "source": {},
+            "source": row.get("source") if isinstance(row.get("source"), dict) else {},
             "generated": _manifest_generated_input(metric, row),
             "reference": row.get("references") if isinstance(row.get("references"), dict) else {},
         },
@@ -1684,6 +1707,7 @@ def _run_config(
     options: EvalOptions,
     backend_metadata: dict[str, dict],
     validation_report: dict[str, Any],
+    num_samples: int,
 ) -> dict:
     metric = options.metric_specs[0]
     return {
@@ -1711,6 +1735,7 @@ def _run_config(
         "backend": _config_backend(metric, backend_metadata.get(metric.name, {})),
         "execution": {
             "command": options.command,
+            "num_samples": num_samples,
             "temporary": options.temporary,
             "device": options.device,
             "cache_dir": str(options.cache_dir),
