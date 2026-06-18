@@ -19,6 +19,7 @@ from baseline_cascaded import (
     _cascade_output_root,
     _cascade_variant_name,
     _design_config_document,
+    _load_stage_rows,
     _pipeline_prompt_field,
     _planned_stages,
     _read_optional_json,
@@ -1298,6 +1299,76 @@ class CascadedBaselineTest(unittest.TestCase):
         self.assertEqual(manifest_row["output"]["generated_audio_caption"], "Environmental audio matching this spoken situation: start the engine")
         self.assertEqual([stage["stage"] for stage in inspect_doc["stage_configs"]], ["s2t", "t2t"])
         self.assertEqual(len(inspect_doc["samples"][0]["stages"]), 2)
+
+    def test_v1_direct_stage_manifest_skips_failed_upstream_rows(self) -> None:
+        args = _minimal_cascade_args(
+            pipeline="T2T",
+            text_mode="audio_description_to_speech",
+            captioner="reference",
+            results_schema="v1",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = Path(tmpdir) / "manifest.jsonl"
+            rows = [
+                {
+                    "schema_version": 1,
+                    "row_index": 0,
+                    "sample_id": "ok-a",
+                    "stage": "a2t",
+                    "model": "reference",
+                    "status": "success",
+                    "input": {"audio_file": "audio/a.wav"},
+                    "output": {"type": "text", "audio_caption": "engine idling"},
+                    "timing": {"inference_seconds": 0.1},
+                    "error": None,
+                },
+                {
+                    "schema_version": 1,
+                    "row_index": 1,
+                    "sample_id": "bad-audio",
+                    "stage": "a2t",
+                    "model": "reference",
+                    "status": "error",
+                    "input": {"audio_file": "audio/b.wav"},
+                    "output": None,
+                    "timing": {"inference_seconds": 0.01},
+                    "error": {"type": "IndexError", "message": "empty features"},
+                },
+                {
+                    "schema_version": 1,
+                    "row_index": 2,
+                    "sample_id": "ok-b",
+                    "stage": "a2t",
+                    "model": "reference",
+                    "status": "success",
+                    "input": {"audio_file": "audio/c.wav"},
+                    "output": {"type": "text", "audio_caption": "rain falling"},
+                    "timing": {"inference_seconds": 0.1},
+                    "error": None,
+                },
+            ]
+            manifest.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+            loaded, input_field = _load_stage_rows(
+                args,
+                manifest,
+                prompt_field="audio_cap",
+                start_index=0,
+                num_samples=-1,
+            )
+            windowed, _ = _load_stage_rows(
+                args,
+                manifest,
+                prompt_field="audio_cap",
+                start_index=0,
+                num_samples=2,
+            )
+
+        self.assertEqual(input_field, "audio_caption")
+        self.assertEqual([row.sample_id for row in loaded], ["ok-a", "ok-b"])
+        self.assertEqual([row.row_index for row in loaded], [0, 2])
+        self.assertEqual([row.prompt for row in loaded], ["engine idling", "rain falling"])
+        self.assertEqual([row.sample_id for row in windowed], ["ok-a"])
 
     def test_v1_main_stage_input_keeps_cli_stage_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

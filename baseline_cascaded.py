@@ -1264,15 +1264,14 @@ def _iter_v1_stage_manifest_rows(
     inspect_samples = _v1_inspect_samples_by_id(split_path)
     definitions = read_inspection_definitions(split_path)
     lineage = _v1_manifest_lineage(split_path)
-    emitted = 0
+    stop_ordinal = None if num_samples == -1 else start_index + num_samples
     for ordinal, record in enumerate(iter_jsonl(split_path)):
         if ordinal < start_index:
             continue
+        if stop_ordinal is not None and ordinal >= stop_ordinal:
+            break
         if record.get("status") != "success":
-            raise ValueError(
-                f"results-schema v1 {args.pipeline} direct manifest input only supports successful upstream rows; "
-                f"row {ordinal} sample_id={record.get('sample_id')!r} has status={record.get('status')!r}"
-            )
+            continue
         row = _prompt_row_from_v1_stage_record(
             args,
             record,
@@ -1283,9 +1282,6 @@ def _iter_v1_stage_manifest_rows(
             fallback_row_index=ordinal,
         )
         yield row
-        emitted += 1
-        if num_samples != -1 and emitted >= num_samples:
-            break
 
 
 def _prompt_row_from_v1_stage_record(
