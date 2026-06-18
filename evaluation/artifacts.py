@@ -28,19 +28,19 @@ def write_text_create_only(path: Path, content: str) -> None:
 
 
 def write_json_create_only(path: Path, value: Any) -> None:
-    """Atomically create deterministic JSON, rejecting non-finite numbers."""
+    """Atomically create schema-ordered JSON, rejecting non-finite numbers."""
     content = json.dumps(
         value,
         allow_nan=False,
         ensure_ascii=False,
         indent=2,
-        sort_keys=True,
+        sort_keys=False,
     )
     write_text_create_only(path, content + "\n")
 
 
 def write_jsonl_create_only(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
-    """Atomically create deterministic JSON Lines from mapping rows."""
+    """Atomically create schema-ordered JSON Lines from mapping rows."""
     lines: list[str] = []
     for index, row in enumerate(rows):
         if not isinstance(row, Mapping):
@@ -51,7 +51,7 @@ def write_jsonl_create_only(path: Path, rows: Iterable[Mapping[str, Any]]) -> No
                 allow_nan=False,
                 ensure_ascii=False,
                 separators=(",", ":"),
-                sort_keys=True,
+                sort_keys=False,
             )
         )
     write_text_create_only(path, "".join(f"{line}\n" for line in lines))

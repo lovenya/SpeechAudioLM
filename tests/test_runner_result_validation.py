@@ -128,6 +128,7 @@ class RunnerResultValidationTest(unittest.TestCase):
             inspect = json.loads(paths["inspect"].read_text(encoding="utf-8"))
             run_doc = json.loads(paths["run"].read_text(encoding="utf-8"))
             run_config = json.loads(paths["run_config"].read_text(encoding="utf-8"))
+            manifest_row = json.loads(paths["manifest"].read_text(encoding="utf-8").splitlines()[0])
             report = inspect["summary"]["result_validation"]
             self.assertTrue(report["ok"])
             self.assertTrue(report["scientifically_valid"])
@@ -138,10 +139,19 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(summary["metric"]["metric_id"], "wer")
             self.assertEqual(summary["samples"]["total"], 2)
             self.assertEqual(summary["scores"]["primary"]["name"], "wer")
+            self.assertEqual(
+                list(manifest_row),
+                ["schema_version", "row_index", "sample_id", "metric_id", "status", "input", "output", "error"],
+            )
             self.assertEqual(run_config["schema_version"], 1)
+            self.assertEqual(list(run_config), ["schema_version", "input", "metric", "backend", "execution"])
             self.assertEqual(set(run_config), {"schema_version", "input", "metric", "backend", "execution"})
             self.assertEqual(run_config["metric"]["input_contract"]["prediction_fields"], ["generated_text"])
             self.assertEqual(run_config["backend"]["name"], "metric_algorithm")
+            self.assertEqual(
+                list(run_doc),
+                ["schema_version", "run_id", "temporary", "status", "metric", "target", "dataset", "split", "started_at", "completed_at", "code", "slurm", "paths"],
+            )
             self.assertEqual(
                 set(run_doc),
                 {"schema_version", "run_id", "temporary", "status", "metric", "target", "dataset", "split", "started_at", "completed_at", "code", "slurm", "paths"},
