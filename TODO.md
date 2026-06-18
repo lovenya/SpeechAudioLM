@@ -14,6 +14,11 @@
 
 ## Cascaded Manifest Cleanup
 
+- Make downstream cascaded stages consume the upstream stage `manifest.jsonl` directly.
+  - The machine-readable `manifest.jsonl` is the contract between stages; `inspect.json` is for human inspection.
+  - Remove the current need to convert upstream outputs into derived `stage_inputs/schema_v1/*.jsonl` adapter files before T2T or final stages.
+  - Add CLI/config support for selecting the upstream manifest/run directly, then extracting successful rows and required text/media fields internally.
+  - Preserve lineage, sample ID checks, and error-row handling without copying full upstream records into every row.
 - Fix carried stage metadata so already-completed upstream stages preserve real `checkpoint`, `dtype`, `prompt_template`, `generation`, and `runtime.model_load_seconds` values instead of the current legacy null placeholders.
   - Current gap is in `scripts/build_cascaded_stage_inputs.py` fallback `_legacy_stage_definition(...)`.
 - Make stage object field ordering consistent across all stages.

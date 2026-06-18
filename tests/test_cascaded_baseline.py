@@ -5,6 +5,8 @@ import contextlib
 import json
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 from pathlib import Path
@@ -19,6 +21,7 @@ from baseline_cascaded import (
     _design_config_document,
     _pipeline_prompt_field,
     _planned_stages,
+    _read_optional_json,
     _run_config,
     _temporary_path,
     _validate_v1_shard_args,
@@ -375,18 +378,29 @@ class CascadedBaselineTest(unittest.TestCase):
             shard1_manifest = _read_jsonl(shard1 / "manifest.jsonl")
             shard0_inspect = json.loads((shard0 / "inspect.json").read_text(encoding="utf-8"))
 
-        self.assertEqual(root_run["run_id"], "20260616_1437")
-        self.assertEqual(root_run["status"], "running")
-        self.assertEqual(root_config["input"]["num_samples"], 2)
-        self.assertEqual(root_config["execution"]["shard_index"], None)
-        self.assertEqual(root_config["execution"]["num_shards"], 2)
-        for name in ("manifest.jsonl", "inspect.json", "errors.json", "summary.json"):
-            self.assertFalse((output_root / name).exists())
-        self.assertEqual([row["row_index"] for row in shard0_manifest], [0])
-        self.assertEqual([row["row_index"] for row in shard1_manifest], [1])
-        self.assertEqual(shard0_inspect["run_id"], "20260616_1437")
-        self.assertEqual(shard0_inspect["stage"], root_run["stage"])
-        self.assertEqual(shard0_inspect["direction"], root_run["direction"])
+            shard0_config = json.loads((shard0 / "config.json").read_text(encoding="utf-8"))
+            shard1_config = json.loads((shard1 / "config.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(root_run["run_id"], "20260616_1437")
+            self.assertEqual(root_run["status"], "running")
+            self.assertEqual(root_config["input"]["num_samples"], 2)
+            self.assertEqual(root_config["execution"]["shard_index"], None)
+            self.assertEqual(root_config["execution"]["num_shards"], 2)
+            self.assertEqual(shard0_config["input"]["start_index"], 0)
+            self.assertEqual(shard0_config["input"]["num_samples"], 1)
+            self.assertEqual(shard0_config["execution"]["shard_index"], 0)
+            self.assertEqual(shard0_config["execution"]["shard_start_index"], 0)
+            self.assertEqual(shard1_config["input"]["start_index"], 1)
+            self.assertEqual(shard1_config["input"]["num_samples"], 1)
+            self.assertEqual(shard1_config["execution"]["shard_index"], 1)
+            self.assertEqual(shard1_config["execution"]["shard_start_index"], 1)
+            for name in ("manifest.jsonl", "inspect.json", "errors.json", "summary.json"):
+                self.assertFalse((output_root / name).exists())
+            self.assertEqual([row["row_index"] for row in shard0_manifest], [0])
+            self.assertEqual([row["row_index"] for row in shard1_manifest], [1])
+            self.assertEqual(shard0_inspect["run_id"], "20260616_1437")
+            self.assertEqual(shard0_inspect["stage"], root_run["stage"])
+            self.assertEqual(shard0_inspect["direction"], root_run["direction"])
 
     def test_create_or_verify_allows_matching_concurrent_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -396,6 +410,22 @@ class CascadedBaselineTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "differs"):
                 _write_text_create_or_verify(path, "{\n  \"schema_version\": 2\n}\n")
+
+    def test_optional_json_tolerates_concurrent_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "run.json"
+            path.write_text("", encoding="utf-8")
+
+            def publish() -> None:
+                time.sleep(0.1)
+                path.write_text('{"status": "running"}\n', encoding="utf-8")
+
+            writer = threading.Thread(target=publish)
+            writer.start()
+            try:
+                self.assertEqual(_read_optional_json(path), {"status": "running"})
+            finally:
+                writer.join()
 
     def test_v1_stage_shard_args_are_v1_only_and_paired(self) -> None:
         with self.assertRaisesRegex(ValueError, "require --results-schema v1"):
