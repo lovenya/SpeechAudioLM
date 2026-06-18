@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Canonical full test-split generated-audio/speech metrics.
 # Scope: audio_omni T2A and cosyvoice3 T2S only.
-# Excludes prompt_adherence_clap_score until exact T2A conditioning prompts are
-# available in the metric input contract.
 
 #SBATCH --job-name=salm-audio-omni-cosy-eval
 #SBATCH --account=aip-csubakan
-#SBATCH --time=06:00:00
+#SBATCH --time=05:00:00
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
 #SBATCH --gpus=h100:4
@@ -86,7 +84,7 @@ for name in ("asr_wer", "dwer", "utmos", "dnsmos"):
 for name in ("fad", "inception_score"):
     cfg["metrics"][name]["python"] = os.environ["AUDIOLDM_PYTHON"]
 cfg["metrics"]["kad"]["python"] = os.environ["KADTK_PYTHON"]
-for name in ("target_caption_clap_score", "kl_passt"):
+for name in ("target_caption_clap_score", "prompt_adherence_clap_score", "kl_passt"):
     cfg["metrics"][name]["python"] = os.environ["STABLE_AUDIO_PYTHON"]
     cfg["metrics"][name]["pythonpath"] = os.environ["STABLE_AUDIO_SOURCE"]
 runtime_config.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
@@ -96,9 +94,6 @@ metadata = {
     "job_id": os.environ.get("SLURM_JOB_ID", "manual"),
     "run_id": os.environ["RUN_ID"],
     "scope": "canonical_test_audio_omni_t2a_and_cosyvoice3_t2s",
-    "excluded_metrics": {
-        "prompt_adherence_clap_score": "audio_omni T2A manifest lacks exact persisted conditioning_prompt for metric input"
-    },
     "repo": str(Path.cwd()),
     "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
     "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
@@ -156,7 +151,7 @@ pids=()
 
 (
   lane_failures=0
-  run_eval t2a_audio_omni_stable t2a "$T2A_RUN_ID" target_caption_clap_score,kl_passt "$T2A_MANIFEST" 2 || lane_failures=$((lane_failures + 1))
+  run_eval t2a_audio_omni_stable t2a "$T2A_RUN_ID" target_caption_clap_score,prompt_adherence_clap_score,kl_passt "$T2A_MANIFEST" 2 || lane_failures=$((lane_failures + 1))
   run_eval t2s_cosyvoice3_utmos t2s "$T2S_RUN_ID" utmos "$T2S_MANIFEST" 2 || lane_failures=$((lane_failures + 1))
   exit "$lane_failures"
 ) & pids+=("$!")

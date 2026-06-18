@@ -296,7 +296,16 @@ def _v1_runtime_prompt(record: dict, inspect_sample: dict | None = None) -> str 
     if stage is None:
         return None
     prompt = stage.get("runtime_prompt")
-    return prompt if isinstance(prompt, str) else None
+    if isinstance(prompt, str) and prompt.strip():
+        return prompt
+    if prompt is not None:
+        return None
+    if record.get("stage") != "t2a" or record.get("model") != "audio_omni":
+        return None
+    stage_input = stage.get("input")
+    if isinstance(stage_input, dict):
+        return _v1_text_value(stage_input)
+    return None
 
 
 def _v1_inspect_stage_for_record(record: dict, inspect_sample: dict | None = None) -> dict | None:

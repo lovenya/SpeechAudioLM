@@ -900,6 +900,131 @@ class WrappedCascadedManifestTest(unittest.TestCase):
         self.assertEqual(row["direction"], "audio_to_speech")
         self.assertEqual(row["prompt"], "exact chat prompt")
 
+    def test_evaluation_reader_does_not_replace_structured_runtime_prompt_with_stage_input(self) -> None:
+        from evaluation.io import iter_jsonl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "results" / "cascaded" / "stages" / "t2a" / "audio_omni" / "from-t2t" / "llama3_3_70b_instruct" / "ttas" / "test" / "20260618_1211"
+            outputs = run_dir / "outputs"
+            outputs.mkdir(parents=True)
+            (outputs / "sample-a.wav").write_bytes(b"RIFFfake")
+            (run_dir / "manifest.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 7,
+                        "sample_id": "sample-a",
+                        "stage": "t2a",
+                        "model": "audio_omni",
+                        "status": "success",
+                        "input": {"source_stage_index": 2, "source_sample_id": "sample-a", "source_status": "success"},
+                        "output": {"type": "audio", "audio_file": "outputs/sample-a.wav"},
+                        "timing": {"inference_seconds": 4.1},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "samples": [
+                            {
+                                "sample_id": "sample-a",
+                                "row_index": 7,
+                                "status": "success",
+                                "reference": {},
+                                "stages": [
+                                    {"stage_index": 2, "stage": "t2t", "model": "llama3_3_70b_instruct", "status": "success"},
+                                    {
+                                        "stage_index": 3,
+                                        "stage": "t2a",
+                                        "model": "audio_omni",
+                                        "status": "success",
+                                        "input": {"generated_audio_caption": "Generated engine sound."},
+                                        "runtime_prompt": {"messages": [{"role": "user", "content": "Generate audio."}]},
+                                        "output": {"type": "audio", "audio_file": "outputs/sample-a.wav"},
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            row = next(iter_jsonl(run_dir / "manifest.jsonl")).record
+
+        self.assertNotIn("prompt", row)
+        self.assertEqual(row["input_text"], "Generated engine sound.")
+
+    def test_evaluation_reader_uses_v1_inspect_stage_input_as_prompt_when_runtime_prompt_missing(self) -> None:
+        from evaluation.io import iter_jsonl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "results" / "cascaded" / "stages" / "t2a" / "audio_omni" / "from-t2t" / "llama3_3_70b_instruct" / "ttas" / "test" / "20260618_1211"
+            outputs = run_dir / "outputs"
+            outputs.mkdir(parents=True)
+            (outputs / "sample-a.wav").write_bytes(b"RIFFfake")
+            (run_dir / "manifest.jsonl").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "row_index": 7,
+                        "sample_id": "sample-a",
+                        "stage": "t2a",
+                        "model": "audio_omni",
+                        "status": "success",
+                        "input": {"source_stage_index": 2, "source_sample_id": "sample-a", "source_status": "success"},
+                        "output": {"type": "audio", "audio_file": "outputs/sample-a.wav"},
+                        "timing": {"inference_seconds": 4.1},
+                        "error": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "inspect.json").write_text(
+                json.dumps(
+                    {
+                        "samples": [
+                            {
+                                "sample_id": "sample-a",
+                                "row_index": 7,
+                                "status": "success",
+                                "reference": {
+                                    "audio_file": "audio/source.wav",
+                                    "speech_file": "speech/source.wav",
+                                    "reference_audio_caption": "Reference audio.",
+                                    "reference_speech_text": "Reference speech.",
+                                },
+                                "stages": [
+                                    {"stage_index": 1, "stage": "s2t", "model": "asr", "status": "success"},
+                                    {"stage_index": 2, "stage": "t2t", "model": "llama3_3_70b_instruct", "status": "success"},
+                                    {
+                                        "stage_index": 3,
+                                        "stage": "t2a",
+                                        "model": "audio_omni",
+                                        "status": "success",
+                                        "input": {"generated_audio_caption": "Generated engine sound."},
+                                        "runtime_prompt": None,
+                                        "output": {"type": "audio", "audio_file": "outputs/sample-a.wav"},
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            row = next(iter_jsonl(run_dir / "manifest.jsonl")).record
+
+        self.assertEqual(row["prompt"], "Generated engine sound.")
+        self.assertEqual(row["input_text"], "Generated engine sound.")
+        self.assertEqual(_prediction_text_for_metric(row, "prompt_adherence_clap_score"), "Generated engine sound.")
+
     def test_evaluation_reader_joins_v1_inspect_runtime_prompt_for_media_rows(self) -> None:
         from evaluation.io import iter_jsonl
 
