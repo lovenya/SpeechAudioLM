@@ -569,7 +569,16 @@ class EvaluationScaffoldTest(unittest.TestCase):
                         "pipeline": "S2A",
                         "row_index": 0,
                         "sample_id": "sample",
-                        "generated_text": "A dog is barking loudly outside.",
+                        "generated_text": "wrong fallback text",
+                        "model_extra": {
+                            "stages": [
+                                {
+                                    "mode": "speech_to_audio_description",
+                                    "input": {"text": "Can someone close the window?"},
+                                    "output": {"text": "A dog is barking loudly outside."},
+                                }
+                            ]
+                        },
                         "source": {
                             "speech_text": "Can someone close the window?",
                             "primary_audio_class": "domestic_pets",
@@ -604,11 +613,24 @@ class EvaluationScaffoldTest(unittest.TestCase):
             paths = run_evaluation(options)
             per_sample = [json.loads(line) for line in paths["per_sample"].read_text(encoding="utf-8").splitlines()]
             self.assertEqual(per_sample[0]["metric_id"], "nli_contradiction")
-            self.assertEqual(per_sample[0]["output"]["score_name"], "nli_contradiction")
+            self.assertEqual(per_sample[0]["output"]["score_name"], "max_contradiction_probability")
+            self.assertEqual(per_sample[0]["output"]["range"], {"min": 0.0, "max": 1.0})
+            self.assertFalse(per_sample[0]["output"]["higher_is_better"])
+            self.assertEqual(per_sample[0]["output"]["interpretation"], "contradiction_risk")
             self.assertEqual(per_sample[0]["output"]["details"]["direction"], "speech_to_audio")
+            self.assertEqual(per_sample[0]["output"]["details"]["input_text"], "Can someone close the window?")
+            self.assertEqual(per_sample[0]["output"]["details"]["generated_text"], "A dog is barking loudly outside.")
+            self.assertEqual(per_sample[0]["output"]["details"]["source_to_candidate"]["contradiction_probability"], 0.05)
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             self.assertEqual(summary["metric"]["metric_id"], "nli_contradiction")
-            self.assertEqual(summary["scores"]["primary"]["name"], "nli_contradiction")
+            self.assertFalse(summary["metric"]["higher_is_better"])
+            self.assertEqual(summary["scores"]["primary"]["name"], "max_contradiction_probability")
+            self.assertEqual(summary["scores"]["primary"]["range"], {"min": 0.0, "max": 1.0})
+            self.assertEqual(summary["scores"]["primary"]["interpretation"], "contradiction_risk")
+            run_config = json.loads(paths["run_config"].read_text(encoding="utf-8"))
+            self.assertEqual(run_config["metric"]["score_name"], "max_contradiction_probability")
+            self.assertEqual(run_config["metric"]["score_range"], {"min": 0.0, "max": 1.0})
+            self.assertEqual(run_config["metric"]["score_interpretation"], "contradiction_risk")
 
 
 if __name__ == "__main__":

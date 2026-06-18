@@ -411,14 +411,44 @@ def _manifest_output(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
         details = {"score_location": "summary.json"}
         if metric_details:
             details["backend_output"] = _canonical_metric_details(metric_details)
+    elif metric.name == "nli_contradiction":
+        details = _nli_metric_details(metric_details)
     else:
         details = _canonical_metric_details(metric_details)
-    return {
+    output = {
         "score": score if isinstance(score, (int, float)) and not isinstance(score, bool) else None,
-        "score_name": metric.name,
+        "score_name": _metric_score_name(metric.name),
         "higher_is_better": _higher_is_better(metric.name),
-        "details": details,
     }
+    score_range = _metric_score_range(metric.name)
+    if score_range is not None:
+        output["range"] = score_range
+    interpretation = _metric_score_interpretation(metric.name)
+    if interpretation is not None:
+        output["interpretation"] = interpretation
+    output["details"] = details
+    return output
+
+
+def _nli_metric_details(metric_details: dict[str, Any]) -> dict[str, Any]:
+    canonical = _canonical_metric_details(metric_details)
+    details = {
+        "label": canonical.get("predicted_label_using_max_contradiction"),
+        "source_to_candidate": {
+            "entailment_probability": canonical.get("forward_entailment_probability"),
+            "neutral_probability": canonical.get("forward_neutral_probability"),
+            "contradiction_probability": canonical.get("forward_contradiction_probability"),
+        },
+        "candidate_to_source": {
+            "entailment_probability": canonical.get("reverse_entailment_probability"),
+            "neutral_probability": canonical.get("reverse_neutral_probability"),
+            "contradiction_probability": canonical.get("reverse_contradiction_probability"),
+        },
+    }
+    for key in ("direction", "input_text", "generated_text", "row_index", "pair_id", "sample_id", "split", "primary_audio_class"):
+        if key in canonical:
+            details[key] = canonical[key]
+    return details
 
 
 def _canonical_metric_details(value: Any) -> Any:
@@ -685,6 +715,15 @@ def _dedicated_text_pair_rows(
                 generated_text = stage_output or _prediction_text_for_metric(row, metric_name)
                 input_text = stage_input
                 direction = stage_direction
+            elif metric_name == "nli_contradiction":
+                stage_input, stage_output, stage_direction = _final_text_stage(row)
+                if stage_input or stage_output or stage_direction:
+                    generated_text = stage_output or _prediction_text_for_metric(row, metric_name)
+                    input_text = stage_input
+                    direction = stage_direction
+                else:
+                    generated_text = _prediction_text_for_metric(row, metric_name)
+                    input_text, direction = _nli_input_text_and_direction(options.task, row, source)
             else:
                 generated_text = _prediction_text_for_metric(row, metric_name)
                 input_text, direction = _nli_input_text_and_direction(options.task, row, source)
@@ -1352,13 +1391,20 @@ def _sample_counts(metric: MetricSpec, rows: list[dict]) -> dict[str, Any]:
 
 
 def _score_summary(metric: MetricSpec, stats: dict | None) -> dict[str, Any]:
+    primary = {
+        "name": _metric_score_name(metric.name),
+        "value": _primary_score_value(stats),
+        "aggregation": "corpus" if metric.level == "corpus" else "mean",
+        "higher_is_better": _higher_is_better(metric.name),
+    }
+    score_range = _metric_score_range(metric.name)
+    if score_range is not None:
+        primary["range"] = score_range
+    interpretation = _metric_score_interpretation(metric.name)
+    if interpretation is not None:
+        primary["interpretation"] = interpretation
     return {
-        "primary": {
-            "name": metric.name,
-            "value": _primary_score_value(stats),
-            "aggregation": "corpus" if metric.level == "corpus" else "mean",
-            "higher_is_better": _higher_is_better(metric.name),
-        },
+        "primary": primary,
         "statistics": stats if metric.level == "sample" else None,
     }
 
@@ -1395,10 +1441,33 @@ def _summary_errors(rows: list[dict], validation_report: dict[str, Any]) -> dict
 
 
 def _higher_is_better(metric_name: str) -> bool | None:
-    lower_is_better = {"wer", "asr_wer", "dwer", "fad", "kl_passt"}
+    lower_is_better = {"wer", "asr_wer", "dwer", "fad", "kl_passt", "nli_contradiction"}
     if metric_name in lower_is_better:
         return False
     return True
+
+
+def _metric_score_name(metric_name: str) -> str:
+    if metric_name == "nli_contradiction":
+        return "max_contradiction_probability"
+    return metric_name
+
+
+def _metric_score_range(metric_name: str) -> dict[str, float] | None:
+    if metric_name == "nli_contradiction":
+        return {"min": 0.0, "max": 1.0}
+    if metric_name in {
+        "g_eval_prometheus_criterion_v2_plausibility",
+        "g_eval_prometheus_criterion_v2_reference_grounded",
+    }:
+        return {"min": 1.0, "max": 5.0}
+    return None
+
+
+def _metric_score_interpretation(metric_name: str) -> str | None:
+    if metric_name == "nli_contradiction":
+        return "contradiction_risk"
+    return None
 
 
 def _numeric_summary(values: list[float]) -> dict:
@@ -1720,6 +1789,9 @@ def _run_config(
             "level": metric.level,
             "reference_pairing_required": bool(metric.required_source_fields),
             "higher_is_better": _higher_is_better(metric.name),
+            "score_name": _metric_score_name(metric.name),
+            "score_range": _metric_score_range(metric.name),
+            "score_interpretation": _metric_score_interpretation(metric.name),
             "input_contract": {
                 "prediction_fields": list(metric.required_prediction_fields),
                 "reference_fields": list(metric.required_source_fields),

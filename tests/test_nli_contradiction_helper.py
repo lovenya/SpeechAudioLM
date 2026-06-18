@@ -79,6 +79,7 @@ class NliContradictionHelperTest(unittest.TestCase):
             self.assertEqual(output_rows[1]["pair_id"], "b")
             self.assertIn("forward_entailment_probability", output_rows[0])
             self.assertIn("reverse_contradiction_probability", output_rows[0])
+            self.assertNotIn("nli_model", output_rows[0])
             self.assertEqual(output_rows[0]["predicted_label_using_max_contradiction"], "contradiction")
             self.assertEqual(output_rows[1]["predicted_label_using_max_contradiction"], "not_contradiction")
             self.assertEqual(summary["total_pairs_processed"], 2)

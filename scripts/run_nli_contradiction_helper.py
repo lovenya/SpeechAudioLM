@@ -151,7 +151,6 @@ def _output_row(row: dict[str, Any], input_text: str, generated_text: str, resul
         "reverse_contradiction_probability": result.reverse["contradiction"],
         "max_contradiction_probability": result.max_contradiction_probability,
         "predicted_label_using_max_contradiction": result.predicted_label_using_max_contradiction,
-        "nli_model": model_name,
     }
     return {key: value for key, value in output.items() if value is not None}
 
