@@ -52,6 +52,7 @@ class EvalOptions:
 
 
 def run_evaluation(options: EvalOptions) -> dict[str, Path]:
+    started_at = utc_timestamp()
     dataset_config = read_json(options.dataset_config_path)
     metrics_config = read_json(options.metrics_config_path).get("metrics", {})
     dataset_root = Path(dataset_config["dataset_root"])
@@ -122,7 +123,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
         metric_backend_metadata,
         validation_report,
     )
-    run_doc = _run_document(options, eval_run_id, validation_report, paths)
+    run_doc = _run_document(options, eval_run_id, started_at, validation_report, paths)
     errors_doc = _errors_document(options, eval_run_id, per_sample_rows, validation_report)
     manifest_rows = _manifest_rows(options, per_sample_rows)
     inspect_doc = _inspect_document(
@@ -1428,6 +1429,7 @@ def _corpus_summary(value: Any) -> dict:
 def _run_document(
     options: EvalOptions,
     eval_run_id: str,
+    started_at: str,
     validation_report: dict[str, Any],
     paths: dict[str, Path],
 ) -> dict:
@@ -1444,34 +1446,81 @@ def _run_document(
         },
         "target": {
             "kind": "stage",
+            "category": "cascaded",
             "stage": options.stage,
             "direction": options.direction,
             "model": options.model,
             "dataset": options.dataset,
             "split": options.split,
             "run_id": options.evaluated_run_id,
+            "run_path": str(options.manifest_path.parent),
             "manifest": str(options.manifest_path),
+            "summary": str(options.manifest_path.with_name("summary.json")),
         },
         "dataset": options.dataset,
         "split": options.split,
-        "started_at": eval_run_id,
+        "started_at": started_at,
         "completed_at": utc_timestamp(),
-        "code": {},
+        "code": _code_state(),
         "slurm": _slurm_identity(),
         "paths": {
             "result": str(paths["run"].parent),
-            "manifest": str(paths["manifest"]),
-            "inspect": str(paths["inspect"]),
-            "errors": str(paths["errors"]),
-            "summary": str(paths["summary"]),
-            "report": str(paths["report"]),
+            "logs": _eval_logs_path(paths["run"].parent),
         },
     }
+
+
+def _code_state() -> dict[str, Any]:
+    return {
+        "git_commit": _git_output("rev-parse", "HEAD"),
+        "git_dirty": _git_dirty(),
+    }
+
+
+def _git_output(*args: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=Path(__file__).resolve().parents[1],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except Exception:
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def _git_dirty() -> bool | None:
+    value = _git_output("status", "--porcelain")
+    if value is None:
+        return None
+    return bool(value)
+
+
+def _eval_logs_path(result_dir: Path) -> str | None:
+    parts = list(result_dir.parts)
+    for index in range(len(parts) - 2):
+        if parts[index:index + 3] == ["temporary", "results", "evals"]:
+            parts[index:index + 3] = ["temporary", "logs", "evals"]
+            return str(Path(*parts))
+    for index in range(len(parts) - 1):
+        if parts[index:index + 2] == ["results", "evals"]:
+            parts[index:index + 2] = ["logs", "evals"]
+            return str(Path(*parts))
+    for index, part in enumerate(parts):
+        if part == "evals":
+            parts[index:index + 1] = ["logs", "evals"]
+            return str(Path(*parts))
+    return None
 
 
 def _slurm_identity() -> dict[str, str | None]:
     return {
         "job_id": os.environ.get("SLURM_JOB_ID"),
+        "array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
         "array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
     }
 

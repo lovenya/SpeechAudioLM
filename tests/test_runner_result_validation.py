@@ -18,6 +18,7 @@ class RunnerResultValidationTest(unittest.TestCase):
         *,
         temporary: bool = False,
         metric_specs: list[MetricSpec] | None = None,
+        eval_run_id: str | None = None,
     ) -> EvalOptions:
         dataset_root = root / "dataset"
         dataset_root.mkdir()
@@ -65,6 +66,7 @@ class RunnerResultValidationTest(unittest.TestCase):
             device="cpu",
             command=["evaluate.py"],
             temporary=temporary,
+            eval_run_id=eval_run_id,
         )
 
     @staticmethod
@@ -111,7 +113,7 @@ class RunnerResultValidationTest(unittest.TestCase):
     def test_valid_final_writes_result_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = run_evaluation(self._options(root))
+            paths = run_evaluation(self._options(root, eval_run_id="manual_eval_run"))
 
             self.assertTrue(all(path.is_file() for path in paths.values()))
             self.assertEqual(paths["run"].name, "run.json")
@@ -124,6 +126,7 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertTrue((paths["run"].parent / "artifacts").is_dir())
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
             inspect = json.loads(paths["inspect"].read_text(encoding="utf-8"))
+            run_doc = json.loads(paths["run"].read_text(encoding="utf-8"))
             run_config = json.loads(paths["run_config"].read_text(encoding="utf-8"))
             report = inspect["summary"]["result_validation"]
             self.assertTrue(report["ok"])
@@ -139,6 +142,22 @@ class RunnerResultValidationTest(unittest.TestCase):
             self.assertEqual(set(run_config), {"schema_version", "input", "metric", "backend", "execution"})
             self.assertEqual(run_config["metric"]["input_contract"]["prediction_fields"], ["generated_text"])
             self.assertEqual(run_config["backend"]["name"], "metric_algorithm")
+            self.assertEqual(
+                set(run_doc),
+                {"schema_version", "run_id", "temporary", "status", "metric", "target", "dataset", "split", "started_at", "completed_at", "code", "slurm", "paths"},
+            )
+            self.assertEqual(run_doc["run_id"], "manual_eval_run")
+            self.assertNotEqual(run_doc["started_at"], "manual_eval_run")
+            self.assertEqual(run_doc["status"], "complete")
+            self.assertEqual(run_doc["metric"], {"metric_id": "wer", "level": "sample", "reference_pairing_required": True})
+            self.assertEqual(run_doc["target"]["category"], "cascaded")
+            self.assertEqual(run_doc["target"]["run_path"], str(root))
+            self.assertEqual(run_doc["target"]["manifest"], str(root / "manifest.jsonl"))
+            self.assertEqual(run_doc["target"]["summary"], str(root / "summary.json"))
+            self.assertEqual(set(run_doc["code"]), {"git_commit", "git_dirty"})
+            self.assertEqual(set(run_doc["slurm"]), {"job_id", "array_job_id", "array_task_id"})
+            expected_logs = root / "logs" / "evals" / paths["run"].parent.relative_to(root / "evals")
+            self.assertEqual(run_doc["paths"], {"result": str(paths["run"].parent), "logs": str(expected_logs)})
             self.assertEqual(
                 set(inspect),
                 {"schema_version", "run_id", "metric", "target", "config_summary", "summary", "sample_policy", "samples", "backend_artifacts"},
