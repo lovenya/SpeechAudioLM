@@ -70,11 +70,11 @@
     "panns_cnn14_audioset": "panns/Cnn14_mAP=0.431.pth",
     "metric_whisper": "metrics/whisper",
     "metric_dnsmos": "metrics/dnsmos",
-    "prometheus_8x7b_v2": "eval/prometheus-8x7b-v2.0"
+    "prometheus_8x7b_v2": "/scratch/l/lovenya/salm_migration_clean/models/eval/prometheus-8x7b-v2.0"
   },
   "environments": {
     "shared_metrics_py312": "metrics/.venv-eval-metrics-shared-py312",
-    "prometheus_vllm": "metrics/.venv-eval-prometheus-vllm-py312",
+    "prometheus_vllm": "/home/l/lovenya/.venvs/speechaudiolm/.venv-eval-prometheus-vllm-py312",
     "audioldm_eval": "metrics/.venv-eval-audioldm-eval",
     "kadtk": "metrics/.venv-eval-kadtk",
     "stable_audio_metrics": "metrics/.venv-eval-stable-audio-metrics",
