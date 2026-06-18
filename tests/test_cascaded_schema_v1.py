@@ -131,6 +131,68 @@ class CascadedSchemaV1Test(unittest.TestCase):
         self.assertEqual(row["output"], expected)
         self.assertEqual(inspect["final_output"], expected)
 
+    def test_t2s_manifest_and_inspect_keep_conditioning_reference(self) -> None:
+        reference = {
+            "speech_file": "speech/train-ref.wav",
+            "speech_text": "reference words",
+            "sample_id": "train-ref",
+            "source_split": "train",
+            "selection": {"bank_file": "configs/tts_reference_banks/cosyvoice3_train_25.json"},
+        }
+        sample = _sample(
+            stages=[
+                {
+                    "stage": 1,
+                    "task": "audio_captioning",
+                    "model": "audio_flamingo_next",
+                    "input": {"type": "audio", "file": "audio/source.wav"},
+                    "prompt": None,
+                    "inference_seconds": 1.2,
+                    "output": {"type": "audio_caption", "text": "A motor starts."},
+                    "error": None,
+                },
+                {
+                    "stage": 2,
+                    "task": "text_to_text",
+                    "model": "qwen3_32b",
+                    "mode": "audio_description_to_speech",
+                    "input": {"type": "audio_caption", "text": "A motor starts."},
+                    "prompt": None,
+                    "inference_seconds": 2.3,
+                    "output": {"type": "speech_text", "text": "Try the starter again."},
+                    "error": None,
+                },
+                {
+                    "stage": 3,
+                    "task": "text_to_speech",
+                    "model": "cosyvoice3",
+                    "input": {"type": "speech_text", "text": "Try the starter again.", "reference": reference},
+                    "prompt": None,
+                    "inference_seconds": 3.4,
+                    "output": {
+                        "type": "speech_audio",
+                        "file": "/tmp/cascade/shard_000/generated/source.wav",
+                        "sample_rate": 24000,
+                        "duration_seconds": 4.2,
+                    },
+                    "error": None,
+                },
+            ],
+            final_output={
+                "type": "speech_audio",
+                "file": "/tmp/cascade/shard_000/generated/source.wav",
+                "sample_rate": 24000,
+                "duration_seconds": 4.2,
+            },
+        )
+
+        row = legacy_sample_to_stage_manifest_row(sample)
+        inspect = legacy_sample_to_inspect_sample(sample)
+
+        self.assertEqual(row["stage"], "t2s")
+        self.assertEqual(row["input"]["reference"], reference)
+        self.assertEqual(inspect["stages"][2]["input"], {"generated_speech_text": "Try the starter again.", "reference": reference})
+
     def test_error_row_preserves_structured_error_and_null_output(self) -> None:
         sample = _sample(
             status="error",

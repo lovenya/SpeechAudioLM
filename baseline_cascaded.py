@@ -99,6 +99,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--text-model-path", default=None)
     parser.add_argument("--tts-model-path", default=None)
     parser.add_argument("--t2a-model-path", default=None)
+    parser.add_argument(
+        "--tts-reference-bank-file",
+        default=None,
+        help="Optional JSON file containing fixed TTS conditioning sample IDs and source split.",
+    )
+    parser.add_argument(
+        "--tts-reference-split-file",
+        default=None,
+        help="Optional train/reference split JSONL used as fixed TTS conditioning bank.",
+    )
+    parser.add_argument(
+        "--tts-reference-sample-ids",
+        default=None,
+        help="Comma-separated fixed sample IDs from --tts-reference-split-file for TTS conditioning.",
+    )
+    parser.add_argument(
+        "--tts-reference-count",
+        type=int,
+        default=0,
+        help="Number of rows to take from --tts-reference-split-file for TTS conditioning when IDs are not supplied.",
+    )
+    parser.add_argument(
+        "--tts-reference-stride",
+        type=int,
+        default=110,
+        help="Stride used when selecting rows from --tts-reference-split-file.",
+    )
     parser.add_argument("--prompt-template", default=None)
     parser.add_argument("--qwen-speaker", default="Ethan")
     parser.add_argument("--qwen-template", default=None)
@@ -132,6 +159,7 @@ def main() -> None:
         num_samples=row_num_samples,
     )
     rows = _enrich_rows_with_audio_metadata(rows, args.split)
+    rows = _apply_tts_reference_bank(rows, args)
     total_rows = count_jsonl_rows(split_path, row_start_index, row_num_samples)
     run_config = _run_config(args, split_path, effective_prompt_field)
     if args.results_schema == "v1" and args.shard_index is not None:
@@ -921,7 +949,18 @@ class ModularCascade:
             input_type = "audio_caption" if self.args.text_mode == "audio_description_to_speech" else "speech_text"
             return {"type": input_type, "text": row.prompt}
         if task == "text_to_speech":
-            return {"type": "speech_text", "text": row.prompt}
+            stage_input = {"type": "speech_text", "text": row.prompt}
+            reference_file = row.record.get("reference_speech_file")
+            reference_text = row.record.get("reference_speech_text")
+            if isinstance(reference_file, str) and reference_file.strip():
+                stage_input["reference"] = {
+                    "speech_file": reference_file,
+                    "speech_text": reference_text if isinstance(reference_text, str) else None,
+                    "sample_id": row.record.get("reference_sample_id"),
+                    "source_split": row.record.get("reference_source_split"),
+                    "selection": row.record.get("reference_selection"),
+                }
+            return stage_input
         if task == "text_to_audio":
             return {"type": "audio_description", "text": row.prompt}
         raise ValueError(f"Unsupported stage task: {task}")
@@ -1182,6 +1221,122 @@ def _enrich_rows_with_audio_metadata(rows: list[PromptRow], split: str) -> list[
                 record[key] = pools[key]
         enriched.append(PromptRow(row.row_index, row.sample_id, row.prompt, record))
     return enriched
+
+
+
+def _apply_tts_reference_bank(rows: list[PromptRow], args: argparse.Namespace) -> list[PromptRow]:
+    bank_config = _load_tts_reference_bank_config(args)
+    reference_file = bank_config.get("source_split_file")
+    if not reference_file:
+        return rows
+    if args.pipeline not in {"T2S", "A2S"}:
+        raise ValueError("TTS reference-bank options are only valid for T2S/A2S runs")
+    reference_ids = bank_config.get("sample_ids")
+    references = _load_tts_reference_bank(
+        Path(reference_file),
+        count=bank_config.get("count", 0),
+        stride=bank_config.get("stride", 110),
+        sample_ids=reference_ids,
+    )
+    enriched: list[PromptRow] = []
+    for row in rows:
+        reference = references[row.row_index % len(references)]
+        record = dict(row.record)
+        record["reference_speech_file"] = reference["speech_file"]
+        record["reference_speech_text"] = reference["speech_text"]
+        record["reference_sample_id"] = reference["sample_id"]
+        record["reference_source_split"] = bank_config.get("source_split") or "train"
+        record["reference_selection"] = {
+            "bank_file": bank_config.get("bank_file"),
+            "source": str(reference_file),
+            "sample_ids": [reference["sample_id"] for reference in references],
+            "count": len(references),
+            "stride": None if reference_ids else bank_config.get("stride"),
+            "assignment": bank_config.get("assignment", "row_index_mod_count"),
+        }
+        enriched.append(PromptRow(row.row_index, row.sample_id, row.prompt, record))
+    return enriched
+
+
+def _load_tts_reference_bank_config(args: argparse.Namespace) -> dict:
+    bank_file = getattr(args, "tts_reference_bank_file", None)
+    if bank_file:
+        path = Path(bank_file)
+        if not path.is_file():
+            raise FileNotFoundError(f"TTS reference bank file does not exist: {path}")
+        config = json.loads(path.read_text(encoding="utf-8"))
+        sample_ids = config.get("sample_ids")
+        if not isinstance(sample_ids, list) or not all(isinstance(item, str) and item.strip() for item in sample_ids):
+            raise ValueError(f"TTS reference bank file has no usable sample_ids list: {path}")
+        return {
+            "bank_file": str(path),
+            "source_split_file": config.get("source_split_file"),
+            "source_split": config.get("source_split"),
+            "sample_ids": sample_ids,
+            "count": len(sample_ids),
+            "stride": None,
+            "assignment": config.get("assignment") or "row_index_mod_count",
+        }
+    return {
+        "bank_file": None,
+        "source_split_file": getattr(args, "tts_reference_split_file", None),
+        "source_split": "train",
+        "sample_ids": _parse_tts_reference_sample_ids(getattr(args, "tts_reference_sample_ids", None)),
+        "count": getattr(args, "tts_reference_count", 0),
+        "stride": getattr(args, "tts_reference_stride", 110),
+        "assignment": "row_index_mod_count",
+    }
+
+
+def _parse_tts_reference_sample_ids(value: str | None) -> list[str] | None:
+    if value is None or not value.strip():
+        return None
+    sample_ids = [item.strip() for item in value.split(",") if item.strip()]
+    if not sample_ids:
+        raise ValueError("--tts-reference-sample-ids did not contain any usable IDs")
+    if len(set(sample_ids)) != len(sample_ids):
+        raise ValueError("--tts-reference-sample-ids contains duplicate IDs")
+    return sample_ids
+
+
+def _load_tts_reference_bank(path: Path, *, count: int, stride: int, sample_ids: list[str] | None = None) -> list[dict]:
+    if sample_ids is None:
+        if count <= 0:
+            raise ValueError("--tts-reference-count must be positive when --tts-reference-split-file is set")
+        if stride <= 0:
+            raise ValueError("--tts-reference-stride must be positive when --tts-reference-split-file is set")
+    if not path.is_file():
+        raise FileNotFoundError(f"TTS reference split file does not exist: {path}")
+    by_id: dict[str, dict] = {}
+    references: list[dict] = []
+    for ordinal, record in enumerate(iter_jsonl(path)):
+        speech_file = record.get("speech_file")
+        speech_text = record.get("speech_text")
+        if not isinstance(speech_file, str) or not speech_file.strip():
+            continue
+        if not isinstance(speech_text, str) or not speech_text.strip():
+            continue
+        reference = {
+            "sample_id": str(record.get("sample_id") or Path(speech_file).stem),
+            "speech_file": speech_file.strip(),
+            "speech_text": speech_text.strip(),
+        }
+        if sample_ids is not None:
+            by_id[reference["sample_id"]] = reference
+            continue
+        if ordinal % stride != 0:
+            continue
+        references.append(reference)
+        if len(references) >= count:
+            break
+    if sample_ids is not None:
+        missing = [sample_id for sample_id in sample_ids if sample_id not in by_id]
+        if missing:
+            raise ValueError(f"TTS reference IDs not found in {path}: {', '.join(missing)}")
+        return [by_id[sample_id] for sample_id in sample_ids]
+    if len(references) != count:
+        raise ValueError(f"TTS reference bank requested {count} rows from {path}, found {len(references)}")
+    return references
 
 
 def _records_by_sample_id(path: Path, split: str | None = None) -> dict[str, dict]:
@@ -1832,6 +1987,11 @@ def _run_config(args: argparse.Namespace, split_path: Path, prompt_field: str) -
         "text_mode": args.text_mode,
         "tts": args.tts,
         "t2a": args.t2a,
+        "tts_reference_split_file": getattr(args, "tts_reference_split_file", None),
+        "tts_reference_bank_file": getattr(args, "tts_reference_bank_file", None),
+        "tts_reference_sample_ids": getattr(args, "tts_reference_sample_ids", None),
+        "tts_reference_count": getattr(args, "tts_reference_count", 0),
+        "tts_reference_stride": getattr(args, "tts_reference_stride", 110),
         "duration": args.duration,
         "steps": args.steps,
         "seed": args.seed,
@@ -2043,8 +2203,46 @@ def _design_config_document(run_config: dict, total_rows: int) -> dict:
             "seed": run_config.get("seed"),
             "steps": run_config.get("steps"),
             "duration_seconds": run_config.get("duration"),
+            "tts_reference_bank": _design_tts_reference_bank_config(run_config),
         },
         "execution": execution,
+    }
+
+
+def _design_tts_reference_bank_config(run_config: dict) -> dict | None:
+    if run_config.get("pipeline") not in {"T2S", "A2S"}:
+        return None
+    bank_file = run_config.get("tts_reference_bank_file")
+    if isinstance(bank_file, str) and bank_file.strip():
+        path = Path(bank_file)
+        if not path.is_file():
+            raise FileNotFoundError(f"TTS reference bank file does not exist: {path}")
+        config = json.loads(path.read_text(encoding="utf-8"))
+        sample_ids = config.get("sample_ids")
+        if not isinstance(sample_ids, list):
+            raise ValueError(f"TTS reference bank file has no sample_ids list: {path}")
+        return {
+            "bank_file": str(path),
+            "source": config.get("source_split_file"),
+            "source_split": config.get("source_split"),
+            "sample_ids": sample_ids,
+            "count": len(sample_ids),
+            "stride": None,
+            "assignment": config.get("assignment") or "row_index_mod_count",
+        }
+    source = run_config.get("tts_reference_split_file")
+    count = run_config.get("tts_reference_count")
+    if not source or not count:
+        return None
+    sample_ids = _parse_tts_reference_sample_ids(run_config.get("tts_reference_sample_ids"))
+    return {
+        "bank_file": None,
+        "source": source,
+        "source_split": "train",
+        "sample_ids": sample_ids,
+        "count": len(sample_ids) if sample_ids else count,
+        "stride": None if sample_ids else run_config.get("tts_reference_stride"),
+        "assignment": "row_index_mod_count",
     }
 
 

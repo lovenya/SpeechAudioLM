@@ -124,13 +124,29 @@ def _manifest_input(
     if design_stage == "s2t":
         return _file_input(stages[index - 1].get("input"), "speech_file")
     previous = stages[index - 2] if index > 1 else None
-    if previous is None:
-        return {"source_stage_index": None, "source_sample_id": sample.get("sample_id"), "source_status": None}
-    return {
-        "source_stage_index": index - 1,
-        "source_sample_id": sample.get("sample_id"),
-        "source_status": _stage_status(sample, previous, index - 1),
-    }
+    result = (
+        {"source_stage_index": None, "source_sample_id": sample.get("sample_id"), "source_status": None}
+        if previous is None
+        else {
+            "source_stage_index": index - 1,
+            "source_sample_id": sample.get("sample_id"),
+            "source_status": _stage_status(sample, previous, index - 1),
+        }
+    )
+    if design_stage == "t2s":
+        reference = _stage_reference(stages[index - 1].get("input"))
+        if reference is not None:
+            result["reference"] = reference
+    return result
+
+
+def _stage_reference(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    reference = value.get("reference")
+    if not isinstance(reference, dict):
+        return None
+    return dict(reference)
 
 
 def _file_input(value: Any, field_name: str) -> dict[str, Any]:
@@ -174,7 +190,11 @@ def _runtime_input(stage: dict[str, Any], design_stage: str) -> dict[str, Any] |
         if _t2t_output_name(stage) == "generated_audio_caption":
             return {"speech_transcription": text}
     if design_stage == "t2s":
-        return {"generated_speech_text": text}
+        result = {"generated_speech_text": text}
+        reference = _stage_reference(legacy_input)
+        if reference is not None:
+            result["reference"] = reference
+        return result
     if design_stage == "t2a":
         return {"generated_audio_caption": text}
     return {"text": text}

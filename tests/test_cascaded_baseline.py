@@ -18,8 +18,10 @@ from baseline_cascaded import (
     ModularCascade,
     _cascade_output_root,
     _cascade_variant_name,
+    _apply_tts_reference_bank,
     _design_config_document,
     _load_stage_rows,
+    _load_tts_reference_bank,
     _pipeline_prompt_field,
     _planned_stages,
     _read_optional_json,
@@ -36,6 +38,79 @@ from baselines.models.text_llm import TextLLMRunner, _strip_thinking_output
 
 
 class CascadedBaselineTest(unittest.TestCase):
+    def test_tts_reference_bank_uses_fixed_train_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ref_file = Path(tmpdir) / "train_refs.jsonl"
+            rows = [
+                {"speech_file": f"speech/train-{idx}.wav", "speech_text": f"train text {idx}"}
+                for idx in range(6)
+            ]
+            ref_file.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+            refs = _load_tts_reference_bank(ref_file, count=3, stride=2)
+            self.assertEqual([ref["sample_id"] for ref in refs], ["train-0", "train-2", "train-4"])
+
+            bank_file = Path(tmpdir) / "bank.json"
+            bank_file.write_text(
+                json.dumps(
+                    {
+                        "source_split_file": str(ref_file),
+                        "source_split": "train",
+                        "assignment": "row_index_mod_count",
+                        "sample_ids": ["train-0", "train-2", "train-4"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                pipeline="T2S",
+                tts_reference_bank_file=str(bank_file),
+                tts_reference_split_file=None,
+                tts_reference_sample_ids=None,
+                tts_reference_count=0,
+                tts_reference_stride=110,
+            )
+            target_rows = [
+                PromptRow(
+                    i,
+                    f"test-{i}",
+                    "generated speech",
+                    {"speech_file": f"speech/test-{i}.wav", "speech_text": "test ground truth"},
+                )
+                for i in range(4)
+            ]
+
+            enriched = _apply_tts_reference_bank(target_rows, args)
+
+            self.assertEqual([row.record["reference_sample_id"] for row in enriched], ["train-0", "train-2", "train-4", "train-0"])
+            self.assertEqual(enriched[0].record["reference_speech_file"], "speech/train-0.wav")
+            self.assertEqual(enriched[0].record["reference_speech_text"], "train text 0")
+            self.assertEqual(enriched[0].record["speech_text"], "test ground truth")
+
+            cascade = ModularCascade(argparse.Namespace(pipeline="T2S"), dataset_root=None)
+            stage_input = cascade._stage_input("text_to_speech", enriched[0])
+            self.assertEqual(stage_input["reference"]["speech_file"], "speech/train-0.wav")
+            self.assertEqual(stage_input["reference"]["source_split"], "train")
+            self.assertEqual(stage_input["reference"]["selection"]["assignment"], "row_index_mod_count")
+            self.assertEqual(stage_input["reference"]["selection"]["bank_file"], str(bank_file))
+
+            run_config = {
+                "pipeline": "T2S",
+                "split_file": "input.jsonl",
+                "prompt_field": "generated_speech_text",
+                "start_index": 0,
+                "input_num_samples": 4,
+                "tts": "cosyvoice3",
+                "device": "cuda",
+                "seed": 1337,
+                "steps": 32,
+                "duration": 0,
+                "tts_reference_bank_file": str(bank_file),
+            }
+            config = _design_config_document(run_config, total_rows=4)
+            self.assertEqual(config["generation"]["tts_reference_bank"]["bank_file"], str(bank_file))
+            self.assertEqual(config["generation"]["tts_reference_bank"]["sample_ids"], ["train-0", "train-2", "train-4"])
+
     def test_stage_uses_generation_only_inference_seconds(self) -> None:
         cascade = ModularCascade(
             argparse.Namespace(

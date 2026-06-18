@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=salm-test-finalgen-one-node
-#SBATCH --account=aip-csubakan
+#SBATCH --account=aip-ravanelm
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=180G
+#SBATCH --mem=240G
 #SBATCH --gpus=h100:4
-#SBATCH --time=03:00:00
+#SBATCH --time=06:00:00
 #SBATCH --output=/scratch/l/lovenya/salm_migration_clean/logs/slurm/%x-%j.out
 
 set -euo pipefail
@@ -41,20 +41,21 @@ mkdir -p "$MPLCONFIGDIR" "$SALM_SCRATCH/logs/slurm"
 RUN_GROUP="ttas_test"
 SPLIT="test"
 RUN_ID="${RUN_ID:?Set RUN_ID=yyyymmdd_hhmm for final generation outputs}"
-T2T_RUN_ID="${T2T_RUN_ID:-$RUN_ID}"
+T2T_RUN_ID="${T2T_RUN_ID:-20260618_0001}"
 TEXT_MODEL="llama3_3_70b_instruct"
-T2A_BACKEND="${T2A_BACKEND:-audiogen}"
-T2S_BACKEND="${T2S_BACKEND:-f5_tts}"
+T2A_BACKEND="${T2A_BACKEND:-audio_omni}"
+T2S_BACKEND="${T2S_BACKEND:-cosyvoice3}"
 TOTAL_T2A="${TOTAL_T2A:-2277}"
 TOTAL_T2S="${TOTAL_T2S:-2254}"
-T2A_SHARDS="${T2A_SHARDS:-8}"
-T2S_SHARDS="${T2S_SHARDS:-16}"
-T2A_MAX_PARALLEL="${T2A_MAX_PARALLEL:-8}"
-T2S_MAX_PARALLEL="${T2S_MAX_PARALLEL:-16}"
-T2A_STEPS="${T2A_STEPS:-12}"
+T2A_SHARDS="${T2A_SHARDS:-4}"
+T2S_SHARDS="${T2S_SHARDS:-4}"
+T2A_MAX_PARALLEL="${T2A_MAX_PARALLEL:-4}"
+T2S_MAX_PARALLEL="${T2S_MAX_PARALLEL:-4}"
+T2A_STEPS="${T2A_STEPS:-25}"
 T2A_DURATION="${T2A_DURATION:-10}"
 T2S_STEPS="${T2S_STEPS:-32}"
 T2S_DURATION="${T2S_DURATION:-0}"
+COSYVOICE_REFERENCE_BANK="${COSYVOICE_REFERENCE_BANK:-configs/tts_reference_banks/cosyvoice3_train_25.json}"
 
 S2A_T2T_INPUT="$SALM_RESULTS_ROOT/cascaded/stages/t2t/s2a/$TEXT_MODEL/from-s2t/whisper/ttas/$SPLIT/$T2T_RUN_ID/manifest.jsonl"
 A2S_T2T_INPUT="$SALM_RESULTS_ROOT/cascaded/stages/t2t/a2s/$TEXT_MODEL/from-a2t/audio_flamingo_next/ttas/$SPLIT/$T2T_RUN_ID/manifest.jsonl"
@@ -67,12 +68,14 @@ JOB_LOG_ROOT="$LOG_ROOT/lanes/${JOB_KEY}_final_generation_packed"
 mkdir -p "$JOB_LOG_ROOT"
 test -s "$S2A_T2T_INPUT" || { echo "missing S2A T2T input: $S2A_T2T_INPUT" >&2; exit 2; }
 test -s "$A2S_T2T_INPUT" || { echo "missing A2S T2T input: $A2S_T2T_INPUT" >&2; exit 2; }
-test ! -f "$T2A_RUN_DIR/manifest.jsonl" || { echo "Refusing to overwrite merged T2A output: $T2A_RUN_DIR/manifest.jsonl" >&2; exit 2; }
-test ! -f "$T2S_RUN_DIR/manifest.jsonl" || { echo "Refusing to overwrite merged T2S output: $T2S_RUN_DIR/manifest.jsonl" >&2; exit 2; }
+test -s "$COSYVOICE_REFERENCE_BANK" || { echo "missing CosyVoice reference bank: $COSYVOICE_REFERENCE_BANK" >&2; exit 2; }
+test ! -e "$T2A_RUN_DIR" || { echo "Refusing existing T2A run dir: $T2A_RUN_DIR" >&2; exit 2; }
+test ! -e "$T2S_RUN_DIR" || { echo "Refusing existing T2S run dir: $T2S_RUN_DIR" >&2; exit 2; }
 mkdir -p "$T2A_RUN_DIR" "$T2S_RUN_DIR"
 
 source submission_scripts/lib_resource_monitor.sh
 start_resource_monitor "tamia_test_final_generation_packed_${JOB_KEY}"
+trap 'stop_resource_monitor || true' EXIT
 
 run_packed_shards() {
   local stage_label="$1" total_rows="$2" total_shards="$3" max_parallel="$4" venv="$5" gpus_per_proc="$6"
@@ -117,19 +120,26 @@ run_packed_shards() {
 }
 
 echo "FINAL_GENERATION run_id=$RUN_ID t2t_run_id=$T2T_RUN_ID logs=$JOB_LOG_ROOT"
+echo "T2A input=$S2A_T2T_INPUT"
+echo "T2S input=$A2S_T2T_INPUT"
+echo "CosyVoice reference bank=$COSYVOICE_REFERENCE_BANK"
+git rev-parse HEAD >"$JOB_LOG_ROOT/git_commit.txt" 2>/dev/null || echo unknown >"$JOB_LOG_ROOT/git_commit.txt"
+git status --short >"$JOB_LOG_ROOT/git_status_short.txt" 2>/dev/null || true
+echo "$PWD" >"$JOB_LOG_ROOT/repo_path.txt"
 nvidia-smi || true
 
 run_packed_shards \
-  "t2a_${T2A_BACKEND}" "$TOTAL_T2A" "$T2A_SHARDS" "$T2A_MAX_PARALLEL" "$SALM_SCRATCH/.venvs/models/.venv-audiocraft" 1 \
+  "t2a_${T2A_BACKEND}" "$TOTAL_T2A" "$T2A_SHARDS" "$T2A_MAX_PARALLEL" "$SALM_SCRATCH/.venvs/models/.venv-audio-omni" 1 \
   --results-schema v1 --pipeline T2A --t2a "$T2A_BACKEND" --text-model "$TEXT_MODEL" \
   --split "$SPLIT" --split-file "$S2A_T2T_INPUT" --duration "$T2A_DURATION" --steps "$T2A_STEPS"
 
 echo "T2A shards complete: run_dir=$T2A_RUN_DIR"
 
 run_packed_shards \
-  "t2s_${T2S_BACKEND}" "$TOTAL_T2S" "$T2S_SHARDS" "$T2S_MAX_PARALLEL" "$SALM_SCRATCH/.venvs/models/.venv-cascade-f5-tts" 1 \
+  "t2s_${T2S_BACKEND}" "$TOTAL_T2S" "$T2S_SHARDS" "$T2S_MAX_PARALLEL" "$SALM_SCRATCH/.venvs/models/.venv-cascade-cosyvoice3-py310" 1 \
   --results-schema v1 --pipeline T2S --tts "$T2S_BACKEND" --text-model "$TEXT_MODEL" \
-  --split "$SPLIT" --split-file "$A2S_T2T_INPUT" --duration "$T2S_DURATION" --steps "$T2S_STEPS"
+  --split "$SPLIT" --split-file "$A2S_T2T_INPUT" --duration "$T2S_DURATION" --steps "$T2S_STEPS" \
+  --tts-reference-bank-file "$COSYVOICE_REFERENCE_BANK"
 
 echo "T2S shards complete: run_dir=$T2S_RUN_DIR"
 echo "merge later from a login node after auditing all shards:"
