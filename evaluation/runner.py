@@ -98,6 +98,7 @@ def run_evaluation(options: EvalOptions) -> dict[str, Path]:
 
     summary = _summarize(
         options,
+        eval_run_id,
         per_sample_rows,
         metric_backend_metadata,
         corpus_metrics,
@@ -330,10 +331,13 @@ def _evaluate_row(row: dict, ordinal: int, specs: list[MetricSpec], dataset_root
     source = source_record(row)
     sid = sample_id(row, ordinal)
     output_file = row.get("output_file")
+    row_status = "success" if is_successful_generation(row) else "skipped"
+    if row_status == "success" and all(spec.level == "corpus" for spec in specs):
+        row_status = "included"
     result = {
         "row_index": row.get("row_index", ordinal),
         "sample_id": sid,
-        "status": "success" if is_successful_generation(row) else "skipped",
+        "status": row_status,
         "output_file": output_file,
         "references": _references(source, specs, dataset_root),
         "predictions": _predictions(row, specs),
@@ -1199,59 +1203,137 @@ def _resolve_reference(dataset_root: Path, value: str) -> Path:
 
 def _summarize(
     options: EvalOptions,
+    eval_run_id: str,
     rows: list[dict],
     backend_metadata: dict[str, dict],
     corpus_metrics: dict[str, Any] | None,
     validation_report: dict[str, Any],
 ) -> dict:
     corpus_metrics = corpus_metrics or {}
-    metric_names = [spec.name for spec in options.metric_specs]
-    stats = {}
-    for name in metric_names:
-        if name in corpus_metrics:
-            stats[name] = _corpus_summary(corpus_metrics[name])
-            continue
-        values = [
-            row["metrics"][name]
-            for row in rows
-            if isinstance(row.get("metrics"), dict) and isinstance(row["metrics"].get(name), (int, float))
-        ]
-        if values:
-            stats[name] = _numeric_summary(values)
-        elif any(spec.name == name and spec.level == "corpus" for spec in options.metric_specs):
-            stats[name] = {"level": "corpus", "status": "not_computed_in_scaffold"}
-
-    grouped_errors: dict[str, dict[str, int]] = {}
-    for row in rows:
-        for metric, message in row.get("errors", {}).items():
-            grouped_errors.setdefault(metric, {})
-            normalized_message = (
-                json.dumps(message, ensure_ascii=False, sort_keys=True)
-                if isinstance(message, (dict, list))
-                else str(message)
-            )
-            grouped_errors[metric][normalized_message] = grouped_errors[metric].get(normalized_message, 0) + 1
-
+    metric = options.metric_specs[0]
+    stats = _metric_statistics(metric, rows, corpus_metrics)
     return {
-        "status": validation_report["status"],
-        "temporary": options.temporary,
-        "model": options.model,
-        "task": options.task,
-        "stage": options.stage,
-        "direction": options.direction,
-        "evaluated_run_id": options.evaluated_run_id,
-        "dataset": options.dataset,
-        "split": options.split,
-        "manifest": str(options.manifest_path),
-        "metrics": metric_names,
-        "rows": len(rows),
-        "successful_rows": sum(1 for row in rows if row["status"] == "success"),
-        "skipped_or_error_rows": sum(1 for row in rows if row["status"] != "success"),
-        "metric_summaries": stats,
-        "errors_by_metric": grouped_errors,
-        "metric_backends": backend_metadata,
-        "result_validation": validation_report,
+        "schema_version": 1,
+        "run_id": eval_run_id,
+        "status": "complete",
+        "metric": {
+            "metric_id": metric.name,
+            "level": metric.level,
+            "higher_is_better": _higher_is_better(metric.name),
+        },
+        "target": {
+            "kind": "stage",
+            "stage": options.stage,
+            "direction": options.direction,
+            "model": options.model,
+            "dataset": options.dataset,
+            "split": options.split,
+            "run_id": options.evaluated_run_id,
+            "manifest": str(options.manifest_path),
+        },
+        "samples": _sample_counts(metric, rows),
+        "scores": _score_summary(metric, stats),
+        "errors": _summary_errors(rows, validation_report),
+        "artifacts": {
+            "manifest": "manifest.jsonl",
+            "errors": "errors.json",
+            "inspect": "inspect.json",
+            "backend_outputs": "artifacts/",
+        },
+        "timing": {
+            "total_seconds": None,
+            "backend_seconds": None,
+            "mean_seconds_per_sample": None,
+        },
     }
+
+
+def _metric_statistics(metric: MetricSpec, rows: list[dict], corpus_metrics: dict[str, Any]) -> dict | None:
+    if metric.name in corpus_metrics:
+        return _corpus_summary(corpus_metrics[metric.name])
+    values = [
+        row["metrics"][metric.name]
+        for row in rows
+        if isinstance(row.get("metrics"), dict) and isinstance(row["metrics"].get(metric.name), (int, float))
+    ]
+    if values:
+        return _numeric_summary(values)
+    if metric.level == "corpus":
+        return {"level": "corpus", "status": "not_computed_in_scaffold"}
+    return None
+
+
+def _sample_counts(metric: MetricSpec, rows: list[dict]) -> dict[str, Any]:
+    skipped = sum(1 for row in rows if row.get("status") == "skipped")
+    failed = sum(1 for row in rows if row.get("status") == "error")
+    included = max(0, len(rows) - skipped - failed)
+    if metric.level == "corpus":
+        return {
+            "total": len(rows),
+            "successful": None,
+            "included": included,
+            "skipped": skipped,
+            "failed": failed,
+            "successful_note": "not_applicable_for_corpus_metric",
+        }
+    successful = sum(1 for row in rows if row.get("status") == "success")
+    return {
+        "total": len(rows),
+        "successful": successful,
+        "included": successful,
+        "skipped": skipped,
+        "failed": failed,
+    }
+
+
+def _score_summary(metric: MetricSpec, stats: dict | None) -> dict[str, Any]:
+    return {
+        "primary": {
+            "name": metric.name,
+            "value": _primary_score_value(stats),
+            "aggregation": "corpus" if metric.level == "corpus" else "mean",
+            "higher_is_better": _higher_is_better(metric.name),
+        },
+        "statistics": stats if metric.level == "sample" else None,
+    }
+
+
+def _primary_score_value(stats: dict | None) -> float | int | None:
+    if not isinstance(stats, dict):
+        return None
+    for key in ("mean", "score", "value"):
+        value = stats.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _summary_errors(rows: list[dict], validation_report: dict[str, Any]) -> dict[str, Any]:
+    by_type: dict[str, int] = {}
+    count = 0
+    for row in rows:
+        errors = row.get("errors") if isinstance(row.get("errors"), dict) else {}
+        if not errors:
+            continue
+        count += 1
+        error_type = "TargetRowNotSuccessful" if "row" in errors else "MetricError"
+        by_type[error_type] = by_type.get(error_type, 0) + 1
+    return {
+        "count": count,
+        "by_type": by_type,
+        "validation": {
+            "status": validation_report.get("status"),
+            "result_status": validation_report.get("result_status"),
+            "scientifically_valid": validation_report.get("scientifically_valid"),
+        },
+    }
+
+
+def _higher_is_better(metric_name: str) -> bool | None:
+    lower_is_better = {"wer", "asr_wer", "dwer", "fad", "kl_passt"}
+    if metric_name in lower_is_better:
+        return False
+    return True
 
 
 def _numeric_summary(values: list[float]) -> dict:
@@ -1291,7 +1373,7 @@ def _run_document(
         "schema_version": 1,
         "run_id": eval_run_id,
         "temporary": options.temporary,
-        "status": validation_report["status"],
+        "status": "complete",
         "metric": {
             "metric_id": metric.name,
             "level": metric.level,
@@ -1342,7 +1424,9 @@ def _errors_document(
     entries = [
         _error_entry(row, metric_id, row.get("sample_id") in failed_sample_ids)
         for row in rows
-        if row.get("status") != "success" or row.get("errors") or row.get("sample_id") in failed_sample_ids
+        if row.get("status") in {"skipped", "error"}
+        or row.get("errors")
+        or (row.get("status") != "included" and row.get("sample_id") in failed_sample_ids)
     ]
     return {
         "schema_version": 1,
@@ -1446,8 +1530,8 @@ def _inspect_document(
         },
         "summary": {
             "status": summary.get("status"),
-            "rows": summary.get("rows"),
-            "metric_summaries": summary.get("metric_summaries", {}),
+            "samples": summary.get("samples", {}),
+            "scores": summary.get("scores", {}),
             "result_validation": validation_report,
         },
         "sample_policy": {
@@ -1467,63 +1551,99 @@ def _run_config(
     backend_metadata: dict[str, dict],
     validation_report: dict[str, Any],
 ) -> dict:
+    metric = options.metric_specs[0]
     return {
-        "status": validation_report["status"],
-        "temporary": options.temporary,
-        "model": options.model,
-        "task": options.task,
-        "stage": options.stage,
-        "direction": options.direction,
-        "evaluated_run_id": options.evaluated_run_id,
-        "dataset": options.dataset,
-        "split": options.split,
-        "manifest": str(options.manifest_path),
-        "dataset_config": str(options.dataset_config_path),
-        "metrics_config": str(options.metrics_config_path),
-        "task_metric_map": str(options.task_metric_map_path),
-        "metrics": [spec.name for spec in options.metric_specs],
-        "metric_backends": backend_metadata,
-        "result_validation": validation_report,
-        "start_index": options.start_index if options.temporary else None,
-        "max_samples": options.max_samples if options.temporary else None,
-        "cache_dir": str(options.cache_dir),
-        "device": options.device,
-        "command": options.command,
-        "timestamp_utc": utc_timestamp(),
+        "schema_version": 1,
+        "input": {
+            "target_manifest": str(options.manifest_path),
+            "target_run": str(options.manifest_path.parent),
+            "dataset": options.dataset,
+            "split": options.split,
+            "start_index": options.start_index if options.temporary else None,
+            "max_samples": options.max_samples if options.temporary else None,
+        },
+        "metric": {
+            "metric_id": metric.name,
+            "display_name": metric.name,
+            "level": metric.level,
+            "reference_pairing_required": bool(metric.required_source_fields),
+            "higher_is_better": _higher_is_better(metric.name),
+            "input_contract": {
+                "prediction_fields": list(metric.required_prediction_fields),
+                "reference_fields": list(metric.required_source_fields),
+                "context_fields": [],
+            },
+        },
+        "backend": _config_backend(metric, backend_metadata.get(metric.name, {})),
+        "execution": {
+            "command": options.command,
+            "temporary": options.temporary,
+            "device": options.device,
+            "cache_dir": str(options.cache_dir),
+            "timestamp_utc": utc_timestamp(),
+        },
     }
 
 
+def _config_backend(metric: MetricSpec, metadata: dict[str, Any]) -> dict[str, Any]:
+    if not metric.external:
+        return {
+            "name": "metric_algorithm",
+            "implementation": _internal_metric_implementation(metric.name),
+            "parameters": {},
+        }
+    return {
+        "name": metadata.get("backend"),
+        "implementation": metadata.get("package"),
+        "python": metadata.get("python"),
+        "model": {
+            "name": metadata.get("model_name"),
+            "path": metadata.get("model_path"),
+        },
+        "cache_dir": metadata.get("cache_dir"),
+        "device": metadata.get("device"),
+        "parameters": {
+            key: value
+            for key, value in metadata.items()
+            if key not in {"metric", "backend", "package", "python", "model_name", "model_path", "cache_dir", "device"}
+            and value is not None
+        },
+    }
+
+
+def _internal_metric_implementation(metric_name: str) -> str:
+    if metric_name == "wer":
+        return "evaluation.metrics.text.word_error_rate"
+    return "metric_algorithm"
+
+
 def _report_text(summary: dict, run_config: dict) -> str:
+    metric = summary.get("metric", {})
+    target = summary.get("target", {})
+    samples = summary.get("samples", {})
     lines = [
-        f"# Evaluation Report: {summary['model']} {summary['task']}",
+        f"# Evaluation Report: {target.get('model')} {target.get('stage')}",
         "",
-        f"- Scientific status: `{summary['status']}`",
-        f"- Temporary: `{summary.get('temporary', False)}`",
-        f"- Dataset: `{summary['dataset']}`",
-        f"- Split: `{summary['split']}`",
-        f"- Manifest: `{summary['manifest']}`",
-        f"- Rows: {summary['rows']}",
-        f"- Successful rows: {summary['successful_rows']}",
-        f"- Skipped/error rows: {summary['skipped_or_error_rows']}",
+        f"- Status: `{summary.get('status')}`",
+        f"- Metric: `{metric.get('metric_id')}`",
+        f"- Dataset: `{target.get('dataset')}`",
+        f"- Split: `{target.get('split')}`",
+        f"- Target manifest: `{target.get('manifest')}`",
+        f"- Rows: {samples.get('total')}",
+        f"- Included rows: {samples.get('included')}",
+        f"- Skipped rows: {samples.get('skipped')}",
+        f"- Failed rows: {samples.get('failed')}",
         "",
-        "## Metrics",
+        "## Score",
         "",
     ]
-    for metric, stats in summary.get("metric_summaries", {}).items():
-        if "mean" in stats:
-            fields = [f"mean={stats['mean']:.6g}"]
-            for name in ("std", "min", "max", "median"):
-                value = stats.get(name)
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    fields.append(f"{name}={value:.6g}")
-            lines.append(f"- `{metric}`: " + ", ".join(fields))
-        else:
-            lines.append(f"- `{metric}`: {stats.get('status', 'not computed')}")
-    lines.extend(["", "## Dependency Notes", ""])
-    lines.append("- aac-metrics / SPIDEr / MACE may require Java and cached assets.")
-    lines.append("- KAD/kadtk may have Python version constraints and should be run corpus-level.")
-    lines.append("- ASR/CLAP/UTMOS/DNSMOS/FAD/KL_PaSST/IS require external model weights or toolkits.")
-    lines.append("- Generated-speech dWER is directional: WER(ASR(reference_speech), ASR(generated_speech)).")
-    lines.append("- FAD, KAD, KL_PaSST, and Inception Score are corpus-level metrics only.")
-    lines.extend(["", "## Command", "", "```text", " ".join(run_config.get("command", [])), "```", ""])
+    primary = summary.get("scores", {}).get("primary", {})
+    for key, value in primary.items():
+        lines.append(f"- {key}: `{value}`")
+    if summary.get("errors", {}).get("count"):
+        lines.extend(["", "## Errors", ""])
+        for error_type, count in summary["errors"].get("by_type", {}).items():
+            lines.append(f"- {count} x {error_type}")
+    command = run_config.get("execution", {}).get("command", [])
+    lines.extend(["", "## Command", "", "```text", " ".join(command), "```", ""])
     return "\n".join(lines)

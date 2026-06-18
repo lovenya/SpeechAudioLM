@@ -575,7 +575,8 @@ class EvaluationScaffoldTest(unittest.TestCase):
             self.assertIn("nli_contradiction", per_sample[0]["predictions"])
             self.assertEqual(per_sample[0]["predictions"]["nli_contradiction"]["direction"], "speech_to_audio")
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
-            self.assertIn("nli_contradiction", summary["metric_summaries"])
+            self.assertEqual(summary["metric"]["metric_id"], "nli_contradiction")
+            self.assertEqual(summary["scores"]["primary"]["name"], "nli_contradiction")
 
 
     def test_g_eval_reference_free_runs_after_nli_when_selected(self) -> None:

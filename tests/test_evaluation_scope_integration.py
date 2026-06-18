@@ -95,10 +95,12 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
             options = self._options(root, temporary=True, start_index=1, max_samples=1)
             paths = run_evaluation(options)
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+            run_config = json.loads(paths["run_config"].read_text(encoding="utf-8"))
+            inspect = json.loads(paths["inspect"].read_text(encoding="utf-8"))
 
-            self.assertTrue(summary["temporary"])
-            self.assertEqual(summary["status"], "diagnostic_non_authoritative")
-            self.assertEqual(summary["result_validation"]["expected_row_count"], 1)
+            self.assertTrue(run_config["execution"]["temporary"])
+            self.assertEqual(summary["status"], "complete")
+            self.assertEqual(inspect["summary"]["result_validation"]["expected_row_count"], 1)
             self.assertEqual(list((root / "evals").rglob("latest_*")), [])
 
     def test_canonical_eval_retains_unsuccessful_generation_rows_with_errors(self) -> None:
@@ -107,7 +109,8 @@ class EvaluationScopeIntegrationTest(unittest.TestCase):
             options = self._options(root, failed_second=True)
             paths = run_evaluation(options)
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
-            validation = summary["result_validation"]
+            inspect = json.loads(paths["inspect"].read_text(encoding="utf-8"))
+            validation = inspect["summary"]["result_validation"]
             errors = json.loads(paths["errors"].read_text(encoding="utf-8"))
 
             self.assertEqual(errors["error_count"], 0)
