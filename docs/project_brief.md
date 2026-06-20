@@ -1,4 +1,9 @@
-# SpeechAudio LM — Project Brief
+# SpeechAudio LM - Project Brief
+
+Status: research framing and onboarding brief. Keep for migration/handoff because
+it explains the project motivation, dataset idea, and planned modeling
+directions. Operational paths and near-term priorities may be older than current
+`CONTEXT.md`, `configs/project_paths.json`, and the result/eval design docs.
 
 ## Basic Information
 

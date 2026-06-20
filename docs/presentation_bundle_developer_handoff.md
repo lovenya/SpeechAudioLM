@@ -1,5 +1,11 @@
 # SpeechAudioLM Presentation Website: Developer Handoff
 
+Status: bundle data-model background and exporter handoff. Keep this document for
+understanding why the presentation bundle exists and how earlier bundle files fit
+together. For current website implementation instructions, prefer
+`docs/presentation_website_agent_prompt.md`, especially for v2 metric files and
+NLI/G-Eval renderers.
+
 Use this document as the project brief and implementation prompt for the developer agent building the local presentation website. Visual style is intentionally unspecified and should be decided separately.
 
 ## Objective

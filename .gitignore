@@ -5,6 +5,11 @@
 !RESULTS_STRUCTURE_DESIGN.md
 docs/*
 !docs/agent_doc_map.md
+!docs/setup_details/
+!docs/setup_details/*.md
+!docs/Geval_prompts/
+!docs/Geval_prompts/*.md
+!docs/nli_geval_schema_refactor.md
 goal.txt
 goal_updated.txt
 

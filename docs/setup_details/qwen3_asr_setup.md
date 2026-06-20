@@ -1,5 +1,11 @@
 # Qwen3-ASR Compatibility Shims
 
+Status: historical debugging and migration note. Keep this file because it
+records compatibility failures and temporary shims that may matter on another
+cluster. Do not treat it as the current active Qwen3-ASR setup without checking
+`configs/runtime_environments.json`, `configs/project_paths.json`, and recent
+smoke evidence.
+
 This file records temporary runtime shims used to make `Qwen/Qwen3-ASR-1.7B`
 work in the TamIA cascaded baseline environment. These are not intended to be a
 long-term substitute for a known-good `qwen_asr` / `transformers` version pair.

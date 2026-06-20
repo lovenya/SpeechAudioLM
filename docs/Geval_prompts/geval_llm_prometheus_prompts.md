@@ -1,5 +1,10 @@
 # Prometheus G-Eval: Evaluation Prompts and Scoring Protocol
 
+Status: current human-readable rubric and scoring protocol for Prometheus G-Eval.
+Keep this separate from schema docs: this file explains what the judge is asked
+to score, while `docs/geval_schema_refactor_plan.md` explains how outputs are
+stored.
+
 ## 1. Evaluation Problem
 
 SpeechAudio LM performs bidirectional generation between environmental audio and

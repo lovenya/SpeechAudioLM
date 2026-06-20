@@ -1,5 +1,10 @@
 # TTAS Audio Tagging and Primary Audio Class Pooling Report
 
+Status: keep as a dataset-metadata decision record. It documents the PANNs tag
+to coarse audio-class pooling process used by reference-pool and presentation
+work. Do not rewrite it as current session context; update only if the metadata
+artifacts are regenerated.
+
 Generated: 2026-06-05
 
 ## Summary

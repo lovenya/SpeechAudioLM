@@ -1,5 +1,17 @@
 # Evaluation Backend Setup
 
+Status: migration/setup memory for metric backends. Keep this document because it
+records environment, cache, backend, and offline-compute caveats that are useful
+when moving clusters. Before running any command, verify paths against
+`configs/project_paths.json`; many examples below predate the current
+`/scratch/l/lovenya/salm_migration_clean` runtime root.
+
+Current runtime root for new work:
+
+```text
+/scratch/l/lovenya/salm_migration_clean
+```
+
 This document is the setup checklist for metric backends. It is intentionally
 separate from `evaluate.py` implementation: first prepare environments, caches,
 and smoke tests; then wire adapters one backend at a time.

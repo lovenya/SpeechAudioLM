@@ -11,6 +11,8 @@ layouts or demo scripts.
 
 ## Core Docs
 
+Use this section to decide which document is authoritative before editing code or launching jobs. Some docs are historical by design; keep them when they record environment setup, migration details, or evaluator decisions that would be expensive to rediscover.
+
 - `RESULTS_STRUCTURE_DESIGN.md`: source of truth for result roots, log roots,
   temporary-vs-canonical outputs, run IDs, cascaded stage run directories, and
   what downstream stages should consume.
@@ -31,6 +33,32 @@ layouts or demo scripts.
   session state, not a permanent design spec.
 - `PROGRESS_LOG.md`: chronological history of decisions, experiments, failures,
   and why previous paths were chosen.
+
+## Docs Directory Inventory
+
+- `docs/agent_doc_map.md`: start here; routing map, not a deep design spec.
+- `docs/project_brief.md`: project motivation and research framing. It is
+  useful for migration/onboarding, but operational paths inside may be older
+  than `configs/project_paths.json`.
+- `docs/audio_tag_pooling_report.md`: keep. It records the PANNs tag to coarse
+  audio-class pooling decision and generated metadata artifacts.
+- `docs/setup_details/eval_setup.md`: keep as migration/setup memory for metric
+  backends. Treat backend caveats as valuable, but verify paths against
+  `configs/project_paths.json` before running commands.
+- `docs/Geval_prompts/geval_llm_prometheus_prompts.md`: keep. It is the
+  human-readable rubric and scoring protocol for Prometheus LLM G-Eval.
+- `docs/nli_geval_schema_refactor.md`: keep. It is the merged schema note for
+  NLI contradiction and Prometheus LLM G-Eval storage decisions.
+- `docs/setup_details/qwen3_asr_setup.md`: keep as historical debugging/migration
+  memory only. Do not treat it as the current active Qwen3-ASR setup without
+  checking runtime configs and fresh smoke status.
+- `docs/presentation_bundle_developer_handoff.md`: keep as the broader bundle
+  data-model background.
+- `docs/presentation_website_agent_prompt.md`: keep as the current website
+  implementation prompt; prefer it over the older bundle handoff when building
+  the UI.
+- `docs/tamia_resource_usage.json`: keep as measured resource evidence. Do not
+  edit casually; update only when recording audited job measurements.
 
 ## Results And Inference Flow
 

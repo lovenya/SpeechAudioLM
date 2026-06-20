@@ -1,5 +1,10 @@
 # SpeechAudioLM Presentation Website Handoff
 
+Status: current implementation prompt for the local presentation website. This
+doc is intentionally retained. Use it before changing the frontend; use
+`docs/presentation_bundle_developer_handoff.md` only for broader bundle
+background.
+
 Build or extend a local presentation website that reads the extracted SpeechAudioLM presentation bundle as its database. Do not redesign the data exporter. Treat the bundle as read-only, use relative media paths, and keep visual styling decisions separate from the data architecture below.
 
 ## Project Purpose
