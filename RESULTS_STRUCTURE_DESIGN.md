@@ -1,6 +1,8 @@
 # Results Structure Design
 
-Status: high-level structure, cascaded stage layout, and run/config/summary/pipeline schemas agreed; manifest row fields, detailed inspect payloads, and eval layouts remain under discussion.
+Status: working design for where inference and evaluation results live. The
+current priority is a simple, durable contract that future agents can follow
+without rediscovering old demo layouts.
 
 ## Goals
 
@@ -10,31 +12,66 @@ Status: high-level structure, cascaded stage layout, and run/config/summary/pipe
 - Centralize configurable path roots and avoid hard-coded absolute paths.
 - Preserve enough metadata to identify how each run was produced.
 
+## Runtime Root
+
+The current machine-specific runtime root is:
+
+```text
+/scratch/l/lovenya/salm_migration_clean
+```
+
+This name is a machine/local migration name, not a scientific concept. Docs and
+scripts should refer to named roots such as `results_root`, `logs_root`,
+`model_root`, `cache_root`, and `datasets_root` wherever possible so the project
+can move cleanly to another cluster.
+
+Target canonical results root:
+
+```text
+/scratch/l/lovenya/salm_migration_clean/results
+```
+
+Target canonical logs root:
+
+```text
+/scratch/l/lovenya/salm_migration_clean/logs
+```
+
+The repo-local `results/` and `logs/` directories should be treated as legacy or
+local-development locations unless a script is explicitly configured to use
+them. New substantial inference and eval outputs should go under the external
+runtime root, not into Git working-tree storage.
+
 ## Top-Level Structure
 
 ```text
-SpeechAudioLM/
-├── results/
-│   ├── cascaded/
-│   └── evals/
-├── logs/
-│   ├── cascaded/
-│   └── evals/
-├── temporary/
-│   ├── results/
-│   │   ├── cascaded/
-│   │   └── evals/
-│   └── logs/
-│       ├── cascaded/
-│       └── evals/
-└── exports/
+{results_root}/
+├── cascaded/
+└── evals/
+
+{logs_root}/
+├── cascaded/
+└── evals/
+
+{temporary_results_root}/
+├── cascaded/
+└── evals/
+
+{temporary_logs_root}/
+├── cascaded/
+└── evals/
+
+{exports_root}/
 ```
 
-- `results/` contains canonical scientific results.
-- `logs/` contains execution logs for canonical runs.
-- `temporary/` contains demo, smoke-test, fit-test, and other disposable runs.
-- `exports/` contains portable bundles derived from results. It may remain empty until needed.
-- `temporary/` and `exports/` must be ignored by Git.
+- `{results_root}` contains canonical scientific results.
+- `{logs_root}` contains execution logs for canonical runs.
+- `{temporary_results_root}` and `{temporary_logs_root}` contain demo,
+  smoke-test, fit-test, and other disposable runs.
+- `{exports_root}` contains portable bundles derived from results. It may remain
+  empty until needed.
+- Generated results, logs, temporary runs, exports, audio, checkpoints, and
+  other large artifacts must stay out of Git.
 
 The high-level `cascaded/` structure is defined below. Detailed per-stage manifest fields and the `evals/` structure remain under discussion.
 
@@ -55,7 +92,10 @@ cache_root
 
 Paths must be constructed from these roots and configured path extensions. Active scripts should not contain user- or cluster-specific absolute paths.
 
-The current external runtime directory name `salm_migration_clean` should eventually be replaced with a neutral name. Environment paths must be updated carefully when that happens.
+On the current machine, these roots should resolve under
+`/scratch/l/lovenya/salm_migration_clean` for real runs. The old repo-local
+defaults may still exist in config while migration/refactor work is in progress;
+new work should prefer the external root.
 
 ## Canonical And Temporary Runs
 
@@ -70,11 +110,27 @@ Passing:
 redirects both result and log output:
 
 ```text
-results/...       -> temporary/results/...
-logs/...          -> temporary/logs/...
+{results_root}/...       -> {temporary_results_root}/...
+{logs_root}/...          -> {temporary_logs_root}/...
 ```
 
-Temporary runs must not be consumed as official results automatically. If a temporary result is worth preserving, it must be deliberately copied into the canonical `results/` and `logs/` structure.
+Temporary runs must not be consumed as official results automatically. If a temporary result is worth preserving, it must be deliberately copied into the canonical results and logs structure.
+
+Current cleanup policy: previous contents of `temporary/` were demo/smoke tests
+and can be deleted. Keep the top-level `temporary/` directory if useful, but do
+not preserve its old contents as scientific evidence.
+
+## Legacy Repo-Local Results
+
+The old repo-local eval path:
+
+```text
+results/evals/T2S/
+```
+
+is a legacy layout. If its contents are from before 2026-06-14, they can be
+removed instead of migrated. New eval outputs should follow
+`EVALS_STRUCTURE_DESIGN.md` under `{results_root}/evals/stages/...`.
 
 ## Logs
 

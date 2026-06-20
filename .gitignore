@@ -3,7 +3,8 @@
 !README.md
 !baselines/README.md
 !RESULTS_STRUCTURE_DESIGN.md
-docs/
+docs/*
+!docs/agent_doc_map.md
 goal.txt
 goal_updated.txt
 
