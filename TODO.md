@@ -1,17 +1,5 @@
 # TODO
 
-## Immediate Priorities
-
-- Re-run the cascaded final-generation stages end to end from the cleaned canonical `T2T` manifests only.
-  - Treat the current `T2S` and `T2A` outputs as stale for approval purposes.
-  - Keep only canonical merged outputs after validation; delete shard directories after successful merge.
-- Finish the evaluation pipeline end to end on the finalized cascaded outputs.
-  - Run the already-wired metrics on final `T2S` and `T2A` manifests.
-  - Verify metric outputs, summaries, and resumability before long full-corpus runs.
-- Keep the result tree clean after each merge.
-  - Canonical lane directories should retain only the final manifests and minimal run metadata.
-  - Remove shard artifacts such as `*_schema_*_s*`, `*_corrected_*_s*`, temporary `text/`, `components/`, and empty `audio/` directories once the canonical lane is validated.
-
 ## Cascaded Manifest Cleanup
 
 - Make downstream cascaded stages consume the upstream stage `manifest.jsonl` directly.
@@ -30,12 +18,6 @@
 
 ## Prompting And Quality Tuning
 
-- Tighten the Stage 2 text-to-text system prompt.
-  - Current prompt is serviceable but still too permissive for some caption-to-speech and speech-to-audio-description outputs.
-- Tighten captioning prompts for both Stage 1 captioners.
-  - `qwen3_omni_captioner`: too descriptive; needs a stricter brevity constraint and less unnecessary detail.
-  - `audio_flamingo_next`: prompt can also be improved even though it is already shorter than Qwen.
-- Record and review the exact Stage 1 model input through the `messages` array in carried downstream manifests for every captioner.
 - Revisit token limits after the end-to-end pipeline is stable.
   - Current captioner generation limits are `128` for Qwen3-Omni Captioner and `256` for Audio Flamingo Next.
   - Current `T2T` max token budget is derived from `--steps`; with the usual `--steps 64`, the actual `max_new_tokens` is `64`.
