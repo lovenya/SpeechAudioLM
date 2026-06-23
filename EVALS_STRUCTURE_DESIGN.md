@@ -101,6 +101,22 @@ Current `evaluate.py` canonical manifest resolution covers baseline-style paths.
 
 Environment paths for metric backends are resolved from `configs/eval_metrics.json` placeholders through `configs/project_paths.json`; `configs/runtime_environments.json` records the human-readable environment status and expected module stack. Check those files before giving metric commands.
 
+Current cascaded eval commands therefore have two separate paths:
+
+- Target input manifest, from the results hierarchy. For an A2S T2T stage run this is:
+
+```text
+results/cascaded/stages/t2t/a2s/<t2t_model>/from-a2t/<a2t_model>/<dataset>/<split>/<run_id>/manifest.jsonl
+```
+
+- Eval output directory, from the eval hierarchy. With the current CLI compatibility label `--model cascaded`, this is:
+
+```text
+results/evals/stages/a2s/t2t/cascaded/<dataset>/<split>/<run_id>/<metric_id>/<eval_run_id>/
+```
+
+The `cascaded` segment in the eval output path is valid for the current CLI, but it is a category label. It does not identify the captioner, ASR, T2T, TTS, or T2A model. Those concrete model identities come from the target manifest path and target metadata.
+
 ### Multiple Metrics
 
 Even when a command requests multiple metrics, each metric gets its own metric

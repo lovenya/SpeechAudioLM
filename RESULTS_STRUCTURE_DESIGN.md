@@ -891,6 +891,8 @@ The stage model identity is the concrete component model segment in the path, su
 
 Do not discover canonical runs from broad filesystem listings or stale validation directories. The authoritative cascaded stage path pattern is the hierarchy in this document, with the requested dataset split and exact run ID.
 
+Evaluation commands should use these stage manifests as the target input. The current eval CLI may still require `--model cascaded` to pass capability checks and choose an eval-output category, but that argument must not be interpreted as the evaluated model. Until the eval CLI has a cascaded-stage resolver that accepts the concrete component model fields, pass the exact stage `manifest.jsonl` path when evaluating cascaded stage outputs.
+
 ### Lineage And Sample Matching
 
 Every stage run records ordered lineage in `run.json`, including the direction, current stage index, and every stage known so far. Each lineage entry includes:
