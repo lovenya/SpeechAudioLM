@@ -91,6 +91,16 @@ There is no separate `pipelines/...` eval hierarchy in the current target
 structure. Full-path `a2s` and `s2a` results are evaluated with the `a2s` and
 `s2a` stage values under the same `stages/<direction>/<stage>/...` layout.
 
+### Eval CLI Target Rules
+
+`--evaluated-run-id` is the exact run ID of the target being evaluated. For cascaded stage runs, this is the date/time run directory name such as `20260618_0001`, not a semantic bundle name. `eval_run_id` is generated separately for the metric run output directory.
+
+`<evaluated_model>` in the eval path should identify the evaluated concrete stage or pipeline model whenever the resolver can express it. `cascaded` may appear in current legacy/evaluator commands as a category label, but it is not the model identity defined by `RESULTS_STRUCTURE_DESIGN.md`. When using `--model cascaded`, preserve the actual evaluated model through the explicit target manifest path and the target metadata.
+
+Current `evaluate.py` canonical manifest resolution covers baseline-style paths. It does not yet infer nested cascaded stage manifests from only `--model`, `--stage`, `--direction`, `--split`, and `--evaluated-run-id`. Until a cascaded-stage manifest resolver is implemented, cascaded stage eval commands must pass the exact `--manifest` path and must use the requested split. Do not silently substitute `val`, `cascaded_full_validation`, or any older validation path for a requested `test` eval.
+
+Environment paths for metric backends are resolved from `configs/eval_metrics.json` placeholders through `configs/project_paths.json`; `configs/runtime_environments.json` records the human-readable environment status and expected module stack. Check those files before giving metric commands.
+
 ### Multiple Metrics
 
 Even when a command requests multiple metrics, each metric gets its own metric

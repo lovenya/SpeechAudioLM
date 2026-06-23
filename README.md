@@ -161,7 +161,10 @@ Example:
 ```bash
 python evaluate.py --model audio_omni --stage s2t --evaluated-run-id 20260616_1500 --metrics wer --max-samples 2 --temporary
 python evaluate.py --model audio_omni --stage t2a --evaluated-run-id 20260616_1500 --metrics fad,kad,inception_score --dry-run
-python evaluate.py --model cascaded --stage t2t --direction a2s --evaluated-run-id 20260616_1500 --metrics geval_text_plausibility --dry-run
+# Cascaded stage evals currently require an explicit --manifest because nested
+# cascaded stage paths are not inferred from --model/--stage/run-id alone.
+# If --model cascaded is used, treat it as a category label, not the real stage model.
+python evaluate.py --model cascaded --stage t2t --direction a2s --evaluated-run-id 20260616_1500 --manifest /path/to/results/cascaded/stages/t2t/a2s/<t2t_model>/from-a2t/<a2t_model>/ttas/test/20260616_1500/manifest.jsonl --metrics geval_text_plausibility --dry-run
 ```
 
 Evaluation outputs are organized under:

@@ -883,6 +883,14 @@ results/cascaded/stages/
 
 `t2a` and `t2s` paths do not include direction because the direction is implied by the stage: `t2a` belongs to S2A and `t2s` belongs to A2S. Exact upstream run IDs still live in `run.json.lineage`.
 
+### Run Identity And Path Lookup
+
+Cascaded stage run IDs are date/time identifiers, for example `20260618_0001` or `20260618_1211`. They are not semantic aliases such as `full_a2s_qwencap_llama_t2t`. Human-readable model and upstream-stage information belongs in the directory path, `config.json`, and `run.json.lineage`; the terminal run directory name remains the run ID.
+
+The stage model identity is the concrete component model segment in the path, such as `llama3_3_70b_instruct`, `audio_flamingo_next`, `whisper`, `cosyvoice3`, or `audio_omni`. `model: cascaded` is intentionally not part of the results schema because it is a category label, not a model. If an eval command or legacy helper still requires `--model cascaded`, treat that as a current CLI compatibility label only and keep the real model identity in the target manifest path and metadata.
+
+Do not discover canonical runs from broad filesystem listings or stale validation directories. The authoritative cascaded stage path pattern is the hierarchy in this document, with the requested dataset split and exact run ID.
+
 ### Lineage And Sample Matching
 
 Every stage run records ordered lineage in `run.json`, including the direction, current stage index, and every stage known so far. Each lineage entry includes:
