@@ -164,7 +164,7 @@
       "transformers_offline": "1",
       "python": "{environment:shared_metrics_py312}/bin/python"
     },
-    "g_eval_prometheus_plausibility": {
+    "geval_text_plausibility": {
       "backend": "dedicated-script",
       "script": "scripts/run_geval_prometheus_criterion_v2.py",
       "script_backend": "vllm",
@@ -177,10 +177,10 @@
       "gpu_memory_utilization": 0.85,
       "enforce_eager": true,
       "trust_remote_code": true,
-      "cache_dir": "{cache:g_eval_prometheus_plausibility}",
+      "cache_dir": "{cache:geval_text_plausibility}",
       "note": "Criterion-wise reference-free Prometheus G-Eval v2 with deterministic weighted final score."
     },
-    "g_eval_prometheus_reference": {
+    "geval_text_reference": {
       "backend": "dedicated-script",
       "script": "scripts/run_geval_prometheus_criterion_v2.py",
       "script_backend": "vllm",
@@ -193,8 +193,36 @@
       "gpu_memory_utilization": 0.85,
       "enforce_eager": true,
       "trust_remote_code": true,
-      "cache_dir": "{cache:g_eval_prometheus_reference}",
+      "cache_dir": "{cache:geval_text_reference}",
       "note": "Criterion-wise paired-reference-grounded Prometheus G-Eval v2 with deterministic weighted final score."
+    },
+    "geval_audio_plausibility": {
+      "backend": "dedicated-script",
+      "script": "scripts/run_geval_audio_qwen3_criterion.py",
+      "script_backend": "transformers",
+      "python": "{environment:qwen3_omni}/bin/python",
+      "model_name": "{model:qwen3_omni}",
+      "temperature": 0.0,
+      "max_tokens": 512,
+      "batch_size": 1,
+      "local_files_only": true,
+      "trust_remote_code": true,
+      "cache_dir": "{cache:geval_audio_plausibility}",
+      "note": "Criterion-wise reference-free LALM-as-a-judge G-Eval over generated audio plus text context."
+    },
+    "geval_audio_reference": {
+      "backend": "dedicated-script",
+      "script": "scripts/run_geval_audio_qwen3_criterion.py",
+      "script_backend": "transformers",
+      "python": "{environment:qwen3_omni}/bin/python",
+      "model_name": "{model:qwen3_omni}",
+      "temperature": 0.0,
+      "max_tokens": 512,
+      "batch_size": 1,
+      "local_files_only": true,
+      "trust_remote_code": true,
+      "cache_dir": "{cache:geval_audio_reference}",
+      "note": "Criterion-wise reference-grounded LALM-as-a-judge G-Eval over generated audio plus text and paired references."
     },
     "prompt_adherence_clap_score": {
       "backend": "stable-audio-metrics",

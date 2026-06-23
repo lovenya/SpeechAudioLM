@@ -57,10 +57,11 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             input_text="A dog barks.",
             generated_text="Please let the dog inside.",
         )
-        self.assertNotIn("###Reference Anchors:", plausibility)
-        self.assertIn("Direction: audio_to_speech", plausibility)
+        self.assertNotIn("Reference anchors:", plausibility)
+        self.assertIn("evaluate the generated human speech text", plausibility)
+        self.assertNotIn("generated environmental audio description", plausibility)
         self.assertIn("sounds like a natural human utterance", plausibility)
-        self.assertIn("Ignore its relevance to the input", plausibility)
+        self.assertIn("[RESULT] N/A", plausibility)
 
         grounded = build_prompt(
             variant="reference_grounded",
@@ -70,7 +71,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             generated_text="A dog barks by a door.",
             reference_anchors=[{"anchor_id": "a", "text": "A dog is barking.", "source": "paired_dataset_reference"}],
         )
-        self.assertIn("###Reference Anchors:", grounded)
+        self.assertIn("Reference anchors:", grounded)
         self.assertIn("[Anchor 1 | source=paired_dataset_reference | id=a]", grounded)
         self.assertIn("reference audio-caption anchor", grounded)
 
@@ -87,10 +88,10 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
                         reference_anchors=[anchor],
                     )
                     if criterion == "reference_anchor_grounding":
-                        self.assertIn("###Reference Anchors:", prompt)
+                        self.assertIn("Reference anchors:", prompt)
                         self.assertIn(anchor["text"], prompt)
                     else:
-                        self.assertNotIn("###Reference Anchors:", prompt)
+                        self.assertNotIn("Reference anchors:", prompt)
                         self.assertNotIn(anchor["text"], prompt)
 
         grounded_non_contradiction = build_prompt(
@@ -101,10 +102,9 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             generated_text="A dog barks by a door.",
             reference_anchors=[anchor],
         )
-        self.assertIn(
-            "Do not lower the score merely because the response is weakly related",
-            grounded_non_contradiction,
-        )
+        self.assertIn("Criterion: non_contradiction", grounded_non_contradiction)
+        self.assertNotIn("Reference anchors:", grounded_non_contradiction)
+        self.assertNotIn(anchor["text"], grounded_non_contradiction)
 
     def test_diagnostics_do_not_change_final_score(self) -> None:
         weights = {"non_contradiction": 0.5, "spoken_naturalness": 0.5}
@@ -179,7 +179,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             judgments = [json.loads(line) for line in judgments_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(judgments), len(CRITERION_WEIGHTS[("plausibility", "audio_to_speech")]))
             first_judgment = judgments[0]
-            self.assertEqual(first_judgment["metric_id"], "g_eval_prometheus_plausibility")
+            self.assertEqual(first_judgment["metric_id"], "geval_text_plausibility")
             self.assertIn(first_judgment["criterion_id"], CRITERION_WEIGHTS[("plausibility", "audio_to_speech")])
             self.assertEqual(first_judgment["status"], "success")
             self.assertEqual(first_judgment["output"]["score"], 4)
@@ -326,7 +326,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             root = Path(tmpdir)
             output_path = root / "output.jsonl"
             base = {
-                "metric": "g_eval_prometheus_plausibility",
+                "metric": "geval_text_plausibility",
                 "evaluator_version": "geval_prometheus_criterion_v2",
                 "evaluation_variant": "plausibility",
                 "direction": "audio_to_speech",

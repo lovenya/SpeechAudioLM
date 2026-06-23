@@ -161,7 +161,7 @@ Example:
 ```bash
 python evaluate.py --model audio_omni --stage s2t --evaluated-run-id 20260616_1500 --metrics wer --max-samples 2 --temporary
 python evaluate.py --model audio_omni --stage t2a --evaluated-run-id 20260616_1500 --metrics fad,kad,inception_score --dry-run
-python evaluate.py --model cascaded --stage t2t --direction a2s --evaluated-run-id 20260616_1500 --metrics g_eval_prometheus_plausibility --dry-run
+python evaluate.py --model cascaded --stage t2t --direction a2s --evaluated-run-id 20260616_1500 --metrics geval_text_plausibility --dry-run
 ```
 
 Evaluation outputs are organized under:

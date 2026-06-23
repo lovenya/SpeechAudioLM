@@ -29,9 +29,16 @@ from project_paths import model_path
 
 
 GEVAL_METRICS = {
-    "g_eval_prometheus_plausibility",
-    "g_eval_prometheus_reference",
+    "geval_text_plausibility",
+    "geval_text_reference",
 }
+
+LALM_GEVAL_METRICS = {
+    "geval_audio_plausibility",
+    "geval_audio_reference",
+}
+
+CRITERION_JUDGE_METRICS = GEVAL_METRICS | LALM_GEVAL_METRICS
 
 
 @dataclass(frozen=True)
@@ -394,7 +401,7 @@ def _manifest_row(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _manifest_input(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
-    if metric.name == "nli_contradiction" or _is_geval_metric(metric.name):
+    if metric.name == "nli_contradiction" or _is_criterion_judge_metric(metric.name):
         details = _metric_prediction_details(row, metric.name)
         source = {
             "direction": details.get("direction"),
@@ -402,7 +409,11 @@ def _manifest_input(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
         }
         generated = {"stage_output_text": details.get("generated_text")}
         reference: dict[str, Any] = {}
-        if metric.name == "g_eval_prometheus_reference":
+        if _is_lalm_geval_metric(metric.name):
+            source["source_audio_file"] = details.get("source_audio_file")
+            generated["generated_audio_file"] = details.get("generated_audio_file")
+            generated["generated_audio_kind"] = details.get("generated_audio_kind")
+        if metric.name in {"geval_text_reference", "geval_audio_reference"}:
             anchors = details.get("reference_anchors")
             reference["reference_anchors"] = anchors if isinstance(anchors, list) else []
         return {
@@ -439,7 +450,7 @@ def _manifest_output(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
             details["backend_output"] = _canonical_metric_details(metric_details)
     elif metric.name == "nli_contradiction":
         details = _nli_metric_details(metric_details)
-    elif _is_geval_metric(metric.name):
+    elif _is_criterion_judge_metric(metric.name):
         details = _geval_metric_details(metric_details)
     else:
         details = _canonical_metric_details(metric_details)
@@ -460,6 +471,14 @@ def _manifest_output(metric: MetricSpec, row: dict[str, Any]) -> dict[str, Any]:
 
 def _is_geval_metric(metric_name: str) -> bool:
     return metric_name in GEVAL_METRICS
+
+
+def _is_lalm_geval_metric(metric_name: str) -> bool:
+    return metric_name in LALM_GEVAL_METRICS
+
+
+def _is_criterion_judge_metric(metric_name: str) -> bool:
+    return metric_name in CRITERION_JUDGE_METRICS
 
 
 def _metric_prediction_details(row: dict[str, Any], metric_name: str) -> dict[str, Any]:
@@ -617,8 +636,10 @@ def _compute_external_metrics(
         ],
         "dedicated-script": [
             "nli_contradiction",
-            "g_eval_prometheus_plausibility",
-            "g_eval_prometheus_reference",
+            "geval_text_plausibility",
+            "geval_text_reference",
+            "geval_audio_plausibility",
+            "geval_audio_reference",
         ],
     }
     supported = {name for names in backend_metrics.values() for name in names}
@@ -663,8 +684,10 @@ def _run_dedicated_script_metrics(
 ) -> dict[str, Any]:
     supported_order = [
         "nli_contradiction",
-        "g_eval_prometheus_plausibility",
-        "g_eval_prometheus_reference",
+        "geval_text_plausibility",
+        "geval_text_reference",
+        "geval_audio_plausibility",
+        "geval_audio_reference",
     ]
     ordered_names = [name for name in supported_order if name in metric_names]
     if sorted(ordered_names) != sorted(metric_names):
@@ -714,7 +737,10 @@ def _run_single_dedicated_script_metric(
     summary_path = metric_work_dir / "summary.json"
     stdout_path = metric_work_dir / "stdout.log"
 
-    helper_rows, errors = _dedicated_text_pair_rows(options, rows, metric_name, prediction_context)
+    if metric_name in LALM_GEVAL_METRICS:
+        helper_rows, errors = _dedicated_lalm_audio_rows(options, rows, metric_name)
+    else:
+        helper_rows, errors = _dedicated_text_pair_rows(options, rows, metric_name, prediction_context)
     write_jsonl(input_path, helper_rows)
     if helper_rows:
         python = Path(config.get("python") or sys.executable)
@@ -760,10 +786,7 @@ def _run_single_dedicated_script_metric(
             metric_value = _dedicated_metric_value(metric_name, result)
             if metric_value is not None:
                 sample_metrics[row_index] = {metric_name: metric_value}
-            elif metric_name in {
-                "g_eval_prometheus_plausibility",
-                "g_eval_prometheus_reference",
-            } and result.get("status") != "complete":
+            elif metric_name in CRITERION_JUDGE_METRICS and result.get("status") != "complete":
                 errors.setdefault(row_index, {})[metric_name] = str(
                     result.get("incomplete_reason") or "incomplete_criterion_judgment"
                 )
@@ -788,8 +811,10 @@ def _run_single_dedicated_script_metric(
 def _default_dedicated_script(metric_name: str) -> str:
     defaults = {
         "nli_contradiction": "scripts/run_nli_contradiction_helper.py",
-        "g_eval_prometheus_plausibility": "scripts/run_geval_prometheus_criterion_v2.py",
-        "g_eval_prometheus_reference": "scripts/run_geval_prometheus_criterion_v2.py",
+        "geval_text_plausibility": "scripts/run_geval_prometheus_criterion_v2.py",
+        "geval_text_reference": "scripts/run_geval_prometheus_criterion_v2.py",
+        "geval_audio_plausibility": "scripts/run_geval_audio_qwen3_criterion.py",
+        "geval_audio_reference": "scripts/run_geval_audio_qwen3_criterion.py",
     }
     if metric_name not in defaults:
         raise MetricUnavailableError(f"No default dedicated script for metric {metric_name!r}")
@@ -811,8 +836,8 @@ def _dedicated_text_pair_rows(
         try:
             source = source_record(row)
             if metric_name in {
-                "g_eval_prometheus_plausibility",
-                "g_eval_prometheus_reference",
+                "geval_text_plausibility",
+                "geval_text_reference",
             }:
                 stage_input, stage_output, stage_direction = _final_text_stage(row)
                 generated_text = stage_output or _prediction_text_for_metric(row, metric_name)
@@ -847,7 +872,7 @@ def _dedicated_text_pair_rows(
                 "input_text": input_text,
                 "generated_text": generated_text,
             }
-            if metric_name == "g_eval_prometheus_reference":
+            if metric_name == "geval_text_reference":
                 reference_text = _paired_reference_text(source, direction)
                 helper_row["reference_anchors"] = (
                     [
@@ -864,6 +889,125 @@ def _dedicated_text_pair_rows(
         except Exception as exc:
             errors[str(row_index)] = {metric_name: f"{type(exc).__name__}: {exc}"}
     return helper_rows, errors
+
+
+def _dedicated_lalm_audio_rows(
+    options: EvalOptions,
+    rows: list[dict],
+    metric_name: str,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
+    dataset_config = read_json(options.dataset_config_path)
+    dataset_root = Path(dataset_config["dataset_root"])
+    helper_rows: list[dict[str, Any]] = []
+    errors: dict[str, dict[str, str]] = {}
+    for ordinal, row in enumerate(rows):
+        row_index = row.get("row_index", ordinal)
+        if not is_successful_generation(row):
+            continue
+        try:
+            source = source_record(row)
+            direction = _lalm_direction(options, row, source)
+            generated_file = row.get("output_file")
+            if not isinstance(generated_file, str) or not generated_file.strip():
+                raise EvaluationError(f"{metric_name} requires generated audio/speech output_file")
+            generated_path = Path(generated_file)
+            if not generated_path.is_file():
+                raise EvaluationError(f"generated output file does not exist: {generated_file}")
+            input_text = _lalm_input_text(options, row, source, direction)
+            if not input_text:
+                raise EvaluationError(f"{metric_name} could not find text context for {direction}")
+            helper_row: dict[str, Any] = {
+                "row_index": row_index,
+                "pair_id": sample_id(row, ordinal),
+                "sample_id": sample_id(row, ordinal),
+                "split": options.split,
+                "direction": direction,
+                "primary_audio_class": source.get("primary_audio_class") or row.get("primary_audio_class"),
+                "input_text": input_text,
+                "generated_audio_file": str(generated_path),
+                "generated_audio_kind": "speech" if direction == "audio_to_speech" else "environmental_audio",
+            }
+            generated_text = _prediction_text_for_metric(row, metric_name)
+            if generated_text:
+                helper_row["generated_text"] = generated_text
+            source_audio = _lalm_source_audio(source, dataset_root, direction)
+            if source_audio is not None:
+                helper_row["source_audio_file"] = source_audio
+            if metric_name == "geval_audio_reference":
+                anchors = _lalm_reference_anchors(source, dataset_root, direction, sample_id(row, ordinal))
+                helper_row["reference_anchors"] = anchors
+                if not anchors:
+                    raise EvaluationError("missing_required_reference_anchor")
+            helper_rows.append(helper_row)
+        except Exception as exc:
+            errors[str(row_index)] = {metric_name: f"{type(exc).__name__}: {exc}"}
+    return helper_rows, errors
+
+
+def _lalm_direction(options: EvalOptions, row: dict, source: dict) -> str:
+    explicit = row.get("direction") or source.get("direction")
+    if explicit in {"audio_to_speech", "speech_to_audio"}:
+        return str(explicit)
+    stage = options.stage.lower()
+    if stage in {"a2s", "t2s"} or options.task in {"A2S", "T2S"}:
+        return "audio_to_speech"
+    if stage in {"s2a", "t2a"} or options.task in {"S2A", "T2A"}:
+        return "speech_to_audio"
+    inferred = _infer_t2t_direction(row, source)
+    if inferred in {"audio_to_speech", "speech_to_audio"}:
+        return inferred
+    raise EvaluationError(f"GEval audio is defined for audio/speech generation stages, not {options.stage!r}")
+
+
+def _lalm_input_text(options: EvalOptions, row: dict, source: dict, direction: str) -> str | None:
+    preferred = ("input_text", "prompt", "conditioning_prompt")
+    fallback = ("audio_cap", "audio_caption", "speech_text") if direction == "audio_to_speech" else ("speech_text", "audio_cap", "audio_caption")
+    return _first_text_value(row, source, preferred + fallback)
+
+
+def _lalm_source_audio(source: dict, dataset_root: Path, direction: str) -> str | None:
+    field = "audio_file" if direction == "audio_to_speech" else "speech_file"
+    value = _source_field_value(source, field, dataset_root)
+    if isinstance(value, str) and value.strip():
+        resolved = _resolve_reference(dataset_root, value)
+        if resolved.is_file():
+            return str(resolved)
+    return None
+
+
+def _lalm_reference_anchors(source: dict, dataset_root: Path, direction: str, sample: str) -> list[dict[str, Any]]:
+    if direction == "audio_to_speech":
+        text_fields = ("speech_text", "reference_speech_text", "speech_transcription")
+        audio_field = "speech_file"
+        anchor_type = "reference_speech"
+    else:
+        text_fields = ("audio_cap", "audio_caption", "reference_audio_caption")
+        audio_field = "audio_file"
+        anchor_type = "reference_audio"
+    text = None
+    for field in text_fields:
+        value = source.get(field)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            break
+    audio_file = None
+    audio_value = _source_field_value(source, audio_field, dataset_root)
+    if isinstance(audio_value, str) and audio_value.strip():
+        resolved = _resolve_reference(dataset_root, audio_value)
+        if resolved.is_file():
+            audio_file = str(resolved)
+    if text is None and audio_file is None:
+        return []
+    anchor: dict[str, Any] = {
+        "anchor_id": sample,
+        "source": "paired_dataset_reference",
+        "type": anchor_type,
+    }
+    if text is not None:
+        anchor["text"] = text
+    if audio_file is not None:
+        anchor["audio_file"] = audio_file
+    return [anchor]
 
 
 def _dedicated_script_command(
@@ -911,11 +1055,27 @@ def _dedicated_script_command(
         ):
             command.append("--local-files-only")
         return command
-    if metric_name in {
-        "g_eval_prometheus_plausibility",
-        "g_eval_prometheus_reference",
-    }:
-        variant = "reference_grounded" if metric_name == "g_eval_prometheus_reference" else "plausibility"
+    if metric_name in LALM_GEVAL_METRICS:
+        variant = "reference_grounded" if metric_name == "geval_audio_reference" else "plausibility"
+        command = [
+            str(python), str(script), "--input", str(input_path), "--output", str(output_path),
+            "--summary-output", str(summary_path), "--summary-csv-output", str(metric_work_dir / "summary.csv"),
+            "--criterion-judgments-output", str(metric_work_dir / "criterion_judgments.jsonl"),
+            "--variant", variant,
+            "--backend", str(config.get("script_backend", config.get("runtime_backend", "transformers"))),
+            "--model", str(config.get("model_name", config.get("model_path") or str(model_path("qwen3_omni")))),
+            "--batch-size", str(config.get("batch_size", 1)),
+            "--cache-dir", str(config.get("cache_dir") or metric_work_dir / "cache"),
+            "--temperature", str(config.get("temperature", 0.0)),
+            "--max-tokens", str(config.get("max_tokens", 512)),
+        ]
+        if config.get("local_files_only", True):
+            command.append("--local-files-only")
+        if config.get("trust_remote_code", True):
+            command.append("--trust-remote-code")
+        return command
+    if metric_name in GEVAL_METRICS:
+        variant = "reference_grounded" if metric_name == "geval_text_reference" else "plausibility"
         command = [
             str(python), str(script), "--input", str(input_path), "--output", str(output_path),
             "--summary-output", str(summary_path), "--summary-csv-output", str(metric_work_dir / "summary.csv"),
@@ -950,10 +1110,7 @@ def _truthy_config(value: Any) -> bool:
 def _dedicated_metric_value(metric_name: str, result: dict[str, Any]) -> float | None:
     if metric_name == "nli_contradiction":
         return float(result["max_contradiction_probability"])
-    if metric_name in {
-        "g_eval_prometheus_plausibility",
-        "g_eval_prometheus_reference",
-    } and isinstance(result.get("final_score"), (int, float)):
+    if metric_name in CRITERION_JUDGE_METRICS and isinstance(result.get("final_score"), (int, float)):
         return float(result["final_score"])
     return None
 
@@ -1284,7 +1441,7 @@ def _prediction_text_for_metric(row: dict, metric_name: str | None = None) -> st
     extra = row.get("model_extra")
     if not isinstance(extra, dict):
         return None
-    if metric_name in {"wer", "semantic_equivalence"}:
+    if metric_name in {"wer", "semantic_equivalence", "geval_audio_plausibility", "geval_audio_reference"}:
         keys = ("understanding_text", "decoded_text", "converted_prompt", "generation_prompt")
     elif metric_name in {"mace", "spider", "aac_clapsim", "fense"}:
         keys = ("converted_prompt", "generation_prompt", "decoded_text", "understanding_text")
@@ -1554,7 +1711,7 @@ def _higher_is_better(metric_name: str) -> bool | None:
 def _metric_score_name(metric_name: str) -> str:
     if metric_name == "nli_contradiction":
         return "max_contradiction_probability"
-    if _is_geval_metric(metric_name):
+    if _is_criterion_judge_metric(metric_name):
         return "weighted_final_score"
     return metric_name
 
@@ -1562,10 +1719,7 @@ def _metric_score_name(metric_name: str) -> str:
 def _metric_score_range(metric_name: str) -> dict[str, float] | None:
     if metric_name == "nli_contradiction":
         return {"min": 0.0, "max": 1.0}
-    if metric_name in {
-        "g_eval_prometheus_plausibility",
-        "g_eval_prometheus_reference",
-    }:
+    if metric_name in CRITERION_JUDGE_METRICS:
         return {"min": 1.0, "max": 5.0}
     return None
 

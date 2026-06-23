@@ -97,6 +97,8 @@ def _invalid_metric_message(task: str, invalid: list[str]) -> str:
         )
     if task in {"S2A", "A2S"} and "nli_contradiction" in invalid:
         message += " NLI contradiction is a T2T/intermediate-text metric; evaluate the text-to-text stage manifest directly."
+    if task in {"A2T", "S2T", "T2T"} and any(name in {"geval_audio_plausibility", "geval_audio_reference"} for name in invalid):
+        message += " GEval audio requires generated audio or speech; use it on T2A/S2A/T2S/A2S manifests."
     if task in {"T2A", "S2A"} and any(name in {"mace", "spider", "aac_clapsim"} for name in invalid):
         message += " AAC caption metrics are valid for A2T captioning, not final generated-audio evaluation."
     if task == "A2T" and any(

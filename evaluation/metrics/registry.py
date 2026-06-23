@@ -40,18 +40,32 @@ _SPECS = {
         requires_hypothesis_text=True,
         external=True,
     ),
-    "g_eval_prometheus_plausibility": MetricSpec(
-        name="g_eval_prometheus_plausibility",
+    "geval_text_plausibility": MetricSpec(
+        name="geval_text_plausibility",
         level="sample",
         required_prediction_fields=("generated_text",),
         requires_hypothesis_text=True,
         external=True,
     ),
-    "g_eval_prometheus_reference": MetricSpec(
-        name="g_eval_prometheus_reference",
+    "geval_text_reference": MetricSpec(
+        name="geval_text_reference",
         level="sample",
         required_prediction_fields=("generated_text",),
         requires_hypothesis_text=True,
+        external=True,
+    ),
+    "geval_audio_plausibility": MetricSpec(
+        name="geval_audio_plausibility",
+        level="sample",
+        required_prediction_fields=("output_file",),
+        requires_output_file=True,
+        external=True,
+    ),
+    "geval_audio_reference": MetricSpec(
+        name="geval_audio_reference",
+        level="sample",
+        required_prediction_fields=("output_file",),
+        requires_output_file=True,
         external=True,
     ),
     "asr_wer": MetricSpec(

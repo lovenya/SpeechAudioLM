@@ -41,7 +41,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, ["g_eval_prometheus_reference"])
+            options = self._options(root, ["geval_text_reference"])
             for pipeline, direction, expected_reference, input_field, input_text in cases:
                 reference = {
                     "speech_text": "Reference speech.",
@@ -70,7 +70,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 helper_rows, errors = _dedicated_text_pair_rows(
                     options,
                     [row],
-                    "g_eval_prometheus_reference",
+                    "geval_text_reference",
                     {},
                 )
                 self.assertFalse(errors)
@@ -82,7 +82,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
     def test_canonical_stage_fields_override_conflicting_flattened_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            options = self._options(root, ["g_eval_prometheus_plausibility"])
+            options = self._options(root, ["geval_text_plausibility"])
             row = {
                 "status": "success",
                 "row_index": 0,
@@ -98,7 +98,7 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 }]},
             }
             helper_rows, errors = _dedicated_text_pair_rows(
-                options, [row], "g_eval_prometheus_plausibility", {},
+                options, [row], "geval_text_plausibility", {},
             )
             self.assertFalse(errors)
             self.assertEqual(helper_rows[0]["direction"], "speech_to_audio")
@@ -107,8 +107,8 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
 
     def test_runner_executes_both_new_metric_ids_separately(self) -> None:
         metric_ids = [
-            "g_eval_prometheus_plausibility",
-            "g_eval_prometheus_reference",
+            "geval_text_plausibility",
+            "geval_text_reference",
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -168,12 +168,12 @@ class GEvalPrometheusCriterionV2RunnerTest(unittest.TestCase):
                 self.assertNotIn("raw_response", criterion)
                 self.assertEqual(row["input"]["source"]["stage_input_text"], "A dog is barking at a door.")
                 self.assertEqual(row["input"]["generated"]["stage_output_text"], "Please let the dog inside.")
-            anchors = rows_by_metric["g_eval_prometheus_reference"]["input"]["reference"]["reference_anchors"]
+            anchors = rows_by_metric["geval_text_reference"]["input"]["reference"]["reference_anchors"]
             self.assertEqual(anchors[0]["text"], "Please let the dog inside.")
 
 
     def test_missing_grounded_reference_marks_top_level_row_error(self) -> None:
-        metric = "g_eval_prometheus_reference"
+        metric = "geval_text_reference"
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "dataset").mkdir()

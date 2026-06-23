@@ -20,51 +20,40 @@ EVALUATOR_VERSION = "geval_prometheus_criterion_v3"
 SCORING_POLICY_VERSION = "geval_weighted_mean_v1_no_caps"
 DEFAULT_MODEL_PATH = str(model_path("prometheus_8x7b_v2"))
 METRIC_IDS = {
-    "plausibility": "g_eval_prometheus_plausibility",
-    "reference_grounded": "g_eval_prometheus_reference",
+    "plausibility": "geval_text_plausibility",
+    "reference_grounded": "geval_text_reference",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "plausibility_v3",
-    "reference_grounded": "reference_grounded_v3",
+    "plausibility": "geval_text_plausibility_v1_fixed_wrapper",
+    "reference_grounded": "geval_text_reference_v1_fixed_wrapper",
 }
-PROMPT_TEMPLATE_NAME = "prometheus_direct_assessment_v1"
+PROMPT_TEMPLATE_NAME = "geval_text_direct_assessment_v1"
 PROMPT_TEMPLATE_TEXT = """###Task Description:
-You are evaluating a creative cross-modal generation system.
-
-{task_description}
-
-Judge only the requested criterion using the score rubric.
-Do not let qualities assigned to other criteria affect this score.
-
-Criterion boundary:
-{criterion_boundary}
-
-Direction: {direction}
-
-For audio_to_speech, the input is an environmental audio description and the response is a generated human utterance that could occur in, after, or because of the audio scene.
-
-For speech_to_audio, the input is a speech utterance and the response is a generated environmental audio description that could contextualize, accompany, explain, or be caused by the speech.
-
-Write concise feedback strictly based on the criterion and rubric. Then output the final score as:
-Feedback: <feedback> [RESULT] <integer score from 1 to 5>
-
-If the criterion genuinely cannot be assessed from the response, you may instead output [RESULT] N/A. Do not use
-N/A merely because the response is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
+An instruction, a response to evaluate, and a score rubric representing one evaluation criterion are given.
+1. Write clear, objective feedback assessing the response strictly according to the given score rubric, not in general.
+2. After writing the feedback, write a score that is an integer between 1 and 5.
+3. The output format should be exactly:
+Feedback: (write feedback for the criterion) [RESULT] (integer between 1 and 5)
+4. Do not generate any other opening, closing, or explanation.
+5. If the criterion genuinely cannot be assessed from the response, write [RESULT] N/A instead of an integer. Do not use N/A merely because the response is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
 
 ###The instruction to evaluate:
-Input text:
-{input_text}
+{instruction}
 
 ###Response to evaluate:
-{generated_text}{reference_section}
+{generated_output}
 
 ###Score Rubric:
-Criterion: {criterion}
-
 {rubric}
 
 ###Feedback:
 """
+
+DIRECTION_INSTRUCTIONS = {
+    "audio_to_speech": "Given an environmental audio scene description as input, evaluate the generated human speech text as a response that could occur in, after, or because of that audio scene.",
+    "speech_to_audio": "Given a human speech utterance as input, evaluate the generated environmental audio description as a response that could contextualize, accompany, explain, or be caused by that speech.",
+}
+
 
 CRITERION_WEIGHTS = {
     ("plausibility", "audio_to_speech"): {
@@ -427,23 +416,21 @@ def build_prompt_record(
     if (variant, direction) not in CRITERION_WEIGHTS:
         raise ValueError(f"Unsupported variant/direction: {variant}/{direction}")
     rubric = REFERENCE_GROUNDING_RUBRICS[direction] if criterion == "reference_anchor_grounding" else RUBRICS[criterion]
+    if direction not in DIRECTION_INSTRUCTIONS:
+        raise ValueError(f"Unsupported direction: {direction}")
+    instruction = f"{DIRECTION_INSTRUCTIONS[direction]}\n\nInput text:\n{input_text}"
     if variant == "reference_grounded" and criterion == "reference_anchor_grounding":
         anchors = format_reference_anchors(reference_anchors or [])
-        task_description = """The task is not exact reference matching. Multiple outputs can be valid. The reference anchors are examples of the intended target-output space, not the only correct answers. Do not require exact wording or exact scene matching. Use them only to judge whether the response is grounded in the dataset's intended paired output space."""
-        reference_section = f"\n\n###Reference Anchors:\n{anchors}"
+        reference_section = f"\n\nReference anchors:\n{anchors}"
+        instruction += reference_section
     else:
-        task_description = "Multiple outputs can be valid. Judge only the requested criterion using the score rubric. No reference comparison is part of this criterion."
         reference_section = ""
     criterion_boundary = CRITERION_BOUNDARIES[criterion]
+    rendered_rubric = f"Criterion: {criterion}\n\n{rubric}"
     rendered_user_message = PROMPT_TEMPLATE_TEXT.format(
-        task_description=task_description,
-        criterion_boundary=criterion_boundary,
-        direction=direction,
-        input_text=input_text,
-        generated_text=generated_text,
-        reference_section=reference_section,
-        criterion=criterion,
-        rubric=rubric,
+        instruction=instruction,
+        generated_output=generated_text,
+        rubric=rendered_rubric,
     )
     return {
         "prompt_version": PROMPT_VERSIONS[variant],
@@ -451,9 +438,10 @@ def build_prompt_record(
         "template": PROMPT_TEMPLATE_TEXT,
         "messages": [{"role": "user", "content": rendered_user_message}],
         "rendered_user_message": rendered_user_message,
-        "task_description": task_description,
+        "instruction": instruction,
         "criterion_boundary": criterion_boundary,
         "rubric": rubric,
+        "rendered_rubric": rendered_rubric,
         "reference_section": reference_section,
     }
 

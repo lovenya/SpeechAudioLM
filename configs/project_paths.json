@@ -41,7 +41,11 @@
         "summary": "data/reports/audio_classes/ttas_panns_cnn14_primary_audio_class_counts.json",
         "unknown_samples": "data/reports/audio_classes/ttas_panns_cnn14_unknown_audio_class_samples.jsonl",
         "class_pooling_config": "configs/audio_tag_class_pooling.json",
-        "note": "Adds primary_audio_class to the PANNs tag manifests for later coarse reference pooling."
+        "note": "Adds primary_audio_class to the PANNs tag manifests for later coarse reference pooling.",
+        "reference_pools": "data/reports/audio_classes/reference_pools/class_reference_pools.json",
+        "pair_reference_mapping": "data/reports/audio_classes/reference_pools/pair_reference_mapping.jsonl",
+        "reference_pool_summary": "data/reports/audio_classes/reference_pools/reference_pool_summary.json",
+        "reference_pool_audit": "data/reports/audio_classes/reference_pool_artifact_audit.md"
       }
     }
   },
@@ -100,8 +104,10 @@
     "utmosv2": "metrics/utmosv2",
     "runtime_home": "metrics/runtime_home",
     "huggingface": "metrics/huggingface",
-    "g_eval_prometheus_plausibility": "metrics/g_eval_prometheus_plausibility",
-    "g_eval_prometheus_reference": "metrics/g_eval_prometheus_reference"
+    "geval_text_plausibility": "metrics/geval_text_plausibility",
+    "geval_text_reference": "metrics/geval_text_reference",
+    "geval_audio_plausibility": "metrics/geval_audio_plausibility",
+    "geval_audio_reference": "metrics/geval_audio_reference"
   },
   "sources": {
     "audio_omni": "Audio-Omni",

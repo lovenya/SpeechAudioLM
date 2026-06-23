@@ -11,27 +11,27 @@
   },
   "T2S": {
     "description": "text to speech / generated speech",
-    "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
+    "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim", "geval_audio_plausibility", "geval_audio_reference"],
     "output_type": "audio"
   },
   "T2A": {
     "description": "text to audio / environmental audio generation",
-    "allowed_metrics": ["fad", "kad", "kl_passt", "target_caption_clap_score", "prompt_adherence_clap_score", "inception_score"],
+    "allowed_metrics": ["fad", "kad", "kl_passt", "target_caption_clap_score", "prompt_adherence_clap_score", "inception_score", "geval_audio_plausibility", "geval_audio_reference"],
     "output_type": "audio"
   },
   "S2A": {
     "description": "speech to audio cascade/direct task",
-    "allowed_metrics": ["fad", "kad", "kl_passt", "target_caption_clap_score", "prompt_adherence_clap_score", "inception_score"],
+    "allowed_metrics": ["fad", "kad", "kl_passt", "target_caption_clap_score", "prompt_adherence_clap_score", "inception_score", "geval_audio_plausibility", "geval_audio_reference"],
     "output_type": "audio"
   },
   "A2S": {
     "description": "audio to speech cascade/direct task",
-    "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim"],
+    "allowed_metrics": ["asr_wer", "dwer", "utmos", "dnsmos", "urgentmos", "spk_sim", "geval_audio_plausibility", "geval_audio_reference"],
     "output_type": "audio"
   },
   "T2T": {
     "description": "text to text intermediate conversion stage",
-    "allowed_metrics": ["nli_contradiction", "g_eval_prometheus_plausibility", "g_eval_prometheus_reference"],
+    "allowed_metrics": ["nli_contradiction", "geval_text_plausibility", "geval_text_reference"],
     "output_type": "text"
   }
 }
