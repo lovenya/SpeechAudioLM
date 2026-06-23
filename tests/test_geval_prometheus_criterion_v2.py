@@ -53,27 +53,27 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
         plausibility = build_prompt(
             variant="plausibility",
             direction="audio_to_speech",
-            criterion="spoken_naturalness",
+            criterion="target_form_validity",
             input_text="A dog barks.",
             generated_text="Please let the dog inside.",
         )
         self.assertNotIn("Reference anchors:", plausibility)
-        self.assertIn("evaluate the generated human speech text", plausibility)
+        self.assertIn("generated speech transcript / human utterance", plausibility)
         self.assertNotIn("generated environmental audio description", plausibility)
-        self.assertIn("sounds like a natural human utterance", plausibility)
+        self.assertIn("valid as a speech transcript / human utterance", plausibility)
         self.assertIn("[RESULT] N/A", plausibility)
 
         grounded = build_prompt(
             variant="reference_grounded",
             direction="speech_to_audio",
-            criterion="reference_anchor_grounding",
+            criterion="reference_anchor_compatibility",
             input_text="Please let the dog inside.",
             generated_text="A dog barks by a door.",
             reference_anchors=[{"anchor_id": "a", "text": "A dog is barking.", "source": "paired_dataset_reference"}],
         )
-        self.assertIn("Reference anchors:", grounded)
-        self.assertIn("[Anchor 1 | source=paired_dataset_reference | id=a]", grounded)
-        self.assertIn("reference audio-caption anchor", grounded)
+        self.assertIn("Paired dataset reference audio caption:", grounded)
+        self.assertIn("A dog is barking.", grounded)
+        self.assertIn("soft acoustic and contextual anchor", grounded)
 
         anchor = {"anchor_id": "a", "text": "UNIQUE_REFERENCE_ANCHOR_TEXT", "source": "paired_dataset_reference"}
         for direction in ("audio_to_speech", "speech_to_audio"):
@@ -87,11 +87,11 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
                         generated_text="Generated text.",
                         reference_anchors=[anchor],
                     )
-                    if criterion == "reference_anchor_grounding":
-                        self.assertIn("Reference anchors:", prompt)
+                    if criterion == "reference_anchor_compatibility":
+                        self.assertIn("Paired dataset reference", prompt)
                         self.assertIn(anchor["text"], prompt)
                     else:
-                        self.assertNotIn("Reference anchors:", prompt)
+                        self.assertNotIn("Paired dataset reference", prompt)
                         self.assertNotIn(anchor["text"], prompt)
 
         grounded_non_contradiction = build_prompt(
@@ -271,7 +271,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
                     _test_generation(
                         prompt,
                         "Feedback: Too little language to assess this criterion. [RESULT] N/A"
-                        if "Criterion: spoken_naturalness" in prompt
+                        if "Criterion: target_form_validity" in prompt
                         else "Feedback: Assessable criterion. [RESULT] 4",
                     )
                     for prompt in prompts
@@ -300,7 +300,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
             row = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(row["status"], "complete_with_abstention")
             self.assertIsNone(row["final_score"])
-            self.assertEqual(row["criteria"]["spoken_naturalness"]["parse_status"], "abstained")
+            self.assertEqual(row["criteria"]["target_form_validity"]["parse_status"], "abstained")
             self.assertTrue(summary["complete"])
             self.assertEqual(summary["abstained_judgments"], 1)
             self.assertEqual(summary["failed_judgments"], 0)
@@ -314,7 +314,7 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
                 sum(summary["final_score_statistics"]["score_distribution"].values()),
                 0,
             )
-            naturalness = summary["criterion_score_statistics"]["spoken_naturalness"]
+            naturalness = summary["criterion_score_statistics"]["target_form_validity"]
             self.assertEqual(naturalness["count"], 0)
             self.assertEqual(naturalness["null_count"], 1)
             self.assertEqual(naturalness["abstention_count"], 1)

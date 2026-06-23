@@ -35,7 +35,7 @@ CONFIG = {
 
 
 class AudioClassAssignmentTest(unittest.TestCase):
-    def test_real_config_keeps_voice_below_concrete_environmental_classes(self) -> None:
+    def test_real_config_priority_first_keeps_voice_below_concrete_environmental_classes(self) -> None:
         real_config = json.loads(Path("configs/audio_tag_class_pooling.json").read_text(encoding="utf-8"))
 
         priority = real_config["priority_order"]
@@ -45,8 +45,44 @@ class AudioClassAssignmentTest(unittest.TestCase):
             ["Speech", "Dog"],
             {"Speech": 0.95, "Dog": 0.31},
             real_config,
+            assignment_rule="priority_first_v1",
         )
         self.assertEqual(assignment.primary_audio_class, "domestic_pets")
+
+    def test_real_config_default_evidence_guard_keeps_stronger_voice_evidence(self) -> None:
+        real_config = json.loads(Path("configs/audio_tag_class_pooling.json").read_text(encoding="utf-8"))
+
+        assignment = assign_primary_audio_class(
+            ["Speech", "Dog"],
+            {"Speech": 0.95, "Dog": 0.31},
+            real_config,
+        )
+        self.assertEqual(assignment.primary_audio_class, "human_voice_vocal")
+        self.assertEqual(assignment.debug["assignment_rule"], "priority_with_evidence_guard")
+
+    def test_real_config_maps_new_unknown_tags(self) -> None:
+        real_config = json.loads(Path("configs/audio_tag_class_pooling.json").read_text(encoding="utf-8"))
+
+        priority = real_config["priority_order"]
+        self.assertLess(priority.index("rain_thunder_weather"), priority.index("nature_ambient"))
+        self.assertLess(priority.index("nature_ambient"), priority.index("water_nature"))
+        expected = {
+            "Whistling": "human_voice_vocal",
+            "Whistle": "human_voice_vocal",
+            "Bird flight, flapping wings": "birds",
+            "Crumpling, crinkling": "indoor_household",
+            "Tearing": "indoor_household",
+            "Scissors": "tools_machinery_construction",
+            "Wood": "tools_machinery_construction",
+            "Rub": "tools_machinery_construction",
+            "Splinter": "tools_machinery_construction",
+            "Rustling leaves": "nature_ambient",
+            "Rustle": "nature_ambient",
+        }
+        for tag, class_name in expected.items():
+            with self.subTest(tag=tag):
+                assignment = assign_primary_audio_class([tag], {tag: 0.7}, real_config)
+                self.assertEqual(assignment.primary_audio_class, class_name)
 
     def test_real_config_documents_ambiguous_tag_priority(self) -> None:
         real_config = json.loads(Path("configs/audio_tag_class_pooling.json").read_text(encoding="utf-8"))

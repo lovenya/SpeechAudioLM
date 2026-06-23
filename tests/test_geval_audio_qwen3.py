@@ -7,6 +7,7 @@ from pathlib import Path
 
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.runner import EvalOptions, _dedicated_lalm_audio_rows, run_evaluation
+from scripts.run_geval_audio_qwen3_criterion import build_prompt_record
 
 
 class GEvalLALMQwen3Test(unittest.TestCase):
@@ -69,6 +70,20 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             self.assertEqual(rows[0]["source_audio_file"], str(source_audio))
             self.assertEqual(rows[0]["reference_anchors"][0]["audio_file"], str(reference_speech))
             self.assertEqual(rows[0]["reference_anchors"][0]["text"], "Please let the dog inside.")
+
+    def test_audio_prompt_uses_direction_specific_input_and_rubric(self) -> None:
+        prompt = build_prompt_record(
+            variant="plausibility",
+            direction="speech_to_audio",
+            criterion="conditional_relevance",
+            input_text="Please let the dog inside.",
+            generated_audio_file="/tmp/generated.wav",
+        )["rendered_user_message"]
+
+        self.assertIn("Input speech transcript / utterance:\nPlease let the dog inside.", prompt)
+        self.assertIn("generated environmental audio clip", prompt)
+        self.assertIn("generated audio caption is meaningfully grounded in the input utterance", prompt)
+        self.assertNotIn("generated utterance is meaningfully grounded in the input audio caption", prompt)
 
     def test_runner_executes_lalm_stub_and_preserves_audio_manifest_fields(self) -> None:
         metric = "geval_audio_plausibility"

@@ -17,7 +17,10 @@ from project_paths import model_path
 from scripts.run_geval_prometheus_criterion_v2 import (
     CRITERION_BOUNDARIES as PROMETHEUS_CRITERION_BOUNDARIES,
     CRITERION_WEIGHTS as PROMETHEUS_CRITERION_WEIGHTS,
-    REFERENCE_GROUNDING_RUBRICS,
+    REFERENCE_COMPATIBILITY_RUBRICS,
+    REFERENCE_DIRECTION_INSTRUCTIONS,
+    format_reference_output,
+    rubric_for_criterion,
     RUBRICS as PROMETHEUS_RUBRICS,
     SCORING_POLICY_VERSION,
     deterministic_diagnostics,
@@ -58,8 +61,14 @@ Feedback: (write feedback for the criterion) [RESULT] (integer between 1 and 5)
 """
 
 DIRECTION_INSTRUCTIONS = {
-    "audio_to_speech": "Given an environmental audio scene description as input, evaluate the attached generated human speech audio clip as a response that could occur in, after, or because of that audio scene.",
-    "speech_to_audio": "Given a human speech utterance as input, evaluate the attached generated environmental audio clip as a response that could contextualize, accompany, explain, or be caused by that speech.",
+    "audio_to_speech": """Given an environmental audio scene description as input, evaluate the attached generated human speech audio clip as a response that could occur in, after, or because of that audio scene.
+
+Input audio caption:
+{input_text}""",
+    "speech_to_audio": """Given a human speech utterance as input, evaluate the attached generated environmental audio clip as a response that could contextualize, accompany, explain, or be caused by that speech.
+
+Input speech transcript / utterance:
+{input_text}""",
 }
 
 
@@ -268,15 +277,20 @@ def build_prompt_record(
 ) -> dict[str, Any]:
     if (variant, direction) not in CRITERION_WEIGHTS:
         raise ValueError(f"Unsupported variant/direction: {variant}/{direction}")
-    rubric = REFERENCE_GROUNDING_RUBRICS[direction] if criterion == "reference_anchor_grounding" else RUBRICS[criterion]
+    if criterion == "reference_anchor_compatibility":
+        rubric = REFERENCE_COMPATIBILITY_RUBRICS[direction]
+    elif criterion in {AUDIO_QUALITY_CRITERION, AUDIO_AFFECT_CRITERION}:
+        rubric = RUBRICS[criterion]
+    else:
+        rubric = rubric_for_criterion(direction, criterion)
     if direction not in DIRECTION_INSTRUCTIONS:
         raise ValueError(f"Unsupported direction: {direction}")
-    instruction = f"{DIRECTION_INSTRUCTIONS[direction]}\n\nInput text:\n{input_text}"
-    if variant == "reference_grounded" and criterion == "reference_anchor_grounding":
-        anchors = format_reference_anchors(reference_anchors or [])
-        reference_section = f"\n\nReference anchors:\n{anchors}"
-        instruction += reference_section
+    if variant == "reference_grounded" and criterion == "reference_anchor_compatibility":
+        reference_output = format_reference_output(reference_anchors or [])
+        instruction = REFERENCE_DIRECTION_INSTRUCTIONS[direction].format(input_text=input_text, reference_output=reference_output)
+        reference_section = reference_output
     else:
+        instruction = DIRECTION_INSTRUCTIONS[direction].format(input_text=input_text)
         reference_section = ""
     criterion_boundary = CRITERION_BOUNDARIES[criterion]
     output_parts = [f"Generated audio file attached: {Path(generated_audio_file).name}"]
@@ -497,7 +511,7 @@ def _make_item(row: dict[str, Any], row_position: int, criterion: str, *, varian
             "generated_audio_kind": row.get("generated_audio_kind"),
             "generated_text": row.get("generated_text"),
             "source_audio_file": source_audio_file,
-            "reference_anchors": anchors if criterion == "reference_anchor_grounding" else [],
+            "reference_anchors": anchors if criterion == "reference_anchor_compatibility" else [],
             "prompt_version": PROMPT_VERSIONS[variant],
             "scoring_policy_version": SCORING_POLICY_VERSION,
             "judge": cache_identity,
