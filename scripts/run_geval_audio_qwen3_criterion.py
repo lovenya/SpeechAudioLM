@@ -15,15 +15,7 @@ from typing import Any, Protocol
 
 from project_paths import model_path
 from scripts.run_geval_prometheus_criterion_v2 import (
-    CRITERION_BOUNDARIES as PROMETHEUS_CRITERION_BOUNDARIES,
-    CRITERION_WEIGHTS as PROMETHEUS_CRITERION_WEIGHTS,
-    REFERENCE_COMPATIBILITY_RUBRICS,
-    REFERENCE_DIRECTION_INSTRUCTIONS,
-    format_reference_output,
-    rubric_for_criterion,
-    RUBRICS as PROMETHEUS_RUBRICS,
     SCORING_POLICY_VERSION,
-    deterministic_diagnostics,
     parse_prometheus_result,
     weighted_final_score,
 )
@@ -35,24 +27,25 @@ METRIC_IDS = {
     "reference_grounded": "geval_audio_reference",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_audio_plausibility_v2_fixed_wrapper",
-    "reference_grounded": "geval_audio_reference_v2_fixed_wrapper",
+    "plausibility": "geval_audio_plausibility_v3_end_to_end_audio",
+    "reference_grounded": "geval_audio_reference_v3_end_to_end_audio",
 }
-PROMPT_TEMPLATE_NAME = "geval_audio_direct_assessment_v1"
+PROMPT_TEMPLATE_NAME = "geval_audio_end_to_end_direct_assessment_v1"
 PROMPT_TEMPLATE_TEXT = """###Task Description:
-An instruction, a response to evaluate, and a score rubric representing one evaluation criterion are given.
-1. Write clear, objective feedback assessing the response strictly according to the given score rubric, not in general.
-2. After writing the feedback, write a score that is an integer between 1 and 5.
-3. The output format should be exactly:
-Feedback: (write feedback for the criterion) [RESULT] (integer between 1 and 5)
-4. Do not generate any other opening, closing, or explanation.
-5. If the criterion genuinely cannot be assessed from the response, write [RESULT] N/A instead of an integer. Do not use N/A merely because the response is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
+An instruction, audio clips, and a score rubric representing one evaluation criterion are given.
+1. Listen carefully to the attached audio clips.
+2. Write concise, objective feedback assessing the output audio strictly according to the given score rubric, not in general.
+3. After writing the feedback, write a score that is an integer between 1 and 5.
+4. The output format should be exactly:
+Feedback: (write concise feedback for this criterion) [RESULT] (integer score from 1 to 5)
+5. Do not generate any other opening, closing, or explanation.
+6. If the criterion genuinely cannot be assessed from the attached audio, write [RESULT] N/A instead of an integer. Do not use N/A merely because the output audio is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
 
 ###The instruction to evaluate:
 {instruction}
 
-###Response to evaluate:
-{generated_output}
+###Audio clips:
+{audio_clip_description}
 
 ###Score Rubric:
 {rubric}
@@ -61,62 +54,223 @@ Feedback: (write feedback for the criterion) [RESULT] (integer between 1 and 5)
 """
 
 DIRECTION_INSTRUCTIONS = {
-    "audio_to_speech": """Given an environmental audio scene description as input, evaluate the attached generated human speech audio clip as a response that could occur in, after, or because of that audio scene.
+    "audio_to_speech": """You are evaluating an end-to-end SpeechAudio LM generation. Listen carefully to both audio clips. The output audio should be a generated human speech response that could plausibly be spoken in, after, or because of the input environmental audio scene.
 
-Input audio caption:
-{input_text}""",
-    "speech_to_audio": """Given a human speech utterance as input, evaluate the attached generated environmental audio clip as a response that could contextualize, accompany, explain, or be caused by that speech.
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the input audio and output audio.""",
+    "speech_to_audio": """You are evaluating an end-to-end SpeechAudio LM generation. Listen carefully to both audio clips. The output audio should be an environmental audio scene that could plausibly contextualize, accompany, explain, or be caused by the input spoken utterance.
 
-Input speech transcript / utterance:
-{input_text}""",
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the input audio and output audio.""",
 }
 
+REFERENCE_DIRECTION_INSTRUCTIONS = {
+    "audio_to_speech": """You are evaluating an end-to-end SpeechAudio LM generation with reference audio anchors. Listen carefully to the input audio, output audio, and any reference audio clips. The output audio should be generated human speech that could plausibly be spoken in, after, or because of the input environmental audio scene, and should remain compatible with the reference speech audio anchors as soft examples of valid output space.
 
-AUDIO_QUALITY_CRITERION = "generated_audio_naturalness_coherence"
-AUDIO_QUALITY_WEIGHT = 0.20
-AUDIO_AFFECT_CRITERION = "audio_derived_tone_emotion_expressivity"
-AUDIO_AFFECT_WEIGHT = 0.15
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the attached audio clips.""",
+    "speech_to_audio": """You are evaluating an end-to-end SpeechAudio LM generation with reference audio anchors. Listen carefully to the input audio, output audio, and any reference audio clips. The output audio should be an environmental audio scene that could plausibly contextualize, accompany, explain, or be caused by the input spoken utterance, and should remain compatible with the reference environmental audio anchors as soft examples of valid output space.
+
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the attached audio clips.""",
+}
 
 CRITERION_WEIGHTS = {
-    key: {
-        **weights,
-        AUDIO_QUALITY_CRITERION: AUDIO_QUALITY_WEIGHT,
-        AUDIO_AFFECT_CRITERION: AUDIO_AFFECT_WEIGHT,
-    }
-    for key, weights in PROMETHEUS_CRITERION_WEIGHTS.items()
+    ("plausibility", "audio_to_speech"): {
+        "cross_modal_non_contradiction": 1.0,
+        "cross_modal_grounding": 1.0,
+        "scenario_plausibility": 1.0,
+        "controlled_detail": 1.0,
+        "target_modality_success": 1.0,
+        "perceptual_audio_quality": 1.0,
+        "expressive_delivery_fit": 1.0,
+    },
+    ("plausibility", "speech_to_audio"): {
+        "cross_modal_non_contradiction": 1.0,
+        "cross_modal_grounding": 1.0,
+        "scenario_plausibility": 1.0,
+        "controlled_detail": 1.0,
+        "target_modality_success": 1.0,
+        "perceptual_audio_quality": 1.0,
+        "contextual_acoustic_fit": 1.0,
+    },
+    ("reference_grounded", "audio_to_speech"): {
+        "cross_modal_non_contradiction": 1.0,
+        "cross_modal_grounding": 1.0,
+        "scenario_plausibility": 1.0,
+        "controlled_detail": 1.0,
+        "target_modality_success": 1.0,
+        "perceptual_audio_quality": 1.0,
+        "expressive_delivery_fit": 1.0,
+        "reference_audio_compatibility": 1.0,
+    },
+    ("reference_grounded", "speech_to_audio"): {
+        "cross_modal_non_contradiction": 1.0,
+        "cross_modal_grounding": 1.0,
+        "scenario_plausibility": 1.0,
+        "controlled_detail": 1.0,
+        "target_modality_success": 1.0,
+        "perceptual_audio_quality": 1.0,
+        "contextual_acoustic_fit": 1.0,
+        "reference_audio_compatibility": 1.0,
+    },
 }
 
 RUBRICS = {
-    **PROMETHEUS_RUBRICS,
-    AUDIO_QUALITY_CRITERION: """Evaluate the generated audio clip itself, independent of whether it is the right semantic response to the input.
+    ("audio_to_speech", "cross_modal_non_contradiction"): """Evaluate whether the generated speech audio avoids contradicting the heard input environmental audio.
 
-Score 5: The audio is highly natural and coherent, with realistic sound quality or speech quality, stable timing, and no distracting artifacts.
-Score 4: Mostly natural and coherent, with only minor artifacts, slight synthetic texture, or small continuity issues that do not interfere with listening.
-Score 3: Understandable or recognizable, but noticeably synthetic, uneven, noisy, clipped, temporally awkward, or only partially coherent.
-Score 2: Poor audio quality; major artifacts, distortion, unnatural timing, unstable events, or speech/audio defects substantially interfere with the intended sound.
-Score 1: Incoherent, unintelligible, mostly noise/silence, severely distorted, or not a plausible audio realization.""",
-    AUDIO_AFFECT_CRITERION: """Evaluate whether the generated audio conveys meaningful tone, emotion, vocal affect, urgency, confidence, mood, or expressive cues that can only be derived from listening to the audio.
+Focus only on contradiction. The speech may add reasonable unstated context, but it should not deny, reverse, or conflict with explicit or strongly implied events, conditions, or situations heard in the input audio.
 
-Score 5: The audio provides clear, rich, and consistent audio-only affective or expressive information, such as tone, emotion, urgency, confidence, stress, calmness, or scene mood.
-Score 4: The audio provides clear audio-only tone or emotion cues, with only minor ambiguity or limited nuance.
-Score 3: Some tone, emotion, or mood can be inferred from the audio, but it is generic, weak, inconsistent, or only partially informative.
-Score 2: Very little reliable tone, emotion, or expressive information is audible, or the cues are substantially ambiguous or unstable.
-Score 1: No meaningful audio-derived tone, emotion, or expressive information can be assessed, or the audio is too degraded, flat, silent, or incoherent to support such judgment.""",
+Score 1: The generated speech directly and severely contradicts the input audio scene, or is incoherent with it.
+Score 2: The generated speech contains a major contradiction with the input audio scene or with a strongly implied fact from it.
+Score 3: The generated speech has a noticeable possible contradiction or tension, but the conflict is ambiguous or not central.
+Score 4: The generated speech is mostly compatible with the input audio scene, with only minor ambiguity or weak tension.
+Score 5: The generated speech is fully compatible with the input audio scene and contains no meaningful contradiction.""",
+    ("audio_to_speech", "cross_modal_grounding"): """Evaluate whether the generated speech audio is meaningfully grounded in the heard input environmental audio.
+
+The speech should use, respond to, or be motivated by the sound event, acoustic context, or situation heard in the input audio. It does not need to describe the audio literally, but it should not be generic, unrelated, or only accidentally compatible.
+
+Score 1: The generated speech is unrelated to the input audio.
+Score 2: The generated speech has only a very weak, vague, or accidental connection to the input audio.
+Score 3: The generated speech is somewhat connected, but the connection is generic, indirect, or underdeveloped.
+Score 4: The generated speech is clearly connected to the input audio, with only minor genericness or missed opportunity.
+Score 5: The generated speech is strongly and specifically grounded in the input audio.""",
+    ("audio_to_speech", "scenario_plausibility"): """Evaluate whether the input environmental audio and generated speech audio form a believable shared situation.
+
+The generated speech should sound like something a human could plausibly say during, after, or because of the heard audio scene. Consider temporal fit, causal fit, contextual emotional fit, pragmatic fit, and human reaction plausibility. These are not separate sub-scores; use them only to judge overall scenario plausibility.
+
+Score 1: The input audio and generated speech form an absurd, impossible, incoherent, or extremely unnatural situation.
+Score 2: The generated speech is difficult to believe in the heard scene because of a major temporal, causal, emotional, pragmatic, or human-reaction mismatch.
+Score 3: The generated speech could occur in the heard scene, but the situation feels somewhat strained, weakly motivated, generic, or dependent on extra context.
+Score 4: The generated speech forms a plausible human situation with the heard scene, requiring at most a small reasonable assumption.
+Score 5: The generated speech feels like a very natural and believable human reaction to the heard scene.""",
+    ("audio_to_speech", "controlled_detail"): """Evaluate whether the generated speech audio uses an appropriate amount of inferred detail: not too vague, and not too over-specific.
+
+The speech may infer reasonable context from the heard input audio because the task is one-to-many. However, it should not invent highly specific unsupported details, identities, locations, causes, or events. It should also not be so vague that it barely uses the input audio.
+
+Score 1: The generated speech is either almost empty/generic or wildly over-invented with unsupported details.
+Score 2: The generated speech is mostly too vague or mostly too over-specific, making it poorly controlled.
+Score 3: The generated speech has some useful detail, but is noticeably too generic or includes somewhat unsupported details.
+Score 4: The generated speech has mostly appropriate detail, with only minor vagueness or minor over-inference.
+Score 5: The generated speech is appropriately detailed: concrete enough to be useful, but not over-invented beyond the input audio.""",
+    ("audio_to_speech", "target_modality_success"): """Evaluate whether the output audio succeeds as generated human speech.
+
+The output should contain intelligible, speakable human speech. It should not be only environmental sound, music, silence, noise, a non-speech vocalization, a spoken audio caption, or an incoherent waveform. Judge the success of the target modality, not whether the content is semantically perfect.
+
+Score 1: The output is not recognizable as valid human speech, is silent/noise, or is completely in the wrong modality.
+Score 2: The output contains little usable speech, or the speech is mostly unintelligible, broken, or not a plausible utterance.
+Score 3: The output is partly valid speech, but has noticeable intelligibility, modality, or utterance-form problems.
+Score 4: The output is mostly successful speech audio, with only minor intelligibility or utterance-form issues.
+Score 5: The output is clearly successful human speech audio: intelligible, speakable, and in the correct target modality.""",
+    ("audio_to_speech", "perceptual_audio_quality"): """Evaluate the perceptual quality and naturalness of the generated speech audio.
+
+Focus on audio quality, not semantic alignment. Consider naturalness, clarity, distortion, clipping, glitches, robotic artifacts, unstable voice, excessive noise, unnatural pauses, and synthesis artifacts.
+
+Score 1: The generated speech audio is extremely degraded, unnatural, distorted, or difficult to listen to.
+Score 2: The generated speech audio has major quality problems such as strong artifacts, distortion, instability, or poor clarity.
+Score 3: The generated speech audio is understandable but has noticeable artifacts, unnaturalness, noise, or synthesis issues.
+Score 4: The generated speech audio is mostly natural and clear, with only minor artifacts or quality issues.
+Score 5: The generated speech audio is highly natural, clear, stable, and free of meaningful perceptual artifacts.""",
+    ("audio_to_speech", "expressive_delivery_fit"): """Evaluate whether the expressive delivery of the generated speech fits the heard input audio scene.
+
+Focus on non-textual speech cues: emotion, prosody, tone, urgency, loudness, speaking pace, rhythm, hesitation, stress, surprise, fear, calmness, laughter, or other vocal expression. The words may be plausible, but the delivery should also fit the situation implied by the input audio. Do not require strong emotion when the situation is neutral.
+
+Score 1: The expressive delivery is completely inappropriate for the heard scene, or the speech has no usable expressive character.
+Score 2: The delivery has a major mismatch in emotion, prosody, urgency, loudness, pace, or tone.
+Score 3: The delivery is somewhat plausible, but feels flat, exaggerated, emotionally mismatched, or weakly adapted to the scene.
+Score 4: The delivery mostly fits the heard scene, with only minor expressive mismatch or missed nuance.
+Score 5: The delivery strongly fits the heard scene, with natural emotion, prosody, urgency, pace, and tone for the situation.""",
+    ("speech_to_audio", "cross_modal_non_contradiction"): """Evaluate whether the generated environmental audio avoids contradicting the heard input speech.
+
+Focus only on contradiction. The environmental audio may add reasonable unstated context, but it should not deny, reverse, or conflict with explicit or strongly implied facts, intent, emotion, or context from the spoken utterance.
+
+Score 1: The generated environmental audio directly and severely contradicts the input speech, or is incoherent with it.
+Score 2: The generated environmental audio contains a major contradiction with the input speech or with a strongly implied fact from it.
+Score 3: The generated environmental audio has a noticeable possible contradiction or tension, but the conflict is ambiguous or not central.
+Score 4: The generated environmental audio is mostly compatible with the input speech, with only minor ambiguity or weak tension.
+Score 5: The generated environmental audio is fully compatible with the input speech and contains no meaningful contradiction.""",
+    ("speech_to_audio", "cross_modal_grounding"): """Evaluate whether the generated environmental audio is meaningfully grounded in the heard input speech.
+
+The audio scene should contextualize, accompany, explain, or be caused by the spoken utterance. It does not need to be the only possible scene, but it should not be generic, unrelated, or only accidentally compatible.
+
+Score 1: The generated environmental audio is unrelated to the input speech.
+Score 2: The generated environmental audio has only a very weak, vague, or accidental connection to the input speech.
+Score 3: The generated environmental audio is somewhat connected, but the connection is generic, indirect, or underdeveloped.
+Score 4: The generated environmental audio is clearly connected to the input speech, with only minor genericness or missed opportunity.
+Score 5: The generated environmental audio is strongly and specifically grounded in the input speech.""",
+    ("speech_to_audio", "scenario_plausibility"): """Evaluate whether the input speech and generated environmental audio form a believable shared situation.
+
+The generated audio scene should realistically contextualize, accompany, explain, or result from the heard utterance. Consider temporal fit, causal fit, contextual emotional fit, pragmatic fit, and whether the described sound world is believable. These are not separate sub-scores; use them only to judge overall scenario plausibility.
+
+Score 1: The input speech and generated environmental audio form an absurd, impossible, incoherent, or extremely unnatural situation.
+Score 2: The generated audio scene is difficult to believe with the input speech because of a major temporal, causal, emotional, pragmatic, or sound-world mismatch.
+Score 3: The generated audio scene could fit the input speech, but the situation feels somewhat strained, weakly motivated, generic, or dependent on extra context.
+Score 4: The generated audio scene forms a plausible situation with the input speech, requiring at most a small reasonable assumption.
+Score 5: The generated audio scene feels like a very natural and believable context, accompaniment, explanation, or consequence of the input speech.""",
+    ("speech_to_audio", "controlled_detail"): """Evaluate whether the generated environmental audio uses an appropriate amount of acoustic detail: not too sparse, and not too overloaded or over-specific.
+
+The audio may infer reasonable context from the heard input speech because the task is one-to-many. However, it should not introduce many unsupported or overly specific sound events, identities, locations, or causes. It should also not be so sparse or generic that it barely uses the input speech.
+
+Score 1: The generated audio is either almost empty/generic or wildly overloaded with unsupported acoustic details.
+Score 2: The generated audio is mostly too sparse/generic or mostly too over-specific/overcrowded, making it poorly controlled.
+Score 3: The generated audio has some useful acoustic detail, but is noticeably too generic, too sparse, or somewhat over-invented.
+Score 4: The generated audio has mostly appropriate acoustic detail, with only minor sparseness or minor over-inference.
+Score 5: The generated audio is appropriately detailed: rich enough to be useful, but not overloaded or over-invented beyond the input speech.""",
+    ("speech_to_audio", "target_modality_success"): """Evaluate whether the output audio succeeds as generated environmental audio.
+
+The output should contain an environmental sound scene, sound event, ambience, or acoustic context. It should not be generated speech replying to the speaker, a spoken caption, pure silence, unrelated music, random noise, or an incoherent waveform. Judge the success of the target modality, not whether the semantic alignment is perfect.
+
+Score 1: The output is not recognizable as valid environmental audio, is silent/noise, or is completely in the wrong modality.
+Score 2: The output contains little usable environmental audio, or is mostly speech, music, silence, random noise, or broken audio.
+Score 3: The output is partly valid environmental audio, but has noticeable modality, scene, or acoustic-content problems.
+Score 4: The output is mostly successful environmental audio, with only minor modality or acoustic-content issues.
+Score 5: The output is clearly successful environmental audio: audible, scene-like, and in the correct target modality.""",
+    ("speech_to_audio", "perceptual_audio_quality"): """Evaluate the perceptual quality and realism of the generated environmental audio.
+
+Focus on audio quality, not semantic alignment. Consider realism, clarity, natural sound texture, distortion, clipping, glitches, looping artifacts, harsh synthetic noise, poor mixing, unstable ambience, and unnatural transitions.
+
+Score 1: The generated environmental audio is extremely degraded, unrealistic, distorted, or difficult to listen to.
+Score 2: The generated environmental audio has major quality problems such as strong artifacts, distortion, poor realism, or unstable sound texture.
+Score 3: The generated environmental audio is usable but has noticeable artifacts, unnaturalness, poor mixing, looping, or synthetic texture.
+Score 4: The generated environmental audio is mostly realistic and clear, with only minor artifacts or quality issues.
+Score 5: The generated environmental audio is highly realistic, clear, coherent, and free of meaningful perceptual artifacts.""",
+    ("speech_to_audio", "contextual_acoustic_fit"): """Evaluate whether the acoustic character of the generated environmental audio fits the heard input speech.
+
+Focus on non-textual acoustic cues: loudness, intensity, ambience, mood, tension, calmness, event timing, foreground/background balance, density, and soundscape energy. The audio scene may be semantically plausible, but its acoustic character should also fit the utterance's intent, emotion, urgency, and pragmatic context. Do not require dramatic sound when the speech implies a neutral or quiet situation.
+
+Score 1: The acoustic character is completely inappropriate for the heard speech, or the output has no usable acoustic character.
+Score 2: The generated audio has a major mismatch in loudness, intensity, ambience, timing, density, or acoustic mood.
+Score 3: The generated audio is somewhat plausible, but feels too flat, too intense, emotionally mismatched, poorly timed, or weakly adapted to the speech.
+Score 4: The generated audio mostly fits the heard speech, with only minor acoustic mismatch or missed nuance.
+Score 5: The generated audio strongly fits the heard speech, with natural loudness, intensity, ambience, timing, density, and acoustic mood for the situation.""",
+    ("audio_to_speech", "reference_audio_compatibility"): """Evaluate whether the generated speech audio is compatible with the attached reference speech audio anchor(s) as soft examples of valid responses.
+
+The generated speech does not need to match the exact wording, voice, timing, or delivery of the reference audio. It should remain compatible with the reference's core audible situation, communicative role, reaction, intent, or emotional stance when those are clear.
+
+Score 1: The generated speech is incompatible with the reference audio's core response, reaction, intent, or communicative role.
+Score 2: The generated speech has only weak or strained compatibility with the reference audio and misses or conflicts with an important anchor.
+Score 3: The generated speech is partially compatible with the reference audio, but changes, weakens, or omits a noticeable part of the reference anchor.
+Score 4: The generated speech is mostly compatible with the reference audio's core anchor, with only minor differences in emphasis, specificity, emotion, wording, or delivery.
+Score 5: The generated speech is strongly compatible with the reference audio's core anchor while allowing natural variation in wording, phrasing, voice, and delivery.""",
+    ("speech_to_audio", "reference_audio_compatibility"): """Evaluate whether the generated environmental audio is compatible with the attached reference environmental audio anchor(s) as soft examples of valid output scenes.
+
+The generated environmental audio does not need to match the exact same sound list, timing, recording conditions, or scene details. It should remain compatible with the reference's core sound event, acoustic environment, causal context, scene type, or contextual role when those are clear.
+
+Score 1: The generated environmental audio is incompatible with the reference audio's core sound event, acoustic environment, causal context, or scene role.
+Score 2: The generated environmental audio has only weak or strained compatibility with the reference audio and misses or conflicts with an important anchor.
+Score 3: The generated environmental audio is partially compatible with the reference audio, but changes, weakens, or omits a noticeable part of the reference acoustic/contextual anchor.
+Score 4: The generated environmental audio is mostly compatible with the reference audio's core anchor, with only minor differences in emphasis, specificity, sound details, timing, or texture.
+Score 5: The generated environmental audio is strongly compatible with the reference audio's core anchor while allowing natural variation in sound detail, scene realization, and acoustic texture.""",
 }
 
 CRITERION_BOUNDARIES = {
-    **PROMETHEUS_CRITERION_BOUNDARIES,
-    AUDIO_QUALITY_CRITERION: (
-        "Judge only the generated audio signal itself: naturalness, temporal coherence, intelligibility or recognizability, "
-        "and absence of obvious artifacts. Do not lower the score for weak relevance to the input, missing semantic details, "
-        "or mismatch with a reference anchor unless those problems are directly audible as incoherent or unnatural audio."
-    ),
-    AUDIO_AFFECT_CRITERION: (
-        "Judge only information that requires listening to the generated audio: vocal tone, emotion, affect, urgency, confidence, "
-        "prosody, expressive delivery, and overall acoustic mood. Do not score semantic relevance, factual correctness, transcript content, "
-        "or reference similarity except where those are directly conveyed through audible tone or emotion."
-    ),
+    "cross_modal_non_contradiction": "Judge only contradiction between the heard input audio and generated output audio.",
+    "cross_modal_grounding": "Judge only whether the output audio is meaningfully grounded in the heard input audio.",
+    "scenario_plausibility": "Judge only whether the input and output audio clips form a believable shared situation.",
+    "controlled_detail": "Judge only whether the output audio uses an appropriate amount of inferred detail.",
+    "target_modality_success": "Judge only whether the output audio succeeds in the required target modality.",
+    "perceptual_audio_quality": "Judge only perceptual audio quality and naturalness/realism, not semantic alignment.",
+    "expressive_delivery_fit": "Judge only non-textual expressive speech delivery fit to the input audio scene.",
+    "contextual_acoustic_fit": "Judge only non-textual acoustic character fit to the input speech.",
+    "reference_audio_compatibility": "Judge compatibility with attached reference audio anchors as soft examples, not exact matching.",
 }
+
 
 class Judge(Protocol):
     name: str
@@ -269,40 +423,27 @@ def build_prompt_record(
     variant: str,
     direction: str,
     criterion: str,
-    input_text: str,
     generated_audio_file: str,
-    generated_text: str | None = None,
-    source_audio_file: str | None = None,
+    source_audio_file: str,
     reference_anchors: list[dict[str, Any]] | None = None,
+    input_text: str | None = None,
+    generated_text: str | None = None,
 ) -> dict[str, Any]:
     if (variant, direction) not in CRITERION_WEIGHTS:
         raise ValueError(f"Unsupported variant/direction: {variant}/{direction}")
-    if criterion == "reference_anchor_compatibility":
-        rubric = REFERENCE_COMPATIBILITY_RUBRICS[direction]
-    elif criterion in {AUDIO_QUALITY_CRITERION, AUDIO_AFFECT_CRITERION}:
-        rubric = RUBRICS[criterion]
-    else:
-        rubric = rubric_for_criterion(direction, criterion)
     if direction not in DIRECTION_INSTRUCTIONS:
         raise ValueError(f"Unsupported direction: {direction}")
-    if variant == "reference_grounded" and criterion == "reference_anchor_compatibility":
-        reference_output = format_reference_output(reference_anchors or [])
-        instruction = REFERENCE_DIRECTION_INSTRUCTIONS[direction].format(input_text=input_text, reference_output=reference_output)
-        reference_section = reference_output
+    rubric = RUBRICS[(direction, criterion)]
+    if variant == "reference_grounded" and criterion == "reference_audio_compatibility":
+        instruction = REFERENCE_DIRECTION_INSTRUCTIONS[direction]
     else:
-        instruction = DIRECTION_INSTRUCTIONS[direction].format(input_text=input_text)
-        reference_section = ""
+        instruction = DIRECTION_INSTRUCTIONS[direction]
     criterion_boundary = CRITERION_BOUNDARIES[criterion]
-    output_parts = [f"Generated audio file attached: {Path(generated_audio_file).name}"]
-    if generated_text:
-        output_parts.append(f"Generated text trace, if available:\n{generated_text}")
-    if source_audio_file:
-        output_parts.append(f"Source audio context attached: {Path(source_audio_file).name}")
-    generated_output = "\n".join(output_parts)
+    audio_clip_description = _audio_clip_description(generated_audio_file, source_audio_file, reference_anchors or [])
     rendered_rubric = f"Criterion: {criterion}\n\n{rubric}"
     rendered_user_message = PROMPT_TEMPLATE_TEXT.format(
         instruction=instruction,
-        generated_output=generated_output,
+        audio_clip_description=audio_clip_description,
         rubric=rendered_rubric,
     )
     return {
@@ -315,33 +456,68 @@ def build_prompt_record(
         "criterion_boundary": criterion_boundary,
         "rubric": rubric,
         "rendered_rubric": rendered_rubric,
-        "generated_output": generated_output,
-        "reference_section": reference_section,
+        "audio_clip_description": audio_clip_description,
+        "reference_section": _reference_audio_section(reference_anchors or []),
         "audio_attachments": _audio_attachments(generated_audio_file, source_audio_file, reference_anchors or []),
     }
 
 
-def format_reference_anchors(anchors: list[dict[str, Any]]) -> str:
-    blocks = []
+def _audio_clip_description(generated_audio_file: str, source_audio_file: str, reference_anchors: list[dict[str, Any]]) -> str:
+    lines = [
+        f"Input audio: attached file {Path(source_audio_file).name}",
+        f"Output audio to evaluate: attached file {Path(generated_audio_file).name}",
+    ]
+    for index, anchor in enumerate(reference_anchors, start=1):
+        audio_file = anchor.get("audio_file")
+        if isinstance(audio_file, str) and audio_file.strip():
+            lines.append(f"Reference audio anchor {index}: attached file {Path(audio_file).name}")
+    return "\n".join(lines)
+
+
+def _reference_audio_section(anchors: list[dict[str, Any]]) -> str:
+    parts = []
     for index, anchor in enumerate(anchors, start=1):
-        parts = [f"[Anchor {index} | source={anchor.get('source', 'unknown')} | id={anchor.get('anchor_id', 'unknown')}]"]
-        if anchor.get("text"):
-            parts.append(str(anchor["text"]))
-        if anchor.get("audio_file"):
-            parts.append(f"Audio file: {Path(str(anchor['audio_file'])).name}")
-        blocks.append("\n".join(parts))
-    return "\n\n".join(blocks)
+        audio_file = anchor.get("audio_file")
+        if isinstance(audio_file, str) and audio_file.strip():
+            parts.append(f"Reference audio anchor {index}: {Path(audio_file).name}")
+    return "\n".join(parts)
 
 
-def _audio_attachments(generated_audio_file: str, source_audio_file: str | None, reference_anchors: list[dict[str, Any]]) -> list[dict[str, str]]:
-    attachments = [{"role": "generated_audio_to_evaluate", "path": generated_audio_file}]
-    if source_audio_file:
-        attachments.append({"role": "source_audio_context", "path": source_audio_file})
+def _audio_attachments(generated_audio_file: str, source_audio_file: str, reference_anchors: list[dict[str, Any]]) -> list[dict[str, str]]:
+    attachments = [
+        {"role": "input_audio", "path": source_audio_file},
+        {"role": "generated_audio_to_evaluate", "path": generated_audio_file},
+    ]
     for anchor in reference_anchors:
         audio_file = anchor.get("audio_file")
         if isinstance(audio_file, str) and audio_file.strip():
             attachments.append({"role": "reference_anchor_audio", "path": audio_file})
     return attachments
+
+
+def deterministic_diagnostics(criteria: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    scores = {name: value.get("score") for name, value in criteria.items() if isinstance(value, dict)}
+    failure_modes: list[str] = []
+
+    def low(name: str) -> bool:
+        score = scores.get(name)
+        return isinstance(score, (int, float)) and 1 <= float(score) <= 2
+
+    mappings = [
+        (low("cross_modal_non_contradiction"), "clear_cross_modal_contradiction_or_major_tension"),
+        (low("cross_modal_grounding"), "weak_or_no_cross_modal_grounding"),
+        (low("scenario_plausibility"), "implausible_shared_audio_situation"),
+        (low("controlled_detail"), "poorly_controlled_audio_detail"),
+        (low("target_modality_success"), "target_modality_failure"),
+        (low("perceptual_audio_quality"), "poor_perceptual_audio_quality"),
+        (low("expressive_delivery_fit"), "poor_expressive_delivery_fit"),
+        (low("contextual_acoustic_fit"), "poor_contextual_acoustic_fit"),
+        (low("reference_audio_compatibility"), "weak_reference_audio_compatibility"),
+    ]
+    for applies, label in mappings:
+        if applies:
+            failure_modes.append(label)
+    return {"failure_modes": failure_modes, "failure_mode_source": "deterministic"}
 
 
 def run_geval(
@@ -451,11 +627,11 @@ def _initial_row_state(row: dict[str, Any], *, variant: str, judge_name: str) ->
         "split": row.get("split"),
         "direction": direction,
         "primary_audio_class": row.get("primary_audio_class"),
-        "input_text": _required_str(row, "input_text"),
+        "input_text": row.get("input_text"),
         "generated_text": row.get("generated_text"),
         "generated_audio_file": _required_existing_file(row, "generated_audio_file"),
         "generated_audio_kind": row.get("generated_audio_kind"),
-        "source_audio_file": row.get("source_audio_file"),
+        "source_audio_file": _required_existing_file(row, "source_audio_file"),
         "criteria": {},
         "criterion_weights": weights,
         "final_score": None,
@@ -475,10 +651,8 @@ def _initial_row_state(row: dict[str, Any], *, variant: str, judge_name: str) ->
 def _valid_reference_anchors(anchors: list[Any]) -> bool:
     return bool(anchors) and all(
         isinstance(anchor, dict)
-        and (
-            (isinstance(anchor.get("text"), str) and anchor["text"].strip())
-            or (isinstance(anchor.get("audio_file"), str) and Path(anchor["audio_file"]).is_file())
-        )
+        and isinstance(anchor.get("audio_file"), str)
+        and Path(anchor["audio_file"]).is_file()
         for anchor in anchors
     )
 
@@ -487,16 +661,16 @@ def _make_item(row: dict[str, Any], row_position: int, criterion: str, *, varian
     direction = _required_str(row, "direction")
     anchors = row.get("reference_anchors") if isinstance(row.get("reference_anchors"), list) else []
     generated_audio_file = _required_existing_file(row, "generated_audio_file")
-    source_audio_file = row.get("source_audio_file") if isinstance(row.get("source_audio_file"), str) else None
+    source_audio_file = _required_existing_file(row, "source_audio_file")
     prompt_record = build_prompt_record(
         variant=variant,
         direction=direction,
         criterion=criterion,
-        input_text=_required_str(row, "input_text"),
         generated_audio_file=generated_audio_file,
-        generated_text=row.get("generated_text") if isinstance(row.get("generated_text"), str) else None,
         source_audio_file=source_audio_file,
         reference_anchors=anchors,
+        input_text=row.get("input_text") if isinstance(row.get("input_text"), str) else None,
+        generated_text=row.get("generated_text") if isinstance(row.get("generated_text"), str) else None,
     )
     prompt = prompt_record["rendered_user_message"]
     cache_key = json.dumps(
@@ -506,12 +680,10 @@ def _make_item(row: dict[str, Any], row_position: int, criterion: str, *, varian
             "evaluation_variant": variant,
             "direction": direction,
             "criterion": criterion,
-            "input_text": row["input_text"],
+            "input_audio_file": source_audio_file,
             "generated_audio_file": generated_audio_file,
             "generated_audio_kind": row.get("generated_audio_kind"),
-            "generated_text": row.get("generated_text"),
-            "source_audio_file": source_audio_file,
-            "reference_anchors": anchors if criterion == "reference_anchor_compatibility" else [],
+            "reference_anchors": anchors if criterion == "reference_audio_compatibility" else [],
             "prompt_version": PROMPT_VERSIONS[variant],
             "scoring_policy_version": SCORING_POLICY_VERSION,
             "judge": cache_identity,

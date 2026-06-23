@@ -69,21 +69,28 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             self.assertEqual(rows[0]["generated_audio_file"], str(generated))
             self.assertEqual(rows[0]["source_audio_file"], str(source_audio))
             self.assertEqual(rows[0]["reference_anchors"][0]["audio_file"], str(reference_speech))
-            self.assertEqual(rows[0]["reference_anchors"][0]["text"], "Please let the dog inside.")
+            self.assertNotIn("input_text", rows[0])
+            self.assertNotIn("generated_text", rows[0])
+            self.assertNotIn("text", rows[0]["reference_anchors"][0])
 
-    def test_audio_prompt_uses_direction_specific_input_and_rubric(self) -> None:
+    def test_audio_prompt_uses_only_audio_inputs_and_direction_specific_rubric(self) -> None:
         prompt = build_prompt_record(
             variant="plausibility",
             direction="speech_to_audio",
-            criterion="conditional_relevance",
-            input_text="Please let the dog inside.",
+            criterion="cross_modal_grounding",
+            source_audio_file="/tmp/source.wav",
             generated_audio_file="/tmp/generated.wav",
+            input_text="Please let the dog inside.",
+            generated_text="A dog barks by a door.",
         )["rendered_user_message"]
 
-        self.assertIn("Input speech transcript / utterance:\nPlease let the dog inside.", prompt)
-        self.assertIn("generated environmental audio clip", prompt)
-        self.assertIn("generated audio caption is meaningfully grounded in the input utterance", prompt)
-        self.assertNotIn("generated utterance is meaningfully grounded in the input audio caption", prompt)
+        self.assertIn("Input audio: attached file source.wav", prompt)
+        self.assertIn("Output audio to evaluate: attached file generated.wav", prompt)
+        self.assertIn("output audio should be an environmental audio scene", prompt)
+        self.assertIn("generated environmental audio is meaningfully grounded in the heard input speech", prompt)
+        self.assertNotIn("Please let the dog inside.", prompt)
+        self.assertNotIn("A dog barks by a door.", prompt)
+        self.assertNotIn("generated speech audio is meaningfully grounded in the heard input environmental audio", prompt)
 
     def test_runner_executes_lalm_stub_and_preserves_audio_manifest_fields(self) -> None:
         metric = "geval_audio_plausibility"
@@ -129,7 +136,11 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             self.assertTrue(artifact.is_file())
             judgment = json.loads(artifact.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(judgment["metric_id"], metric)
-            self.assertEqual(judgment["prompt"]["audio_attachments"][0]["role"], "generated_audio_to_evaluate")
+            self.assertEqual(judgment["prompt"]["audio_attachments"][0]["role"], "input_audio")
+            self.assertEqual(judgment["prompt"]["audio_attachments"][1]["role"], "generated_audio_to_evaluate")
+            rendered = judgment["prompt"]["rendered_user_message"]
+            self.assertNotIn("A dog barks near a door.", rendered)
+            self.assertNotIn("Please let the dog inside.", rendered)
 
 
 if __name__ == "__main__":

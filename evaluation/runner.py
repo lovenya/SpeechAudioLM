@@ -913,9 +913,9 @@ def _dedicated_lalm_audio_rows(
             generated_path = Path(generated_file)
             if not generated_path.is_file():
                 raise EvaluationError(f"generated output file does not exist: {generated_file}")
-            input_text = _lalm_input_text(options, row, source, direction)
-            if not input_text:
-                raise EvaluationError(f"{metric_name} could not find text context for {direction}")
+            source_audio = _lalm_source_audio(source, dataset_root, direction)
+            if source_audio is None:
+                raise EvaluationError(f"{metric_name} requires source/input audio for {direction}")
             helper_row: dict[str, Any] = {
                 "row_index": row_index,
                 "pair_id": sample_id(row, ordinal),
@@ -923,16 +923,10 @@ def _dedicated_lalm_audio_rows(
                 "split": options.split,
                 "direction": direction,
                 "primary_audio_class": source.get("primary_audio_class") or row.get("primary_audio_class"),
-                "input_text": input_text,
                 "generated_audio_file": str(generated_path),
                 "generated_audio_kind": "speech" if direction == "audio_to_speech" else "environmental_audio",
+                "source_audio_file": source_audio,
             }
-            generated_text = _prediction_text_for_metric(row, metric_name)
-            if generated_text:
-                helper_row["generated_text"] = generated_text
-            source_audio = _lalm_source_audio(source, dataset_root, direction)
-            if source_audio is not None:
-                helper_row["source_audio_file"] = source_audio
             if metric_name == "geval_audio_reference":
                 anchors = _lalm_reference_anchors(source, dataset_root, direction, sample_id(row, ordinal))
                 helper_row["reference_anchors"] = anchors
@@ -977,37 +971,25 @@ def _lalm_source_audio(source: dict, dataset_root: Path, direction: str) -> str 
 
 def _lalm_reference_anchors(source: dict, dataset_root: Path, direction: str, sample: str) -> list[dict[str, Any]]:
     if direction == "audio_to_speech":
-        text_fields = ("speech_text", "reference_speech_text", "speech_transcription")
         audio_field = "speech_file"
         anchor_type = "reference_speech"
     else:
-        text_fields = ("audio_cap", "audio_caption", "reference_audio_caption")
         audio_field = "audio_file"
         anchor_type = "reference_audio"
-    text = None
-    for field in text_fields:
-        value = source.get(field)
-        if isinstance(value, str) and value.strip():
-            text = value.strip()
-            break
-    audio_file = None
     audio_value = _source_field_value(source, audio_field, dataset_root)
-    if isinstance(audio_value, str) and audio_value.strip():
-        resolved = _resolve_reference(dataset_root, audio_value)
-        if resolved.is_file():
-            audio_file = str(resolved)
-    if text is None and audio_file is None:
+    if not isinstance(audio_value, str) or not audio_value.strip():
         return []
-    anchor: dict[str, Any] = {
-        "anchor_id": sample,
-        "source": "paired_dataset_reference",
-        "type": anchor_type,
-    }
-    if text is not None:
-        anchor["text"] = text
-    if audio_file is not None:
-        anchor["audio_file"] = audio_file
-    return [anchor]
+    resolved = _resolve_reference(dataset_root, audio_value)
+    if not resolved.is_file():
+        return []
+    return [
+        {
+            "anchor_id": sample,
+            "source": "paired_dataset_reference",
+            "type": anchor_type,
+            "audio_file": str(resolved),
+        }
+    ]
 
 
 def _dedicated_script_command(
