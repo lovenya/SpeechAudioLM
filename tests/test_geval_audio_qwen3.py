@@ -84,8 +84,8 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             generated_text="A dog barks by a door.",
         )["rendered_user_message"]
 
-        self.assertIn("Input audio: attached file source.wav", prompt)
-        self.assertIn("Output audio to evaluate: attached file generated.wav", prompt)
+        self.assertIn("Input audio: attached file input_audio_source.wav", prompt)
+        self.assertIn("Output audio to evaluate: attached file output_audio_generated.wav", prompt)
         self.assertIn("output audio should be an environmental audio scene", prompt)
         self.assertIn("generated environmental audio is meaningfully grounded in the heard input speech", prompt)
         self.assertNotIn("Please let the dog inside.", prompt)
@@ -137,8 +137,12 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             judgment = json.loads(artifact.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(judgment["metric_id"], metric)
             self.assertEqual(judgment["prompt"]["audio_attachments"][0]["role"], "input_audio")
+            self.assertEqual(judgment["prompt"]["audio_attachments"][0]["path"], str(source_audio))
             self.assertEqual(judgment["prompt"]["audio_attachments"][1]["role"], "generated_audio_to_evaluate")
+            self.assertEqual(judgment["prompt"]["audio_attachments"][1]["path"], str(generated))
             rendered = judgment["prompt"]["rendered_user_message"]
+            self.assertIn("Input audio: attached file input_audio_audio.wav", rendered)
+            self.assertIn("Output audio to evaluate: attached file output_audio_generated.wav", rendered)
             self.assertNotIn("A dog barks near a door.", rendered)
             self.assertNotIn("Please let the dog inside.", rendered)
 

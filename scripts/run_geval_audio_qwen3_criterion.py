@@ -464,13 +464,13 @@ def build_prompt_record(
 
 def _audio_clip_description(generated_audio_file: str, source_audio_file: str, reference_anchors: list[dict[str, Any]]) -> str:
     lines = [
-        f"Input audio: attached file {Path(source_audio_file).name}",
-        f"Output audio to evaluate: attached file {Path(generated_audio_file).name}",
+        f"Input audio: attached file {_display_audio_name('input_audio', source_audio_file)}",
+        f"Output audio to evaluate: attached file {_display_audio_name('output_audio', generated_audio_file)}",
     ]
     for index, anchor in enumerate(reference_anchors, start=1):
         audio_file = anchor.get("audio_file")
         if isinstance(audio_file, str) and audio_file.strip():
-            lines.append(f"Reference audio anchor {index}: attached file {Path(audio_file).name}")
+            lines.append(f"Reference audio anchor {index}: attached file {_display_audio_name(f'reference_audio_{index}', audio_file)}")
     return "\n".join(lines)
 
 
@@ -479,8 +479,13 @@ def _reference_audio_section(anchors: list[dict[str, Any]]) -> str:
     for index, anchor in enumerate(anchors, start=1):
         audio_file = anchor.get("audio_file")
         if isinstance(audio_file, str) and audio_file.strip():
-            parts.append(f"Reference audio anchor {index}: {Path(audio_file).name}")
+            parts.append(f"Reference audio anchor {index}: {_display_audio_name(f'reference_audio_{index}', audio_file)}")
     return "\n".join(parts)
+
+
+def _display_audio_name(role: str, audio_file: str) -> str:
+    path = Path(audio_file)
+    return f"{role}_{path.name}"
 
 
 def _audio_attachments(generated_audio_file: str, source_audio_file: str, reference_anchors: list[dict[str, Any]]) -> list[dict[str, str]]:
