@@ -12,17 +12,21 @@ docs/*
 !docs/nli_geval_schema_refactor.md
 goal.txt
 goal_updated.txt
+migration_instructions.txt
 
 # Cluster-local configuration and operational scripts.
 configs/slurm_resource_profiles.json
 configs/*resource*usage*.json
 configs/*resource*accounting*.json
+configs/presentation_metric_plan.json
+configs/runtime_environments.json
 scripts/eval_backend_smoke/
 submission_scripts/
 
 # Python cache files
 __pycache__/
 .venv*/
+*.orig
 
 # Large dataset and media artifacts
 *.wav
@@ -47,8 +51,10 @@ results/
 logs/
 temporary/
 exports/
+cache/
 resource_usage*.json
 resource_accounting*.json
+slurm-*.out
 wandb/
 generated/
 samples/
