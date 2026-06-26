@@ -50,7 +50,9 @@ SCOPE="${SCOPE:-dataset}"
 DIRECTION="${DIRECTION:?Submit with --export=ALL,SCOPE=<dataset|generated>,DIRECTION=<a2s|s2a>[,RUN_GROUP=...,MANIFEST_ROOT=...]}"
 METRICS="${METRICS:-geval_text_plausibility}"
 TEMPORARY="${TEMPORARY:-1}"
+START_INDEX="${START_INDEX:-0}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
+SHARD_ID="${SHARD_ID:-}"
 
 case "$SCOPE" in
   dataset)
@@ -78,6 +80,11 @@ case "$SCOPE" in
     ;;
 esac
 
+BASE_EVALUATED_RUN_ID="$EVALUATED_RUN_ID"
+if [ -n "$SHARD_ID" ]; then
+  EVALUATED_RUN_ID="${EVALUATED_RUN_ID}_shard_${SHARD_ID}"
+fi
+
 test -s "$MANIFEST" || { echo "error: missing manifest: $MANIFEST" >&2; exit 2; }
 
 JOB_KEY="${SLURM_JOB_ID:-manual}"
@@ -85,7 +92,7 @@ LOG_ROOT="$SALM_SCRATCH/logs/evals/$RUN_GROUP/text_${SCOPE}_${DIRECTION}_${JOB_K
 MONITOR_DIR="$SALM_SCRATCH/logs/resources/$RUN_GROUP/text_${SCOPE}_${DIRECTION}_${JOB_KEY}"
 METADATA="$LOG_ROOT/job_metadata.json"
 mkdir -p "$LOG_ROOT" "$MONITOR_DIR" "$SALM_SCRATCH/logs/slurm"
-export SCOPE RUN_GROUP DIRECTION MANIFEST METRICS EVALUATED_RUN_ID METADATA
+export SCOPE RUN_GROUP DIRECTION MANIFEST METRICS EVALUATED_RUN_ID BASE_EVALUATED_RUN_ID START_INDEX MAX_SAMPLES SHARD_ID METADATA
 
 python - <<'PY'
 import json
@@ -102,6 +109,10 @@ metadata = {
     "manifest": os.environ["MANIFEST"],
     "metrics": os.environ["METRICS"],
     "evaluated_run_id": os.environ["EVALUATED_RUN_ID"],
+    "base_evaluated_run_id": os.environ["BASE_EVALUATED_RUN_ID"],
+    "shard_id": os.environ.get("SHARD_ID"),
+    "start_index": int(os.environ["START_INDEX"]),
+    "max_samples": int(os.environ["MAX_SAMPLES"]) if os.environ.get("MAX_SAMPLES") else None,
     "repo": str(Path.cwd()),
     "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
     "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
@@ -141,6 +152,7 @@ args=(
   --manifest "$MANIFEST"
   --metrics "$METRICS"
   --metrics-config configs/eval_metrics.json
+  --start-index "$START_INDEX"
   --device cuda
 )
 

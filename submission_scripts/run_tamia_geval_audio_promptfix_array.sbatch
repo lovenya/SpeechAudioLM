@@ -49,6 +49,8 @@ RUN_GROUP="${RUN_GROUP:-geval_audio_promptfix_$(TZ=America/Toronto date +%Y%m%d_
 METRIC="${METRIC:-geval_audio_plausibility}"
 TEMPORARY="${TEMPORARY:-1}"
 ARRAY_TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
+SHARDS_PER_DIRECTION="${SHARDS_PER_DIRECTION:-10}"
+SHARD_SIZE="${SHARD_SIZE:-228}"
 JOB_KEY="${SLURM_ARRAY_JOB_ID:-manual}_${ARRAY_TASK_ID}"
 
 case "$SCOPE" in
@@ -76,7 +78,7 @@ LOG_ROOT="$SALM_SCRATCH/logs/evals/$RUN_GROUP/audio_${SCOPE}_array_${JOB_KEY}"
 MONITOR_DIR="$SALM_SCRATCH/logs/resources/$RUN_GROUP/audio_${SCOPE}_array_${JOB_KEY}"
 METADATA="$LOG_ROOT/job_metadata.json"
 mkdir -p "$LOG_ROOT" "$MONITOR_DIR" "$SALM_SCRATCH/logs/slurm"
-export SCOPE RUN_GROUP METRIC A2S_MANIFEST S2A_MANIFEST METADATA
+export SCOPE RUN_GROUP METRIC SHARDS_PER_DIRECTION SHARD_SIZE A2S_MANIFEST S2A_MANIFEST METADATA
 
 python - <<'PY'
 import json
@@ -92,6 +94,8 @@ metadata = {
     "scope": os.environ["SCOPE"],
     "run_group": os.environ["RUN_GROUP"],
     "metric": os.environ["METRIC"],
+    "shards_per_direction": int(os.environ["SHARDS_PER_DIRECTION"]),
+    "shard_size": int(os.environ["SHARD_SIZE"]),
     "a2s_manifest": os.environ["A2S_MANIFEST"],
     "s2a_manifest": os.environ["S2A_MANIFEST"],
     "repo": str(Path.cwd()),
@@ -123,14 +127,14 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 shard_start() {
-  echo $(( $1 * 228 ))
+  echo $(( $1 * SHARD_SIZE ))
 }
 
 shard_count() {
-  if [ "$1" -eq 9 ]; then
+  if [ "$SHARDS_PER_DIRECTION" -eq 10 ] && [ "$1" -eq 9 ]; then
     echo 225
   else
-    echo 228
+    echo "$SHARD_SIZE"
   fi
 }
 
@@ -179,6 +183,11 @@ run_eval() {
 
 first_shard=$(( ARRAY_TASK_ID * 2 ))
 second_shard=$(( first_shard + 1 ))
+
+if [ "$second_shard" -ge "$SHARDS_PER_DIRECTION" ]; then
+  echo "error: array task $ARRAY_TASK_ID maps to shard $second_shard, beyond SHARDS_PER_DIRECTION=$SHARDS_PER_DIRECTION" >&2
+  exit 2
+fi
 
 run_eval a2s "$A2S_MANIFEST" "$first_shard" 0 & pid_a2s_0=$!
 sleep 2
