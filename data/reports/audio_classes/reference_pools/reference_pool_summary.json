@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "input_manifests": {
+    "train": "data/manifests/audio_classes/ttas_train_panns_cnn14_classes.jsonl",
+    "val": "data/manifests/audio_classes/ttas_val_panns_cnn14_classes.jsonl",
+    "test": "data/manifests/audio_classes/ttas_test_panns_cnn14_classes.jsonl"
+  },
+  "class_reference_pools": "data/reports/audio_classes/reference_pools/class_reference_pools.json",
+  "pair_reference_mapping": "data/reports/audio_classes/reference_pools/pair_reference_mapping.jsonl",
+  "splits": [
+    "train",
+    "val",
+    "test"
+  ],
+  "num_classes": 20,
+  "total_pairs": 22780,
+  "unique_pair_ids": 22780,
+  "duplicate_pair_ids": [],
+  "unknown_count": 339,
+  "class_counts": {
+    "road_vehicle_traffic": 5868,
+    "human_voice_vocal": 2943,
+    "other_animals_insects_farm": 1611,
+    "indoor_household": 1444,
+    "domestic_pets": 1273,
+    "birds": 1169,
+    "rail_transport": 1108,
+    "tools_machinery_construction": 1089,
+    "rain_thunder_weather": 813,
+    "emergency_siren": 790,
+    "office_typing_clock": 749,
+    "water_nature": 715,
+    "music_party": 667,
+    "weapon_explosion_fireworks": 619,
+    "aircraft": 571,
+    "water_vehicle": 462,
+    "unknown": 339,
+    "bells_alarms_phones": 305,
+    "noise_silence_static": 203,
+    "nature_ambient": 42
+  },
+  "class_counts_by_split": {
+    "train": {
+      "road_vehicle_traffic": 4695,
+      "human_voice_vocal": 2365,
+      "other_animals_insects_farm": 1284,
+      "indoor_household": 1148,
+      "domestic_pets": 1010,
+      "birds": 936,
+      "rail_transport": 907,
+      "tools_machinery_construction": 846,
+      "rain_thunder_weather": 652,
+      "emergency_siren": 618,
+      "office_typing_clock": 613,
+      "water_nature": 587,
+      "music_party": 517,
+      "weapon_explosion_fireworks": 482,
+      "aircraft": 466,
+      "water_vehicle": 378,
+      "unknown": 277,
+      "bells_alarms_phones": 253,
+      "noise_silence_static": 156,
+      "nature_ambient": 36
+    },
+    "val": {
+      "road_vehicle_traffic": 577,
+      "human_voice_vocal": 276,
+      "indoor_household": 165,
+      "other_animals_insects_farm": 147,
+      "tools_machinery_construction": 141,
+      "domestic_pets": 131,
+      "birds": 121,
+      "emergency_siren": 96,
+      "rail_transport": 92,
+      "music_party": 83,
+      "rain_thunder_weather": 80,
+      "weapon_explosion_fireworks": 69,
+      "water_nature": 68,
+      "office_typing_clock": 62,
+      "aircraft": 41,
+      "water_vehicle": 38,
+      "bells_alarms_phones": 31,
+      "unknown": 28,
+      "noise_silence_static": 27,
+      "nature_ambient": 4
+    },
+    "test": {
+      "road_vehicle_traffic": 596,
+      "human_voice_vocal": 302,
+      "other_animals_insects_farm": 180,
+      "domestic_pets": 132,
+      "indoor_household": 131,
+      "birds": 112,
+      "rail_transport": 109,
+      "tools_machinery_construction": 102,
+      "rain_thunder_weather": 81,
+      "emergency_siren": 76,
+      "office_typing_clock": 74,
+      "weapon_explosion_fireworks": 68,
+      "music_party": 67,
+      "aircraft": 64,
+      "water_nature": 60,
+      "water_vehicle": 46,
+      "unknown": 34,
+      "bells_alarms_phones": 21,
+      "noise_silence_static": 20,
+      "nature_ambient": 2
+    }
+  },
+  "pool_sizes_by_class_split": {
+    "aircraft": {
+      "train": 466,
+      "val": 41,
+      "test": 64
+    },
+    "bells_alarms_phones": {
+      "train": 253,
+      "val": 31,
+      "test": 21
+    },
+    "birds": {
+      "train": 936,
+      "val": 121,
+      "test": 112
+    },
+    "domestic_pets": {
+      "train": 1010,
+      "val": 131,
+      "test": 132
+    },
+    "emergency_siren": {
+      "train": 618,
+      "val": 96,
+      "test": 76
+    },
+    "human_voice_vocal": {
+      "train": 2365,
+      "val": 276,
+      "test": 302
+    },
+    "indoor_household": {
+      "train": 1148,
+      "val": 165,
+      "test": 131
+    },
+    "music_party": {
+      "train": 517,
+      "val": 83,
+      "test": 67
+    },
+    "nature_ambient": {
+      "train": 36,
+      "val": 4,
+      "test": 2
+    },
+    "noise_silence_static": {
+      "train": 156,
+      "val": 27,
+      "test": 20
+    },
+    "office_typing_clock": {
+      "train": 613,
+      "val": 62,
+      "test": 74
+    },
+    "other_animals_insects_farm": {
+      "train": 1284,
+      "val": 147,
+      "test": 180
+    },
+    "rail_transport": {
+      "train": 907,
+      "val": 92,
+      "test": 109
+    },
+    "rain_thunder_weather": {
+      "train": 652,
+      "val": 80,
+      "test": 81
+    },
+    "road_vehicle_traffic": {
+      "train": 4695,
+      "val": 577,
+      "test": 596
+    },
+    "tools_machinery_construction": {
+      "train": 846,
+      "val": 141,
+      "test": 102
+    },
+    "unknown": {
+      "train": 277,
+      "val": 28,
+      "test": 34
+    },
+    "water_nature": {
+      "train": 587,
+      "val": 68,
+      "test": 60
+    },
+    "water_vehicle": {
+      "train": 378,
+      "val": 38,
+      "test": 46
+    },
+    "weapon_explosion_fireworks": {
+      "train": 482,
+      "val": 69,
+      "test": 68
+    }
+  },
+  "empty_pools": [],
+  "invalid_reference_targets": [],
+  "validation": {
+    "all_pair_ids_unique": true,
+    "all_mapping_classes_match_primary_audio_class": true,
+    "all_mapping_targets_exist": true
+  },
+  "schema_notes": [
+    "Pools are class -> split -> list of reference records, not parallel arrays.",
+    "pair_id is sample_id when present; otherwise it is derived from audio_file stem.",
+    "audio_id and speech_id are derived from audio_file and speech_file stems.",
+    "audio_to_speech and speech_to_audio store direction-specific reference pool class/split fields."
+  ]
+}

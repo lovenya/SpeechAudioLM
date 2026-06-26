@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_document": "speechaudio_audio_tag_class_pooling.md",
-  "note": "Executable AudioSet/PANNs tag-to-primary-audio-class pooling map. Keep the markdown as rationale; scripts read this JSON.",
-  "assignment_rule": "priority_first_v1",
+  "note": "Executable AudioSet/PANNs tag-to-primary-audio-class pooling map. Keep the markdown as rationale; scripts read this JSON. Default assignment now uses the evidence guard after sanity-check review of priority-only mistakes.",
+  "assignment_rule": "priority_with_evidence_guard",
   "available_assignment_rules": [
     "priority_first_v1",
     "priority_with_evidence_guard"
@@ -25,6 +25,7 @@
     "water_vehicle",
     "weapon_explosion_fireworks",
     "rain_thunder_weather",
+    "nature_ambient",
     "road_vehicle_traffic",
     "domestic_pets",
     "birds",
@@ -160,7 +161,8 @@
       "Crowing, cock-a-doodle-doo",
       "Squawk",
       "Hoot",
-      "Caw"
+      "Caw",
+      "Bird flight, flapping wings"
     ],
     "other_animals_insects_farm": [
       "Animal",
@@ -215,7 +217,9 @@
       "Sniff",
       "Wheeze",
       "Hiccup",
-      "Fart"
+      "Fart",
+      "Whistling",
+      "Whistle"
     ],
     "indoor_household": [
       "Inside, small room",
@@ -243,7 +247,9 @@
       "Toothbrush",
       "Hair dryer",
       "Air conditioning",
-      "Mechanical fan"
+      "Mechanical fan",
+      "Crumpling, crinkling",
+      "Tearing"
     ],
     "tools_machinery_construction": [
       "Tools",
@@ -264,7 +270,11 @@
       "Lawn mower",
       "Crushing",
       "Scrape",
-      "Scratch"
+      "Scratch",
+      "Scissors",
+      "Wood",
+      "Rub",
+      "Splinter"
     ],
     "office_typing_clock": [
       "Typing",
@@ -365,6 +375,10 @@
       "Sound effect",
       "Field recording",
       "Cacophony"
+    ],
+    "nature_ambient": [
+      "Rustling leaves",
+      "Rustle"
     ]
   }
 }
