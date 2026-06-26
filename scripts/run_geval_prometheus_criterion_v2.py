@@ -24,8 +24,8 @@ METRIC_IDS = {
     "reference_grounded": "geval_text_reference",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_text_plausibility_v1_fixed_wrapper",
-    "reference_grounded": "geval_text_reference_v1_fixed_wrapper",
+    "plausibility": "geval_text_plausibility_v2_indirect_links",
+    "reference_grounded": "geval_text_reference_v2_indirect_links",
 }
 PROMPT_TEMPLATE_NAME = "geval_text_direct_assessment_v1"
 PROMPT_TEMPLATE_TEXT = """###Task Description:
@@ -57,6 +57,8 @@ Input audio caption:
 
 The response to evaluate is a generated speech transcript / human utterance. It should be something a human could plausibly say in, after, or because of the described audio scene.
 
+This is a one-to-many task. A valid utterance may connect to the audio indirectly through a plausible situation, action, reaction, implication, or shared context. Do not require the utterance to name, quote, or literally describe the sound source.
+
 Evaluate only the specified criterion. Do not evaluate overall quality. Do not require exact wording from any reference.""",
     "speech_to_audio": """You are evaluating an intermediate text transformation for SpeechAudio LM.
 
@@ -64,6 +66,8 @@ Input speech transcript / utterance:
 {input_text}
 
 The response to evaluate is a generated environmental audio caption. It should describe an audio scene that could plausibly contextualize, accompany, explain, or be caused by the input utterance.
+
+This is a one-to-many task. A valid audio caption may connect to the utterance indirectly through a plausible situation, action, consequence, implication, or shared context. Use common-sense readings of the utterance; do not require it to explicitly name every sound source.
 
 Evaluate only the specified criterion. Do not evaluate overall quality. Do not require exact wording from any reference.""",
 }
@@ -106,7 +110,7 @@ CRITERION_WEIGHTS = {
 RUBRICS = {
     "non_contradiction": """Evaluate whether the generated utterance avoids contradicting the input audio caption.
 
-Focus only on contradiction. The utterance may add reasonable unstated context, but it should not deny, reverse, or conflict with explicit or strongly implied facts from the audio scene.
+Focus only on contradiction. The utterance may add reasonable unstated context and may be simple or indirect. Do not penalize the utterance merely because it does not mention the sound source, is generic, or has weak relevance. Penalize only when it denies, reverses, or conflicts with explicit or strongly implied facts from the audio scene.
 
 Score 1: The utterance directly and severely contradicts the audio caption, or is incoherent with the scene.
 Score 2: The utterance contains a major contradiction with the audio caption or with a strongly implied fact from the scene.
@@ -115,37 +119,37 @@ Score 4: The utterance is mostly compatible with the audio caption, with only mi
 Score 5: The utterance is fully compatible with the audio caption and contains no meaningful contradiction.""",
     "conditional_relevance": """Evaluate whether the generated utterance is meaningfully grounded in the input audio caption.
 
-The utterance should use, respond to, or be motivated by the described sound event, acoustic context, or situation. It does not need to restate the caption, but it should not be generic, unrelated, or only accidentally compatible.
+The utterance should use, respond to, or be motivated by the described sound event, acoustic context, or situation. The connection may be indirect: a departure can fit a fading vehicle, a celebration can fit cheering, and a command can fit a sound-producing action. It does not need to restate the caption or mention the sound source. Simple utterances can still be relevant when a plausible situational bridge is clear.
 
 Score 1: The utterance is unrelated to the audio caption.
 Score 2: The utterance has only a very weak, vague, or accidental connection to the audio caption.
-Score 3: The utterance is somewhat connected, but the connection is generic, indirect, or underdeveloped.
-Score 4: The utterance is clearly connected to the audio caption, with only minor genericness or missed opportunity.
-Score 5: The utterance is strongly and specifically grounded in the audio caption.""",
-    "scenario_plausibility": """Evaluate whether the generated utterance is a believable human reaction within the described audio scene.
+Score 3: The utterance has a plausible but generic, indirect, or underdeveloped connection to the audio caption.
+Score 4: The utterance is clearly connected to the audio caption through an explicit or implicit situation, with only minor genericness or missed opportunity.
+Score 5: The utterance is strongly grounded in the audio caption through a natural explicit or implicit situation.""",
+    "scenario_plausibility": """Evaluate whether the generated utterance and its minimally implied situation are believable human speech.
 
-Consider whether the utterance could plausibly occur during, after, or because of the scene. This includes temporal fit, causal fit, contextual emotional fit, pragmatic fit, and whether a human would naturally react this way. These are not separate sub-scores; use them only to judge overall scenario plausibility.
+This criterion is about plausibility of the utterance as a human situation, not about how strongly it is grounded in the input; grounding is evaluated by conditional_relevance. Consider temporal, causal, emotional, and pragmatic fit only when they make the utterance or its minimal scenario believable or unbelievable. Do not assign a very low score merely because the utterance is simple, generic, or does not name the sound source.
 
-Score 1: The utterance and audio scene form an absurd, impossible, incoherent, or extremely unnatural situation.
-Score 2: The utterance is difficult to believe in the scene because of a major temporal, causal, emotional, pragmatic, or human-reaction mismatch.
-Score 3: The utterance could occur in the scene, but the situation feels somewhat strained, weakly motivated, generic, or dependent on extra context.
-Score 4: The utterance forms a plausible human situation with the audio scene, requiring at most a small reasonable assumption.
-Score 5: The utterance feels like a very natural and believable human reaction to the audio scene.""",
+Score 1: The utterance or implied situation is absurd, impossible, incoherent, or extremely unnatural as human behavior.
+Score 2: The utterance is difficult to believe because of a major temporal, causal, emotional, pragmatic, or human-reaction mismatch.
+Score 3: The utterance is possible but somewhat strained, weakly motivated, generic, or dependent on extra context.
+Score 4: The utterance forms a plausible human situation, requiring at most a small reasonable assumption.
+Score 5: The utterance feels like a very natural and believable human thing to say in its implied situation.""",
     "appropriate_specificity": """Evaluate whether the generated utterance has an appropriate level of specificity: not too vague, and not too over-specific.
 
-The utterance may infer reasonable context from the audio caption, because the task is one-to-many. However, it should not invent highly specific unsupported details, identities, locations, causes, or events. It should also not be so vague that it barely uses the input.
+The utterance may infer reasonable context from the audio caption because the task is one-to-many. It does not need to explicitly mention the sound source. Simple everyday utterances can have acceptable specificity if they provide a usable action, intent, reaction, or situation. Penalize only when the output is nearly empty or so generic that it gives no usable scenario, or when it invents highly specific unsupported details, identities, locations, causes, or events.
 
-Score 1: The utterance is either almost empty/generic or wildly over-invented with unsupported details.
+Score 1: The utterance is nearly empty, has no usable situational content, or is wildly over-invented with unsupported details.
 Score 2: The utterance is mostly too vague or mostly too over-specific, making it poorly controlled.
-Score 3: The utterance has some useful specificity, but is noticeably too generic or includes somewhat unsupported details.
+Score 3: The utterance is simple or generic but still gives some usable action, intent, reaction, or situation; or it includes somewhat unsupported detail.
 Score 4: The utterance has mostly appropriate specificity, with only minor vagueness or minor over-inference.
-Score 5: The utterance is appropriately specific: concrete enough to be useful, but not over-invented beyond the audio caption.""",
+Score 5: The utterance is appropriately specific: concrete enough to be useful, but not over-invented beyond reasonable inference from the audio caption.""",
     "target_form_validity": """Evaluate whether the generated text is valid as a speech transcript / human utterance.
 
-The output should read like something a person could actually say aloud. It should not be an audio caption, scene description, narrator comment, analysis, label, or explanation of what is happening.
+Judge only form, not semantic alignment with the audio caption. The output should read like something a person could actually say aloud: direct speech, a question, command, exclamation, or first-person utterance can all be valid. It should not be an audio caption, third-person report of what someone said, scene description, narrator comment, analysis, label, or explanation of what is happening.
 
 Score 1: The output is not a valid utterance, is gibberish, or is completely in the wrong format.
-Score 2: The output is mostly not a spoken utterance; it is mainly a caption, description, analysis, or label.
+Score 2: The output is mostly not a spoken utterance; it is mainly a caption, third-person report, description, analysis, or label.
 Score 3: The output is partly utterance-like, but noticeably unnatural, caption-like, written, or not clearly speakable.
 Score 4: The output is a mostly natural spoken utterance, with only minor stiffness or formatting issues.
 Score 5: The output is a natural, fluent, clearly speakable human utterance.""",
@@ -154,7 +158,7 @@ Score 5: The output is a natural, fluent, clearly speakable human utterance.""",
 DIRECTION_RUBRICS = {
     ("speech_to_audio", "non_contradiction"): """Evaluate whether the generated audio caption avoids contradicting the input utterance.
 
-Focus only on contradiction. The audio caption may add reasonable unstated context, but it should not deny, reverse, or conflict with explicit or strongly implied facts, intent, or context from the utterance.
+Focus only on contradiction. The audio caption may add reasonable unstated context and may use an implied reading of the utterance. Do not penalize the caption merely because the link is generic, indirect, or not explicitly named in the utterance. Penalize only when it denies, reverses, or conflicts with explicit or strongly implied facts, intent, or context from the utterance.
 
 Score 1: The audio caption directly and severely contradicts the utterance, or is incoherent with it.
 Score 2: The audio caption contains a major contradiction with the utterance or with a strongly implied fact from it.
@@ -163,40 +167,40 @@ Score 4: The audio caption is mostly compatible with the utterance, with only mi
 Score 5: The audio caption is fully compatible with the utterance and contains no meaningful contradiction.""",
     ("speech_to_audio", "conditional_relevance"): """Evaluate whether the generated audio caption is meaningfully grounded in the input utterance.
 
-The audio scene should contextualize, accompany, explain, or be caused by the utterance. It does not need to be the only possible scene, but it should not be generic, unrelated, or only accidentally compatible.
+The audio scene should contextualize, accompany, explain, or be caused by the utterance. The connection may be indirect through common-sense implications, domain words, actions, consequences, or pragmatic context. Do not force an unrelated interpretation when an obvious reading creates a strong audio-scene link. The audio caption does not need to be the only possible scene.
 
 Score 1: The audio caption is unrelated to the utterance.
 Score 2: The audio caption has only a very weak, vague, or accidental connection to the utterance.
-Score 3: The audio caption is somewhat connected, but the connection is generic, indirect, or underdeveloped.
-Score 4: The audio caption is clearly connected to the utterance, with only minor genericness or missed opportunity.
-Score 5: The audio caption is strongly and specifically grounded in the utterance.""",
-    ("speech_to_audio", "scenario_plausibility"): """Evaluate whether the generated audio scene forms a believable situation around the input utterance.
+Score 3: The audio caption has a plausible but generic, indirect, or underdeveloped connection to the utterance.
+Score 4: The audio caption is clearly connected to the utterance through an explicit or implicit situation, with only minor genericness or missed opportunity.
+Score 5: The audio caption is strongly grounded in the utterance through a natural explicit or implicit situation.""",
+    ("speech_to_audio", "scenario_plausibility"): """Evaluate whether the generated audio caption and its minimally implied scene are believable as an audio situation.
 
-Consider whether the audio scene could realistically contextualize, accompany, explain, or result from the utterance. This includes temporal fit, causal fit, contextual emotional fit, pragmatic fit, and whether the described sounds form a believable acoustic situation. These are not separate sub-scores; use them only to judge overall scenario plausibility.
+This criterion is about plausibility of the described audio scene, not about how strongly it is grounded in the input; grounding is evaluated by conditional_relevance. Consider temporal, causal, emotional, pragmatic, and acoustic-world fit only when they make the described scene believable or unbelievable. Do not assign a very low score merely because the caption is simple, generic, or indirectly linked.
 
-Score 1: The utterance and audio scene form an absurd, impossible, incoherent, or extremely unnatural situation.
-Score 2: The audio scene is difficult to believe with the utterance because of a major temporal, causal, emotional, pragmatic, or acoustic-world mismatch.
-Score 3: The audio scene could fit the utterance, but the situation feels somewhat strained, weakly motivated, generic, or dependent on extra context.
-Score 4: The audio scene forms a plausible situation with the utterance, requiring at most a small reasonable assumption.
-Score 5: The audio scene feels like a very natural and believable context, accompaniment, explanation, or consequence of the utterance.""",
+Score 1: The described audio scene is absurd, impossible, incoherent, or extremely unnatural.
+Score 2: The described audio scene is difficult to believe because of a major temporal, causal, pragmatic, or acoustic-world problem.
+Score 3: The described audio scene is possible but somewhat strained, weakly motivated, generic, or dependent on extra context.
+Score 4: The described audio scene is plausible, requiring at most a small reasonable assumption.
+Score 5: The described audio scene feels very natural and believable.""",
     ("speech_to_audio", "appropriate_specificity"): """Evaluate whether the generated audio caption has an appropriate level of specificity: not too vague, and not too over-specific.
 
-The audio caption may infer reasonable context from the utterance, because the task is one-to-many. However, it should not invent highly specific unsupported details, identities, locations, causes, or events. It should also not be so vague that it barely uses the input.
+The audio caption may infer reasonable context from the utterance because the task is one-to-many. It does not need to restate the utterance. A short caption can have acceptable specificity if it names a useful sound event, source, or acoustic action. Penalize only when the caption is nearly empty or so generic that it gives no usable audio scene, or when it invents highly specific unsupported details, identities, locations, causes, or events.
 
-Score 1: The audio caption is either almost empty/generic or wildly over-invented with unsupported details.
+Score 1: The audio caption is nearly empty, has no usable sound-scene content, or is wildly over-invented with unsupported details.
 Score 2: The audio caption is mostly too vague or mostly too over-specific, making it poorly controlled.
-Score 3: The audio caption has some useful specificity, but is noticeably too generic or includes somewhat unsupported details.
+Score 3: The audio caption is simple or generic but still gives a usable sound event, source, or acoustic action; or it includes somewhat unsupported detail.
 Score 4: The audio caption has mostly appropriate specificity, with only minor vagueness or minor over-inference.
-Score 5: The audio caption is appropriately specific: concrete enough to be useful, but not over-invented beyond the utterance.""",
+Score 5: The audio caption is appropriately specific: concrete enough to be useful, but not over-invented beyond reasonable inference from the utterance.""",
     ("speech_to_audio", "target_form_validity"): """Evaluate whether the generated text is valid as an environmental audio caption.
 
-The output should describe audible events, sound sources, acoustic actions, or sound context. It should not merely describe visual details, infer the speaker's feelings, continue the speech, answer the speaker, or explain the situation without describing sound.
+Judge only form, not semantic alignment with the input utterance. The output should describe audible events, sound sources, acoustic actions, or sound context. Sound-producing actions such as something being shot, flushed, knocked, loaded, opened, started, or running can be valid audio-caption wording when the event is audibly recognizable. It should not merely infer the speaker's feelings, continue the speech, answer the speaker, or explain the situation without describing sound.
 
 Score 1: The output is not a valid audio caption, is gibberish, or is completely in the wrong format.
 Score 2: The output is mostly not an audio caption; it is mainly a speech continuation, explanation, emotion label, visual-only scene, or analysis.
-Score 3: The output is partly audio-caption-like, but includes substantial non-audio content, weak acoustic grounding, or unnatural caption style.
-Score 4: The output is a mostly valid environmental audio caption, with only minor style or acoustic-specificity issues.
-Score 5: The output is a natural, clear environmental audio caption describing plausible audible events or acoustic context.""",
+Score 3: The output is partly audio-caption-like, but includes substantial non-audio content or unnatural caption style.
+Score 4: The output is a mostly valid environmental audio caption, with only minor style issues.
+Score 5: The output is a natural, clear environmental audio caption describing audible events, sound sources, acoustic actions, or acoustic context.""",
     ("audio_to_speech", "non_contradiction"): RUBRICS["non_contradiction"],
     ("audio_to_speech", "conditional_relevance"): RUBRICS["conditional_relevance"],
     ("audio_to_speech", "scenario_plausibility"): RUBRICS["scenario_plausibility"],
@@ -332,25 +336,28 @@ REFERENCE_GROUNDING_RUBRICS = REFERENCE_COMPATIBILITY_RUBRICS
 CRITERION_BOUNDARIES = {
     "non_contradiction": (
         "Judge only whether the response conflicts with the input. Do not lower the score merely because the "
-        "response is weakly related, generic, missing details, or contains plausible unsupported details. Those "
-        "properties are evaluated by other criteria. Unsupported detail matters here only when it creates a "
-        "genuine possible, likely, or actual conflict with the input."
+        "response is weakly related, generic, missing details, or contains plausible unsupported details. A "
+        "generic or indirect response with no actual conflict should usually score high on this criterion. "
+        "Unsupported detail matters here only when it creates a genuine possible, likely, or actual conflict "
+        "with the input."
     ),
     "conditional_relevance": (
-        "Judge only whether the response is meaningfully grounded in the direction-specific input. Do not score "
-        "target-form validity, scenario plausibility, or appropriate specificity here."
+        "Judge only whether the response is meaningfully grounded in the direction-specific input. Accept "
+        "indirect, pragmatic, causal, or common-sense links; do not require explicit mention of the sound source. "
+        "Do not score target-form validity, scenario plausibility, or appropriate specificity here."
     ),
     "scenario_plausibility": (
-        "Judge only whether the response forms a believable direction-specific situation with the input. Use "
-        "temporal, causal, emotional, pragmatic, human-reaction, and acoustic-world fit only as evidence for this criterion."
+        "Judge only whether the response and its minimal implied situation are believable. Do not score "
+        "grounding strength or exact input relevance here; those belong to conditional_relevance."
     ),
     "appropriate_specificity": (
         "Judge only whether the response has an appropriate level of specificity: neither too vague nor too "
-        "over-specific for the direction-specific input."
+        "over-specific for an open-ended one-to-many task. Do not require the response to name the sound source."
     ),
     "target_form_validity": (
         "Judge only whether the generated text has the required direction-specific target form, either a speech "
-        "transcript / human utterance or an environmental audio caption."
+        "transcript / human utterance or an environmental audio caption. Ignore whether it is semantically "
+        "aligned with the input."
     ),
     "meaningful_scene_to_utterance_connection": (
         "Judge only the strength of the scene-to-utterance relationship. Do not score language fluency, emotional "
@@ -585,7 +592,7 @@ def build_prompt_record(
         instruction = DIRECTION_INSTRUCTIONS[direction].format(input_text=input_text)
         reference_section = ""
     criterion_boundary = CRITERION_BOUNDARIES[criterion]
-    rendered_rubric = f"Criterion: {criterion}\n\n{rubric}"
+    rendered_rubric = f"Criterion: {criterion}\n\nCriterion boundary:\n{criterion_boundary}\n\nRubric:\n{rubric}"
     rendered_user_message = PROMPT_TEMPLATE_TEXT.format(
         instruction=instruction,
         generated_output=generated_text,

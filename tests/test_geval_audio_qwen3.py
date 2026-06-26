@@ -84,13 +84,29 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             generated_text="A dog barks by a door.",
         )["rendered_user_message"]
 
-        self.assertIn("Input audio: attached file input_audio_source.wav", prompt)
-        self.assertIn("Output audio to evaluate: attached file output_audio_generated.wav", prompt)
-        self.assertIn("output audio should be an environmental audio scene", prompt)
+        self.assertIn("Clip 1 - INPUT SPEECH AUDIO (context): attached file input_audio_source.wav", prompt)
+        self.assertIn("Clip 2 - OUTPUT ENVIRONMENTAL AUDIO TO EVALUATE: attached file output_audio_generated.wav", prompt)
+        self.assertIn("output environmental audio should be an audio scene", prompt)
+        self.assertIn("Criterion: output_environmental_audio_grounding_in_input_speech", prompt)
+        self.assertIn("Internal criterion id: cross_modal_grounding", prompt)
+        self.assertIn("Criterion boundary:", prompt)
         self.assertIn("generated environmental audio is meaningfully grounded in the heard input speech", prompt)
         self.assertNotIn("Please let the dog inside.", prompt)
         self.assertNotIn("A dog barks by a door.", prompt)
         self.assertNotIn("generated speech audio is meaningfully grounded in the heard input environmental audio", prompt)
+
+        a2s_quality = build_prompt_record(
+            variant="plausibility",
+            direction="audio_to_speech",
+            criterion="perceptual_audio_quality",
+            source_audio_file="/tmp/water.wav",
+            generated_audio_file="/tmp/speech.wav",
+        )["rendered_user_message"]
+        self.assertIn("Clip 1 - INPUT ENVIRONMENTAL AUDIO (context): attached file input_audio_water.wav", a2s_quality)
+        self.assertIn("Clip 2 - OUTPUT SPEECH AUDIO TO EVALUATE: attached file output_audio_speech.wav", a2s_quality)
+        self.assertIn("Criterion: output_speech_perceptual_quality", a2s_quality)
+        self.assertIn("Clip 2, the generated output clip", a2s_quality)
+        self.assertIn("Do not score Clip 1 quality", a2s_quality)
 
     def test_runner_executes_lalm_stub_and_preserves_audio_manifest_fields(self) -> None:
         metric = "geval_audio_plausibility"
@@ -141,8 +157,8 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             self.assertEqual(judgment["prompt"]["audio_attachments"][1]["role"], "generated_audio_to_evaluate")
             self.assertEqual(judgment["prompt"]["audio_attachments"][1]["path"], str(generated))
             rendered = judgment["prompt"]["rendered_user_message"]
-            self.assertIn("Input audio: attached file input_audio_audio.wav", rendered)
-            self.assertIn("Output audio to evaluate: attached file output_audio_generated.wav", rendered)
+            self.assertIn("Clip 1 - INPUT ENVIRONMENTAL AUDIO (context): attached file input_audio_audio.wav", rendered)
+            self.assertIn("Clip 2 - OUTPUT SPEECH AUDIO TO EVALUATE: attached file output_audio_generated.wav", rendered)
             self.assertNotIn("A dog barks near a door.", rendered)
             self.assertNotIn("Please let the dog inside.", rendered)
 

@@ -27,19 +27,20 @@ METRIC_IDS = {
     "reference_grounded": "geval_audio_reference",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_audio_plausibility_v3_end_to_end_audio",
-    "reference_grounded": "geval_audio_reference_v3_end_to_end_audio",
+    "plausibility": "geval_audio_plausibility_v4_directional_clip_labels",
+    "reference_grounded": "geval_audio_reference_v4_directional_clip_labels",
 }
 PROMPT_TEMPLATE_NAME = "geval_audio_end_to_end_direct_assessment_v1"
 PROMPT_TEMPLATE_TEXT = """###Task Description:
-An instruction, audio clips, and a score rubric representing one evaluation criterion are given.
-1. Listen carefully to the attached audio clips.
-2. Write concise, objective feedback assessing the output audio strictly according to the given score rubric, not in general.
-3. After writing the feedback, write a score that is an integer between 1 and 5.
-4. The output format should be exactly:
+An instruction, ordered audio clips, and a score rubric representing one evaluation criterion are given.
+1. Listen carefully to the attached audio clips in the listed order.
+2. Treat Clip 1 as the input/context clip and Clip 2 as the generated output clip to evaluate. Reference clips, when present, come after Clip 2.
+3. Write concise, objective feedback assessing the generated output clip strictly according to the given score rubric, not in general.
+4. After writing the feedback, write a score that is an integer between 1 and 5.
+5. The output format should be exactly:
 Feedback: (write concise feedback for this criterion) [RESULT] (integer score from 1 to 5)
-5. Do not generate any other opening, closing, or explanation.
-6. If the criterion genuinely cannot be assessed from the attached audio, write [RESULT] N/A instead of an integer. Do not use N/A merely because the output audio is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
+6. Do not generate any other opening, closing, or explanation.
+7. If the criterion genuinely cannot be assessed from the attached audio, write [RESULT] N/A instead of an integer. Do not use N/A merely because the generated output clip is poor, short, vague, or low quality; use scores 1 or 2 for assessable weak outputs.
 
 ###The instruction to evaluate:
 {instruction}
@@ -54,21 +55,37 @@ Feedback: (write concise feedback for this criterion) [RESULT] (integer score fr
 """
 
 DIRECTION_INSTRUCTIONS = {
-    "audio_to_speech": """You are evaluating an end-to-end SpeechAudio LM generation. Listen carefully to both audio clips. The output audio should be a generated human speech response that could plausibly be spoken in, after, or because of the input environmental audio scene.
+    "audio_to_speech": """You are evaluating an end-to-end SpeechAudio LM generation. Listen carefully to both audio clips.
 
-Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the input audio and output audio.""",
-    "speech_to_audio": """You are evaluating an end-to-end SpeechAudio LM generation. Listen carefully to both audio clips. The output audio should be an environmental audio scene that could plausibly contextualize, accompany, explain, or be caused by the input spoken utterance.
+Clip 1 is the input environmental audio scene. Clip 2 is the generated output speech audio to evaluate. Use Clip 1 as context, but for output-quality or target-modality criteria, score Clip 2 only.
 
-Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the input audio and output audio.""",
+The output speech audio should be a generated human speech response that could plausibly be spoken in, after, or because of the input environmental audio scene.
+
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the ordered clips.""",
+    "speech_to_audio": """You are evaluating an end-to-end SpeechAudio LM generation. Listen carefully to both audio clips.
+
+Clip 1 is the input speech audio. Clip 2 is the generated output environmental audio to evaluate. Use Clip 1 as context, but for output-quality or target-modality criteria, score Clip 2 only.
+
+The output environmental audio should be an audio scene that could plausibly contextualize, accompany, explain, or be caused by the input spoken utterance.
+
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the ordered clips.""",
 }
 
 REFERENCE_DIRECTION_INSTRUCTIONS = {
-    "audio_to_speech": """You are evaluating an end-to-end SpeechAudio LM generation with reference audio anchors. Listen carefully to the input audio, output audio, and any reference audio clips. The output audio should be generated human speech that could plausibly be spoken in, after, or because of the input environmental audio scene, and should remain compatible with the reference speech audio anchors as soft examples of valid output space.
+    "audio_to_speech": """You are evaluating an end-to-end SpeechAudio LM generation with reference audio anchors. Listen carefully to the ordered clips.
 
-Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the attached audio clips.""",
-    "speech_to_audio": """You are evaluating an end-to-end SpeechAudio LM generation with reference audio anchors. Listen carefully to the input audio, output audio, and any reference audio clips. The output audio should be an environmental audio scene that could plausibly contextualize, accompany, explain, or be caused by the input spoken utterance, and should remain compatible with the reference environmental audio anchors as soft examples of valid output space.
+Clip 1 is the input environmental audio scene. Clip 2 is the generated output speech audio to evaluate. Reference speech audio anchors, when present, start at Clip 3. Use Clip 1 and any reference anchors as context, but for output-quality or target-modality criteria, score Clip 2 only.
 
-Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the attached audio clips.""",
+The output speech audio should be generated human speech that could plausibly be spoken in, after, or because of the input environmental audio scene, and should remain compatible with the reference speech audio anchors as soft examples of valid output space.
+
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the ordered clips.""",
+    "speech_to_audio": """You are evaluating an end-to-end SpeechAudio LM generation with reference audio anchors. Listen carefully to the ordered clips.
+
+Clip 1 is the input speech audio. Clip 2 is the generated output environmental audio to evaluate. Reference environmental audio anchors, when present, start at Clip 3. Use Clip 1 and any reference anchors as context, but for output-quality or target-modality criteria, score Clip 2 only.
+
+The output environmental audio should be an audio scene that could plausibly contextualize, accompany, explain, or be caused by the input spoken utterance, and should remain compatible with the reference environmental audio anchors as soft examples of valid output space.
+
+Evaluate only the specified criterion. Do not evaluate overall quality. Do not assume access to captions, transcripts, or reference text. Base your judgment only on what you can hear in the ordered clips.""",
 }
 
 CRITERION_WEIGHTS = {
@@ -260,16 +277,39 @@ Score 5: The generated environmental audio is strongly compatible with the refer
 }
 
 CRITERION_BOUNDARIES = {
-    "cross_modal_non_contradiction": "Judge only contradiction between the heard input audio and generated output audio.",
-    "cross_modal_grounding": "Judge only whether the output audio is meaningfully grounded in the heard input audio.",
-    "scenario_plausibility": "Judge only whether the input and output audio clips form a believable shared situation.",
-    "controlled_detail": "Judge only whether the output audio uses an appropriate amount of inferred detail.",
-    "target_modality_success": "Judge only whether the output audio succeeds in the required target modality.",
-    "perceptual_audio_quality": "Judge only perceptual audio quality and naturalness/realism, not semantic alignment.",
-    "expressive_delivery_fit": "Judge only non-textual expressive speech delivery fit to the input audio scene.",
-    "contextual_acoustic_fit": "Judge only non-textual acoustic character fit to the input speech.",
-    "reference_audio_compatibility": "Judge compatibility with attached reference audio anchors as soft examples, not exact matching.",
+    "cross_modal_non_contradiction": "Use Clip 1 as context and judge only whether Clip 2, the generated output clip, contradicts it.",
+    "cross_modal_grounding": "Use Clip 1 as context and judge only whether Clip 2, the generated output clip, is meaningfully grounded in it.",
+    "scenario_plausibility": "Judge only whether Clip 1 and Clip 2 form a believable shared situation.",
+    "controlled_detail": "Judge only whether Clip 2, the generated output clip, uses an appropriate amount of inferred detail.",
+    "target_modality_success": "Judge only whether Clip 2, the generated output clip, succeeds in the required target modality.",
+    "perceptual_audio_quality": "Judge only perceptual audio quality and naturalness/realism of Clip 2, the generated output clip. Do not score Clip 1 quality or semantic alignment.",
+    "expressive_delivery_fit": "Use Clip 1 as context and judge only non-textual expressive delivery fit of Clip 2, the generated output speech.",
+    "contextual_acoustic_fit": "Use Clip 1 as context and judge only non-textual acoustic character fit of Clip 2, the generated output environmental audio.",
+    "reference_audio_compatibility": "Use reference clips as soft examples and judge compatibility of Clip 2, the generated output clip. Do not require exact matching.",
 }
+
+CRITERION_PROMPT_NAMES = {
+    ("audio_to_speech", "cross_modal_non_contradiction"): "output_speech_non_contradiction_with_input_environment",
+    ("audio_to_speech", "cross_modal_grounding"): "output_speech_grounding_in_input_environment",
+    ("audio_to_speech", "scenario_plausibility"): "input_environment_and_output_speech_scenario_plausibility",
+    ("audio_to_speech", "controlled_detail"): "output_speech_controlled_detail",
+    ("audio_to_speech", "target_modality_success"): "output_speech_modality_success",
+    ("audio_to_speech", "perceptual_audio_quality"): "output_speech_perceptual_quality",
+    ("audio_to_speech", "expressive_delivery_fit"): "output_speech_expressive_delivery_fit",
+    ("audio_to_speech", "reference_audio_compatibility"): "output_speech_reference_audio_compatibility",
+    ("speech_to_audio", "cross_modal_non_contradiction"): "output_environmental_audio_non_contradiction_with_input_speech",
+    ("speech_to_audio", "cross_modal_grounding"): "output_environmental_audio_grounding_in_input_speech",
+    ("speech_to_audio", "scenario_plausibility"): "input_speech_and_output_environmental_audio_scenario_plausibility",
+    ("speech_to_audio", "controlled_detail"): "output_environmental_audio_controlled_detail",
+    ("speech_to_audio", "target_modality_success"): "output_environmental_audio_modality_success",
+    ("speech_to_audio", "perceptual_audio_quality"): "output_environmental_audio_perceptual_quality",
+    ("speech_to_audio", "contextual_acoustic_fit"): "output_environmental_audio_contextual_acoustic_fit",
+    ("speech_to_audio", "reference_audio_compatibility"): "output_environmental_audio_reference_audio_compatibility",
+}
+
+
+def prompt_criterion_name(direction: str, criterion: str) -> str:
+    return CRITERION_PROMPT_NAMES.get((direction, criterion), criterion)
 
 
 class Judge(Protocol):
@@ -439,8 +479,14 @@ def build_prompt_record(
     else:
         instruction = DIRECTION_INSTRUCTIONS[direction]
     criterion_boundary = CRITERION_BOUNDARIES[criterion]
-    audio_clip_description = _audio_clip_description(generated_audio_file, source_audio_file, reference_anchors or [])
-    rendered_rubric = f"Criterion: {criterion}\n\n{rubric}"
+    audio_clip_description = _audio_clip_description(direction, generated_audio_file, source_audio_file, reference_anchors or [])
+    prompt_criterion = prompt_criterion_name(direction, criterion)
+    rendered_rubric = (
+        f"Criterion: {prompt_criterion}\n"
+        f"Internal criterion id: {criterion}\n\n"
+        f"Criterion boundary:\n{criterion_boundary}\n\n"
+        f"Rubric:\n{rubric}"
+    )
     rendered_user_message = PROMPT_TEMPLATE_TEXT.format(
         instruction=instruction,
         audio_clip_description=audio_clip_description,
@@ -462,15 +508,35 @@ def build_prompt_record(
     }
 
 
-def _audio_clip_description(generated_audio_file: str, source_audio_file: str, reference_anchors: list[dict[str, Any]]) -> str:
+def _audio_clip_description(
+    direction: str,
+    generated_audio_file: str,
+    source_audio_file: str,
+    reference_anchors: list[dict[str, Any]],
+) -> str:
+    if direction == "audio_to_speech":
+        input_label = "INPUT ENVIRONMENTAL AUDIO (context)"
+        output_label = "OUTPUT SPEECH AUDIO TO EVALUATE"
+        reference_label = "REFERENCE SPEECH AUDIO ANCHOR"
+    elif direction == "speech_to_audio":
+        input_label = "INPUT SPEECH AUDIO (context)"
+        output_label = "OUTPUT ENVIRONMENTAL AUDIO TO EVALUATE"
+        reference_label = "REFERENCE ENVIRONMENTAL AUDIO ANCHOR"
+    else:
+        raise ValueError(f"Unsupported direction: {direction}")
     lines = [
-        f"Input audio: attached file {_display_audio_name('input_audio', source_audio_file)}",
-        f"Output audio to evaluate: attached file {_display_audio_name('output_audio', generated_audio_file)}",
+        "The attached clips are provided in this exact order:",
+        f"Clip 1 - {input_label}: attached file {_display_audio_name('input_audio', source_audio_file)}",
+        f"Clip 2 - {output_label}: attached file {_display_audio_name('output_audio', generated_audio_file)}",
     ]
     for index, anchor in enumerate(reference_anchors, start=1):
         audio_file = anchor.get("audio_file")
         if isinstance(audio_file, str) and audio_file.strip():
-            lines.append(f"Reference audio anchor {index}: attached file {_display_audio_name(f'reference_audio_{index}', audio_file)}")
+            clip_index = index + 2
+            lines.append(
+                f"Clip {clip_index} - {reference_label} {index}: attached file "
+                f"{_display_audio_name(f'reference_audio_{index}', audio_file)}"
+            )
     return "\n".join(lines)
 
 

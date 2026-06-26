@@ -61,7 +61,21 @@ class GEvalPrometheusCriterionV2Test(unittest.TestCase):
         self.assertIn("generated speech transcript / human utterance", plausibility)
         self.assertNotIn("generated environmental audio description", plausibility)
         self.assertIn("valid as a speech transcript / human utterance", plausibility)
+        self.assertIn("Criterion boundary:", plausibility)
+        self.assertIn("Ignore whether it is semantically aligned with the input", plausibility)
+        self.assertIn("Judge only form, not semantic alignment", plausibility)
         self.assertIn("[RESULT] N/A", plausibility)
+
+        s2a_form = build_prompt(
+            variant="plausibility",
+            direction="speech_to_audio",
+            criterion="target_form_validity",
+            input_text="Need to reload faster next time, these clips are too heavy.",
+            generated_text="A gun is shot several times",
+        )
+        self.assertIn("valid as an environmental audio caption", s2a_form)
+        self.assertIn("Sound-producing actions", s2a_form)
+        self.assertIn("Judge only form, not semantic alignment", s2a_form)
 
         grounded = build_prompt(
             variant="reference_grounded",
