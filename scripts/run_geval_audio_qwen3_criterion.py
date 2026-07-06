@@ -20,15 +20,14 @@ from scripts.run_geval_prometheus_criterion_v2 import (
     weighted_final_score,
 )
 
-EVALUATOR_VERSION = "geval_audio_qwen3_criterion_v2"
 DEFAULT_MODEL_PATH = str(model_path("qwen3_omni"))
 METRIC_IDS = {
     "plausibility": "geval_audio_plausibility",
     "reference_grounded": "geval_audio_reference",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_audio_plausibility_v5_merged_scenario_output_quality_only",
-    "reference_grounded": "geval_audio_reference_v5_merged_scenario_output_quality_only",
+    "plausibility": "geval_audio_plausibility_v6",
+    "reference_grounded": "geval_audio_reference_v6",
 }
 PROMPT_TEMPLATE_NAME = "geval_audio_end_to_end_direct_assessment_v1"
 PROMPT_TEMPLATE_TEXT = """###Task Description:
@@ -97,6 +96,10 @@ The attached clip is the generated output speech audio to evaluate. Do not assum
 The attached clip is the generated output environmental audio to evaluate. Do not assume access to the input speech audio, captions, transcripts, or reference text. Score only perceptual audio quality, realism, audibility, and naturalness according to the rubric.""",
 }
 
+S2A_TARGET_MODALITY_INSTRUCTION = """You are evaluating only whether the generated output clip is environmental audio for a speech-to-audio generation. Listen carefully to the attached generated output clip.
+
+The attached clip is the generated output environmental audio to evaluate. Do not assume access to the input speech audio, captions, transcripts, or reference text. Score only whether the output succeeds as environmental audio rather than speech, silence, noise, or a broken waveform. Do not judge relevance, scenario plausibility, emotional fit, or amount of detail for this criterion."""
+
 CRITERION_WEIGHTS = {
     ("plausibility", "audio_to_speech"): {
         "scenario_plausibility": 1.0,
@@ -129,6 +132,10 @@ CRITERION_WEIGHTS = {
         "reference_audio_compatibility": 1.0,
     },
 }
+
+assert set(PROMPT_VERSIONS) == set(METRIC_IDS)
+assert "reference_audio_compatibility" in CRITERION_WEIGHTS[("reference_grounded", "audio_to_speech")]
+assert "reference_audio_compatibility" in CRITERION_WEIGHTS[("reference_grounded", "speech_to_audio")]
 
 RUBRICS = {
     ("audio_to_speech", "scenario_plausibility"): """Evaluate whether the input environmental audio and generated speech audio form a believable, meaningfully connected shared situation.
@@ -166,9 +173,9 @@ Score 2: The output contains little usable speech, or the speech is mostly unint
 Score 3: The output is partly valid speech, but has noticeable intelligibility, modality, or utterance-form problems.
 Score 4: The output is mostly successful speech audio, with only minor intelligibility or utterance-form issues.
 Score 5: The output is clearly successful human speech audio: intelligible, speakable, and in the correct target modality.""",
-    ("audio_to_speech", "perceptual_audio_quality"): """Evaluate the perceptual quality, naturalness, and basic vocal expressiveness of the generated speech audio.
+    ("audio_to_speech", "perceptual_audio_quality"): """Evaluate the perceptual quality, naturalness, and human-likeness of the generated speech audio.
 
-Focus on the generated speech audio quality, not semantic alignment. Consider audibility, clarity, natural human voice quality, distortion, clipping, glitches, robotic or machine-generated artifacts, unstable voice, excessive noise, unnatural pauses, and synthesis artifacts. The speech should not sound robotic or mechanically flat. Basic expressiveness matters, but do not judge whether the specific emotion is contextually correct here; that belongs to expressive_delivery_fit. If the only issue is limited expressiveness, deduct at most one point. If the speech is unnatural, distorted, robotic, or hard to hear, score much lower.
+Focus on the generated speech audio quality, not semantic alignment. Consider audibility, clarity, natural human voice quality, distortion, clipping, glitches, robotic or machine-generated artifacts, unstable voice, excessive noise, unnatural pauses, and synthesis artifacts. Judge whether the voice sounds human-like rather than robotic, synthetic, or mechanically flat. Do not judge whether the specific emotion is appropriate for the scene; emotional appropriateness belongs to expressive_delivery_fit. If the speech noticeably sounds robotic, unnatural, or machine-generated, deduct meaningfully even when the words are intelligible.
 
 Score 1: The generated speech audio is extremely degraded, unnatural, robotic, distorted, or difficult to listen to.
 Score 2: The generated speech audio has major quality problems such as strong artifacts, distortion, instability, machine-like voice, or poor clarity.
@@ -177,25 +184,25 @@ Score 4: The generated speech audio is mostly natural, audible, and clear, with 
 Score 5: The generated speech audio is highly natural, clear, stable, human-like, and free of meaningful perceptual artifacts.""",
     ("audio_to_speech", "expressive_delivery_fit"): """Evaluate whether the expressive delivery of the generated speech fits both what the speech says and the heard input audio scene.
 
-Focus on non-textual speech cues: emotion, prosody, tone, urgency, loudness, speaking pace, rhythm, hesitation, stress, surprise, fear, calmness, laughter, or other vocal expression. First listen to what the generated speech is saying, then judge whether its delivery fits that content and the input scene. Do not simply match loudness or energy to the input audio. A loud animal or busy environment can be paired with quieter speech if the words are trying to calm the animal or lower the noise. A party or loud music scene usually should not produce a sad, soft, detached delivery. Speech like "Hey, pass me that plate! The table's wobbly again. Watch out for the branches - those squirrels are crazy!" should not be flat because the words imply quick reactions and changing hazards. If the speech says something like "It's too loud, stop making noise, am I clear?", the delivery should be somewhat raised, stern, authoritative, and interrogative rather than flat.
+Focus on non-textual speech cues: emotion, prosody, tone, urgency, loudness, speaking pace, rhythm, hesitation, stress, surprise, fear, calmness, laughter, or other vocal expression. First listen to what the generated speech is saying, then judge whether its delivery fits that content and the input scene. Do not simply match loudness or energy to the input audio. A loud animal or busy environment can be paired with quieter speech if the words are trying to calm the animal or lower the noise. When the speech content or input scene clearly calls for emotion, urgency, stress, surprise, fear, amusement, authority, or another expressive stance, a flat or emotionally absent delivery should be penalized heavily. Robotic, unnatural, or machine-like speech should also score low here because it lacks usable human expressive character.
 
-Score 1: The expressive delivery is completely inappropriate for the speech content and heard scene, or the speech has no usable expressive character.
-Score 2: The delivery has a major mismatch in emotion, prosody, urgency, loudness, pace, or tone for the spoken content and scene.
-Score 3: The delivery is somewhat plausible, but feels flat, exaggerated, emotionally mismatched, or weakly adapted to the content and scene.
-Score 4: The delivery mostly fits the spoken content and heard scene, with only minor expressive mismatch or missed nuance.
-Score 5: The delivery strongly fits the spoken content and heard scene, with natural emotion, prosody, urgency, pace, and tone for the situation.""",
+Score 1: The expressive delivery is completely inappropriate for the speech content and heard scene, is robotic or machine-like, or has no usable expressive character.
+Score 2: The delivery has a major mismatch or major absence of required emotion, prosody, urgency, loudness, pace, tone, or human expressiveness for the spoken content and scene.
+Score 3: The delivery is somewhat plausible, but feels flat, exaggerated, emotionally mismatched, robotic, or weakly adapted to the content and scene.
+Score 4: The delivery mostly fits the spoken content and heard scene, with only minor expressive mismatch, slight flatness, or missed nuance.
+Score 5: The delivery strongly fits the spoken content and heard scene, with natural human emotion, prosody, urgency, pace, and tone for the situation.""",
     ("speech_to_audio", "scenario_plausibility"): """Evaluate whether the input speech and generated environmental audio form a believable, meaningfully connected shared situation.
 
-This criterion merges scenario plausibility and cross-modal grounding. The generated audio scene should contextualize, accompany, explain, or result from the spoken utterance. It does not need to be the only possible scene, and it may add reasonable unstated context, but it should not be generic, unrelated, or only accidentally compatible with the speech.
+Focus on two questions. First, are the speech and generated audio situationally connected, rather than about unrelated things? The generated scene can contextualize, accompany, explain, or result from the utterance, and it may add reasonable unstated context. For example, speech about being late or needing to rush can plausibly connect to vehicle, street, or engine sounds. Second, is the resulting sound world physically and practically plausible as something that could happen in the real world? Do not penalize emotional contrast by itself: calm speech can occur in a loud or chaotic situation if the scenario makes sense. Penalize scenes that feel like an incoherent pile of unrelated events, such as incompatible hazards, locations, ceremonies, weapons, water, laughter, and music all competing without a plausible shared context.
 
 Use this grounding/plausibility guide:
-- High grounding + high plausibility: the audio scene is clearly motivated by the speech and sounds like a natural context, accompaniment, explanation, or consequence.
+- High grounding + high plausibility: the audio scene is clearly connected to the speech and forms a realistic sound-world situation.
 - High plausibility + weak grounding: the audio is a believable scene, but it is generic or only loosely connected to what was said.
-- Weak plausibility + apparent grounding: the audio includes sounds suggested by the speech, but the full scene feels strained, unnatural, or dependent on too much hidden context.
-- Low grounding + low plausibility: the audio is unrelated, incoherent, or impossible to believe with the input speech.
+- Weak plausibility + apparent grounding: the audio includes sounds suggested by the speech, but the full scene feels strained, impractical, or dependent on too much hidden context.
+- Low grounding + low plausibility: the audio is unrelated, incoherent, physically implausible, or impossible to believe with the input speech.
 
 Score 1: The generated environmental audio is unrelated to the input speech, or the pair forms an absurd, impossible, incoherent, or extremely unnatural situation.
-Score 2: The generated audio scene has only a weak connection to the input speech, or the shared situation is difficult to believe because of a major temporal, causal, pragmatic, or sound-world mismatch.
+Score 2: The generated audio scene has only a weak connection to the input speech, or the shared situation is difficult to believe because of a major temporal, causal, pragmatic, physical, or sound-world mismatch.
 Score 3: The generated audio scene could fit the input speech, but the connection is generic, indirect, strained, underdeveloped, or dependent on substantial extra context.
 Score 4: The generated audio scene is clearly motivated by the speech and forms a plausible shared situation, with only minor genericness or a small reasonable assumption.
 Score 5: The generated audio scene feels like a very natural, specific, and believable context, accompaniment, explanation, or consequence of the input speech.""",
@@ -208,14 +215,14 @@ Score 2: The generated audio is mostly too sparse to establish a scene, or mostl
 Score 3: The generated audio has useful acoustic detail, but is noticeably too generic for the speech, too sparse, or somewhat overloaded with unnecessary events.
 Score 4: The generated audio has mostly appropriate acoustic detail, with only minor sparseness or minor over-detail.
 Score 5: The generated audio is appropriately detailed: focused, useful, and scene-like without being overloaded or over-invented.""",
-    ("speech_to_audio", "target_modality_success"): """Evaluate whether the output audio succeeds as generated environmental audio.
+    ("speech_to_audio", "target_modality_success"): """Evaluate only whether the generated output clip succeeds as environmental audio.
 
-The output should contain an environmental sound scene, sound event, ambience, or acoustic context. It should not be generated speech replying to the speaker, a spoken caption, pure silence, random noise, or an incoherent waveform. Music or vocals can be valid when they are part of a scene, such as a concert with cheering, claps, crowd ambience, or venue sound. In that case the vocals are part of the scene rather than a generated spoken reply. A clip that is only a standalone song without environmental scene context is a modality problem. Judge the success of the target modality, not whether the semantic alignment is perfect.
+Do not judge relevance to the input speech, scenario plausibility, emotional fit, or amount of detail for this criterion. The output succeeds in the target modality when it is audible environmental audio: a sound scene, sound event, ambience, crowd, place, activity, or acoustic context. Multiple voices, indistinct speech, chants, vocals, or crowd noise can be valid environmental audio when they function as part of a scene. Music can also be audio, but standalone music without environmental context is less successful than a scene-like soundscape. The main modality failure to penalize is output that is essentially a single spoken reply, clean dialogue, a spoken caption, pure words, silence, random noise, or a broken waveform rather than environmental audio.
 
-Score 1: The output is not recognizable as valid environmental audio, is silent/noise, or is completely in the wrong modality.
-Score 2: The output contains little usable environmental audio, or is mostly speech, standalone music, silence, random noise, or broken audio.
-Score 3: The output is partly valid environmental audio, but has noticeable modality, scene, or acoustic-content problems.
-Score 4: The output is mostly successful environmental audio, with only minor modality or acoustic-content issues.
+Score 1: The output is not recognizable as valid environmental audio, is silent/noise/broken, or is essentially only single-speaker speech, dialogue, or spoken words.
+Score 2: The output contains little usable environmental audio, or speech/standalone music dominates so strongly that it mostly fails as an environmental scene.
+Score 3: The output is partly valid environmental audio, but has noticeable modality or scene-formation problems.
+Score 4: The output is mostly successful environmental audio, with only minor modality or scene-formation issues.
 Score 5: The output is clearly successful environmental audio: audible, scene-like, and in the correct target modality.""",
     ("speech_to_audio", "perceptual_audio_quality"): """Evaluate the perceptual quality and realism of the generated environmental audio.
 
@@ -265,6 +272,10 @@ CRITERION_BOUNDARIES = {
     "expressive_delivery_fit": "Use Clip 1 as context and judge only non-textual expressive delivery fit of Clip 2, the generated output speech.",
     "contextual_acoustic_fit": "Use Clip 1 as context and judge only non-textual acoustic character fit of Clip 2, the generated output environmental audio.",
     "reference_audio_compatibility": "Use reference clips as soft examples and judge compatibility of Clip 2, the generated output clip. Do not require exact matching.",
+}
+
+DIRECTION_CRITERION_BOUNDARIES = {
+    ("speech_to_audio", "target_modality_success"): "Judge only whether the attached generated output clip succeeds in the required environmental-audio target modality. The input/context clip is intentionally not provided for this criterion.",
 }
 
 CRITERION_PROMPT_NAMES = {
@@ -451,12 +462,14 @@ def build_prompt_record(
     rubric = RUBRICS[(direction, criterion)]
     if criterion == "perceptual_audio_quality":
         instruction = QUALITY_ONLY_DIRECTION_INSTRUCTIONS[direction]
+    elif direction == "speech_to_audio" and criterion == "target_modality_success":
+        instruction = S2A_TARGET_MODALITY_INSTRUCTION
     elif variant == "reference_grounded" and criterion == "reference_audio_compatibility":
         instruction = REFERENCE_DIRECTION_INSTRUCTIONS[direction]
     else:
         instruction = DIRECTION_INSTRUCTIONS[direction]
-    criterion_boundary = CRITERION_BOUNDARIES[criterion]
-    output_only = criterion == "perceptual_audio_quality"
+    criterion_boundary = DIRECTION_CRITERION_BOUNDARIES.get((direction, criterion), CRITERION_BOUNDARIES[criterion])
+    output_only = criterion == "perceptual_audio_quality" or (direction == "speech_to_audio" and criterion == "target_modality_success")
     audio_clip_description = _audio_clip_description(
         direction, generated_audio_file, source_audio_file, reference_anchors or [], output_only=output_only
     )
@@ -685,7 +698,6 @@ def _initial_row_state(row: dict[str, Any], *, variant: str, judge_name: str) ->
     state = {
         "schema_version": 2,
         "metric": METRIC_IDS[variant],
-        "evaluator_version": EVALUATOR_VERSION,
         "evaluation_variant": variant,
         "row_index": row.get("row_index"),
         "pair_id": row.get("pair_id") or row.get("sample_id"),
@@ -739,18 +751,17 @@ def _make_item(row: dict[str, Any], row_position: int, criterion: str, *, varian
         generated_text=row.get("generated_text") if isinstance(row.get("generated_text"), str) else None,
     )
     prompt = prompt_record["rendered_user_message"]
+    prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     cache_key = json.dumps(
         {
             "metric": METRIC_IDS[variant],
-            "evaluator_version": EVALUATOR_VERSION,
             "evaluation_variant": variant,
             "direction": direction,
             "criterion": criterion,
-            "input_audio_file": source_audio_file,
-            "generated_audio_file": generated_audio_file,
             "generated_audio_kind": row.get("generated_audio_kind"),
-            "reference_anchors": anchors if criterion == "reference_audio_compatibility" else [],
             "prompt_version": PROMPT_VERSIONS[variant],
+            "prompt_sha256": prompt_sha256,
+            "audio_attachments": prompt_record["audio_attachments"],
             "scoring_policy_version": SCORING_POLICY_VERSION,
             "judge": cache_identity,
         },
@@ -942,7 +953,6 @@ def _criterion_judgment_row(
         "sample_id": state.get("sample_id"),
         "split": state.get("split"),
         "metric_id": state.get("metric"),
-        "evaluator_version": state.get("evaluator_version"),
         "evaluation_variant": state.get("evaluation_variant"),
         "criterion_id": item.criterion,
         "criterion_weight": weight,
@@ -1039,7 +1049,6 @@ def _summary(rows: list[dict[str, Any]], *, input_path: Path, output_path: Path,
     return {
         "schema_version": 3,
         "metric": METRIC_IDS[variant],
-        "evaluator_version": EVALUATOR_VERSION,
         "evaluation_variant": variant,
         "prompt_version": prompt_version or PROMPT_VERSIONS[variant],
         "scoring_policy_version": SCORING_POLICY_VERSION,

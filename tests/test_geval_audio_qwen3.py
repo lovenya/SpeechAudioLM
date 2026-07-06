@@ -7,7 +7,7 @@ from pathlib import Path
 
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.runner import EvalOptions, _dedicated_lalm_audio_rows, run_evaluation
-from scripts.run_geval_audio_qwen3_criterion import build_prompt_record
+from scripts.run_geval_audio_qwen3_criterion import PROMPT_VERSIONS, build_prompt_record
 
 
 class GEvalLALMQwen3Test(unittest.TestCase):
@@ -74,7 +74,7 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             self.assertNotIn("text", rows[0]["reference_anchors"][0])
 
     def test_audio_prompt_uses_only_audio_inputs_and_direction_specific_rubric(self) -> None:
-        prompt = build_prompt_record(
+        prompt_record = build_prompt_record(
             variant="plausibility",
             direction="speech_to_audio",
             criterion="scenario_plausibility",
@@ -82,7 +82,9 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             generated_audio_file="/tmp/generated.wav",
             input_text="Please let the dog inside.",
             generated_text="A dog barks by a door.",
-        )["rendered_user_message"]
+        )
+        prompt = prompt_record["rendered_user_message"]
+        self.assertEqual(prompt_record["prompt_version"], PROMPT_VERSIONS["plausibility"])
 
         self.assertIn("Clip 1 - INPUT SPEECH AUDIO (context): attached file input_audio_source.wav", prompt)
         self.assertIn("Clip 2 - OUTPUT ENVIRONMENTAL AUDIO TO EVALUATE: attached file output_audio_generated.wav", prompt)
@@ -90,8 +92,11 @@ class GEvalLALMQwen3Test(unittest.TestCase):
         self.assertIn("Criterion: input_speech_and_output_environmental_audio_grounded_scenario_plausibility", prompt)
         self.assertIn("Internal criterion id: scenario_plausibility", prompt)
         self.assertIn("Criterion boundary:", prompt)
-        self.assertIn("This criterion merges scenario plausibility and cross-modal grounding", prompt)
         self.assertIn("form a believable, meaningfully connected shared situation", prompt)
+        self.assertIn("Focus on two questions", prompt)
+        self.assertIn("situationally connected", prompt)
+        self.assertIn("physically and practically plausible", prompt)
+        self.assertIn("Do not penalize emotional contrast by itself", prompt)
         self.assertNotIn("Please let the dog inside.", prompt)
         self.assertNotIn("A dog barks by a door.", prompt)
         self.assertNotIn("generated speech audio is meaningfully grounded in the heard input environmental audio", prompt)
@@ -112,6 +117,28 @@ class GEvalLALMQwen3Test(unittest.TestCase):
         self.assertEqual(
             a2s_quality_record["audio_attachments"],
             [{"role": "generated_audio_to_evaluate", "path": "/tmp/speech.wav"}],
+        )
+
+        s2a_modality_record = build_prompt_record(
+            variant="plausibility",
+            direction="speech_to_audio",
+            criterion="target_modality_success",
+            source_audio_file="/tmp/speech.wav",
+            generated_audio_file="/tmp/environment.wav",
+        )
+        s2a_modality = s2a_modality_record["rendered_user_message"]
+        self.assertEqual(s2a_modality_record["prompt_version"], "geval_audio_plausibility_v6")
+        self.assertIn(
+            "Clip 1 - OUTPUT ENVIRONMENTAL AUDIO TO EVALUATE: attached file output_audio_environment.wav",
+            s2a_modality,
+        )
+        self.assertIn("Do not judge relevance, scenario plausibility, emotional fit, or amount of detail", s2a_modality)
+        self.assertIn("essentially a single spoken reply", s2a_modality)
+        self.assertNotIn("INPUT SPEECH AUDIO", s2a_modality)
+        self.assertNotIn("Clip 2 -", s2a_modality)
+        self.assertEqual(
+            s2a_modality_record["audio_attachments"],
+            [{"role": "generated_audio_to_evaluate", "path": "/tmp/environment.wav"}],
         )
 
     def test_runner_executes_lalm_stub_and_preserves_audio_manifest_fields(self) -> None:
@@ -158,6 +185,8 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             self.assertTrue(artifact.is_file())
             judgment = json.loads(artifact.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(judgment["metric_id"], metric)
+            self.assertNotIn("evaluator_version", judgment)
+            self.assertEqual(judgment["prompt"]["prompt_version"], PROMPT_VERSIONS["plausibility"])
             self.assertEqual(judgment["prompt"]["audio_attachments"][0]["role"], "input_audio")
             self.assertEqual(judgment["prompt"]["audio_attachments"][0]["path"], str(source_audio))
             self.assertEqual(judgment["prompt"]["audio_attachments"][1]["role"], "generated_audio_to_evaluate")
