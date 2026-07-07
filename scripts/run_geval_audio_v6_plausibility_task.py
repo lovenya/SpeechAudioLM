@@ -81,7 +81,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def evaluate_command(worker: dict[str, Any], args: argparse.Namespace) -> list[str]:
-    return [
+    command = [
         sys.executable,
         "evaluate.py",
         "--model", str(worker["model"]),
@@ -97,6 +97,9 @@ def evaluate_command(worker: dict[str, Any], args: argparse.Namespace) -> list[s
         "--cache-dir", str(args.cache_dir),
         "--device", args.device,
     ]
+    if worker.get("eval_run_id"):
+        command.extend(["--eval-run-id", str(worker["eval_run_id"])])
+    return command
 
 
 def metric_output_parent(worker: dict[str, Any], output_root: Path) -> Path:

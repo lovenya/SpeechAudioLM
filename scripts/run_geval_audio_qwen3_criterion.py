@@ -611,10 +611,25 @@ def run_geval(
     batch_size: int,
     max_samples: int | None = None,
     criterion_judgments_output: Path | None = None,
+    resume_from_output: bool = False,
 ) -> dict[str, Any]:
     rows = _read_input_rows(input_path, max_samples=max_samples)
     cache_identity = getattr(judge, "cache_identity", judge.name)
     states = [_initial_row_state(row, variant=variant, judge_name=judge.name) for row in rows]
+    if resume_from_output:
+        report = _merge_resume_states(
+            states,
+            resume_path=output_path,
+            variant=variant,
+            judge_name=judge.name,
+        )
+        print(
+            "resume_from_output="
+            f"{output_path} found={report['found']} "
+            f"matched_rows={report['matched_rows']} "
+            f"reused_criteria={report['reused_criteria']}",
+            flush=True,
+        )
     items: list[CriterionItem] = []
     if cache_dir:
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -623,6 +638,8 @@ def run_geval(
         if state["status"] == "incomplete":
             continue
         for criterion in state["criterion_weights"]:
+            if criterion in state["criteria"]:
+                continue
             item = _make_item(rows[position], position, criterion, variant=variant, cache_identity=cache_identity)
             cached = _read_cache(cache_dir, item.prompt_hash)
             if cached is not None:
@@ -724,6 +741,110 @@ def _initial_row_state(row: dict[str, Any], *, variant: str, judge_name: str) ->
     if missing_reference:
         state["incomplete_reason"] = "missing_required_reference_anchor"
     return state
+
+
+def _merge_resume_states(
+    states: list[dict[str, Any]],
+    *,
+    resume_path: Path,
+    variant: str,
+    judge_name: str,
+) -> dict[str, Any]:
+    report = {"found": False, "matched_rows": 0, "reused_criteria": 0}
+    if not resume_path.is_file():
+        return report
+    report["found"] = True
+    previous_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    with resume_path.open("r", encoding="utf-8") as src:
+        for line_number, line in enumerate(src, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Cannot resume from malformed JSONL line {line_number} in {resume_path}: {exc}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"Cannot resume from non-object JSONL line {line_number} in {resume_path}")
+            key = _resume_row_key(row)
+            if key in previous_by_key:
+                raise ValueError(f"Cannot resume from duplicate row identity {key} in {resume_path}")
+            previous_by_key[key] = row
+
+    for state in states:
+        previous = previous_by_key.get(_resume_row_key(state))
+        if previous is None:
+            continue
+        _validate_resume_row(previous, state, variant=variant, judge_name=judge_name, resume_path=resume_path)
+        reused_for_row = 0
+        expected_criteria = set(state.get("criterion_weights", {}))
+        previous_criteria = previous.get("criteria") if isinstance(previous.get("criteria"), dict) else {}
+        for criterion, result in previous_criteria.items():
+            if criterion not in expected_criteria or not _valid_criterion_result(result):
+                continue
+            state["criteria"][criterion] = result
+            reused_for_row += 1
+        if reused_for_row:
+            report["matched_rows"] += 1
+            report["reused_criteria"] += reused_for_row
+    return report
+
+
+def _resume_row_key(row: dict[str, Any]) -> tuple[str, str]:
+    return str(row.get("row_index")), str(row.get("sample_id"))
+
+
+def _validate_resume_row(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    variant: str,
+    judge_name: str,
+    resume_path: Path,
+) -> None:
+    expected_fields = {
+        "schema_version": 2,
+        "metric": METRIC_IDS[variant],
+        "evaluation_variant": variant,
+        "prompt_version": PROMPT_VERSIONS[variant],
+        "scoring_policy_version": SCORING_POLICY_VERSION,
+        "judge_model": judge_name,
+    }
+    for field, expected in expected_fields.items():
+        if previous.get(field) != expected:
+            raise ValueError(
+                f"Cannot resume {resume_path}: row {current.get('row_index')} field {field!r} "
+                f"is {previous.get(field)!r}, expected {expected!r}"
+            )
+    for field in (
+        "row_index",
+        "sample_id",
+        "split",
+        "direction",
+        "generated_audio_file",
+        "generated_audio_kind",
+        "source_audio_file",
+    ):
+        if previous.get(field) != current.get(field):
+            raise ValueError(
+                f"Cannot resume {resume_path}: row {current.get('row_index')} field {field!r} "
+                f"changed from {previous.get(field)!r} to {current.get(field)!r}"
+            )
+    if previous.get("criterion_weights") != current.get("criterion_weights"):
+        raise ValueError(f"Cannot resume {resume_path}: criterion weights changed for row {current.get('row_index')}")
+    if variant == "reference_grounded" and previous.get("reference_anchors") != current.get("reference_anchors"):
+        raise ValueError(f"Cannot resume {resume_path}: reference anchors changed for row {current.get('row_index')}")
+
+
+def _valid_criterion_result(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return False
+    score = result.get("score")
+    status = result.get("parse_status")
+    valid_score = status == "parsed" and not isinstance(score, bool) and isinstance(score, int) and 1 <= score <= 5
+    valid_abstention = status == "abstained" and score is None
+    if not (valid_score or valid_abstention):
+        return False
+    return isinstance(result.get("feedback"), str) and isinstance(result.get("raw_response"), str)
 
 
 def _valid_reference_anchors(anchors: list[Any]) -> bool:
@@ -1157,15 +1278,7 @@ def _read_cache(cache_dir: Path | None, prompt_hash: str) -> dict[str, Any] | No
         cached = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(cached, dict):
-        return None
-    score = cached.get("score")
-    status = cached.get("parse_status")
-    valid_score = status == "parsed" and not isinstance(score, bool) and isinstance(score, int) and 1 <= score <= 5
-    valid_abstention = status == "abstained" and score is None
-    if not (valid_score or valid_abstention):
-        return None
-    if not isinstance(cached.get("feedback"), str) or not isinstance(cached.get("raw_response"), str):
+    if not _valid_criterion_result(cached):
         return None
     return cached
 
@@ -1220,6 +1333,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--criterion-judgments-output", type=Path, default=None)
     parser.add_argument("--variant", choices=sorted(METRIC_IDS), required=True)
     parser.add_argument("--cache-dir", type=Path, default=None)
+    parser.add_argument("--resume-from-output", action="store_true", help="Reuse valid criterion results already present in --output before generating missing criteria.")
     parser.add_argument("--backend", choices=["transformers", "stub"], default="transformers")
     parser.add_argument("--model", default=DEFAULT_MODEL_PATH)
     parser.add_argument("--temperature", type=float, default=0.0)
@@ -1246,6 +1360,7 @@ def main() -> None:
         batch_size=args.batch_size,
         max_samples=args.max_samples,
         criterion_judgments_output=args.criterion_judgments_output,
+        resume_from_output=args.resume_from_output,
     )
 
 

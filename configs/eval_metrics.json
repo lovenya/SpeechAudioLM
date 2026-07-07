@@ -208,6 +208,7 @@
       "local_files_only": true,
       "trust_remote_code": true,
       "disable_cache": true,
+      "resume_from_output": true,
       "note": "Criterion-wise reference-free LALM-as-a-judge G-Eval over generated audio plus text context."
     },
     "geval_audio_reference": {
@@ -222,6 +223,7 @@
       "local_files_only": true,
       "trust_remote_code": true,
       "disable_cache": true,
+      "resume_from_output": true,
       "note": "Criterion-wise reference-grounded LALM-as-a-judge G-Eval over generated audio plus text and paired references."
     },
     "prompt_adherence_clap_score": {

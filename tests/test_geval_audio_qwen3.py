@@ -7,7 +7,14 @@ from pathlib import Path
 
 from evaluation.metrics.registry import get_metric_specs
 from evaluation.runner import EvalOptions, _dedicated_lalm_audio_rows, _dedicated_script_command, run_evaluation
-from scripts.run_geval_audio_qwen3_criterion import PROMPT_VERSIONS, build_prompt_record
+from scripts.run_geval_audio_qwen3_criterion import (
+    CRITERION_WEIGHTS,
+    PROMPT_VERSIONS,
+    SCORING_POLICY_VERSION,
+    StubJudge,
+    build_prompt_record,
+    run_geval,
+)
 
 
 class GEvalLALMQwen3Test(unittest.TestCase):
@@ -169,6 +176,83 @@ class GEvalLALMQwen3Test(unittest.TestCase):
                 self._options(root, ["geval_audio_plausibility"]),
             )
             self.assertIn("--cache-dir", cached_command)
+
+    def test_audio_geval_resumes_from_partial_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "generated.wav"
+            source_audio = root / "source.wav"
+            generated.write_bytes(b"RIFF....WAVE")
+            source_audio.write_bytes(b"RIFF....WAVE")
+            input_path = root / "input.jsonl"
+            output_path = root / "output.jsonl"
+            summary_path = root / "summary.json"
+            row = {
+                "row_index": 0,
+                "pair_id": "sample",
+                "sample_id": "sample",
+                "split": "val",
+                "direction": "audio_to_speech",
+                "generated_audio_file": str(generated),
+                "generated_audio_kind": "speech",
+                "source_audio_file": str(source_audio),
+            }
+            input_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            partial = {
+                "schema_version": 2,
+                "metric": "geval_audio_plausibility",
+                "evaluation_variant": "plausibility",
+                "row_index": 0,
+                "pair_id": "sample",
+                "sample_id": "sample",
+                "split": "val",
+                "direction": "audio_to_speech",
+                "primary_audio_class": None,
+                "input_text": None,
+                "generated_text": None,
+                "generated_audio_file": str(generated),
+                "generated_audio_kind": "speech",
+                "source_audio_file": str(source_audio),
+                "criteria": {
+                    "scenario_plausibility": {
+                        "score": 5,
+                        "feedback": "Already judged.",
+                        "parse_status": "parsed",
+                        "parse_repair_attempted": False,
+                        "parse_repair_succeeded": False,
+                        "parse_repair_method": None,
+                        "raw_response": "Feedback: Already judged. [RESULT] 5",
+                    }
+                },
+                "criterion_weights": CRITERION_WEIGHTS[("plausibility", "audio_to_speech")],
+                "final_score": None,
+                "scoring_policy_version": SCORING_POLICY_VERSION,
+                "prompt_version": PROMPT_VERSIONS["plausibility"],
+                "judge_model": StubJudge.name,
+                "status": "pending",
+                "diagnostics": {"failure_modes": [], "failure_mode_source": "deterministic"},
+            }
+            output_path.write_text(json.dumps(partial) + "\n", encoding="utf-8")
+
+            summary = run_geval(
+                input_path=input_path,
+                output_path=output_path,
+                summary_output=summary_path,
+                summary_csv_output=None,
+                judge=StubJudge(),
+                variant="plausibility",
+                cache_dir=None,
+                batch_size=20,
+                criterion_judgments_output=root / "criterion_judgments.jsonl",
+                resume_from_output=True,
+            )
+
+            self.assertTrue(summary["complete"])
+            resumed = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(resumed["status"], "complete")
+            self.assertEqual(resumed["criteria"]["scenario_plausibility"]["score"], 5)
+            self.assertEqual(resumed["criteria"]["controlled_detail"]["score"], 4)
+            self.assertAlmostEqual(resumed["final_score"], 4.2)
 
     def test_runner_executes_lalm_stub_and_preserves_audio_manifest_fields(self) -> None:
         metric = "geval_audio_plausibility"

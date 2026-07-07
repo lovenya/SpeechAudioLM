@@ -92,6 +92,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+ALLOW_EXISTING_ARGS=()
+if [[ "${ALLOW_EXISTING_OUTPUTS:-0}" == "1" || "${ALLOW_EXISTING_OUTPUTS:-false}" == "true" ]]; then
+  ALLOW_EXISTING_ARGS+=(--allow-existing-outputs)
+fi
+
 python scripts/run_geval_audio_v6_plausibility_task.py \
   --task-plan "$TASK_PLAN" \
   --task-index "$TASK_INDEX" \
@@ -99,4 +104,5 @@ python scripts/run_geval_audio_v6_plausibility_task.py \
   --repo-root /scratch/l/lovenya/SpeechAudioLM \
   --output-root "$SALM_RESULTS_ROOT/evals" \
   --cache-dir "$SALM_CACHE_ROOT/evaluations" \
-  --device cuda
+  --device cuda \
+  "${ALLOW_EXISTING_ARGS[@]}"

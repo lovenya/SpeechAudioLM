@@ -1052,6 +1052,8 @@ def _dedicated_script_command(
         ]
         if not _truthy_config(config.get("disable_cache", False)):
             command.extend(["--cache-dir", str(config.get("cache_dir") or metric_work_dir / "cache")])
+        if _truthy_config(config.get("resume_from_output", False)):
+            command.append("--resume-from-output")
         if config.get("local_files_only", True):
             command.append("--local-files-only")
         if config.get("trust_remote_code", True):

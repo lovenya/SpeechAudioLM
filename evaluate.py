@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capabilities-config", default="configs/model_capabilities.json")
     parser.add_argument("--baseline-root", default=str(result_path("baselines")))
     parser.add_argument("--output-root", default=str(DEFAULT_EVAL_ROOT))
+    parser.add_argument("--eval-run-id", default=None, help="Optional explicit eval run directory ID. Intended for controlled GEval resume/retry workflows.")
     parser.add_argument("--temporary", action="store_true", help="Write outputs under temporary results roots.")
     parser.add_argument("--cache-dir", default=str(result_path("evaluation_cache")))
     parser.add_argument("--device", default="cuda")
@@ -71,7 +72,7 @@ def main() -> None:
         if args.temporary:
             output_root = root_path("temporary_results_root") / "evals"
         metric_specs = get_metric_specs(selection.metric_names)
-        eval_run_id = utc_timestamp()
+        eval_run_id = args.eval_run_id or utc_timestamp()
         shared_options = dict(
             model=args.model,
             task=task,
