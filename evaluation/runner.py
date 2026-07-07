@@ -1047,10 +1047,11 @@ def _dedicated_script_command(
             "--backend", str(config.get("script_backend", config.get("runtime_backend", "transformers"))),
             "--model", str(config.get("model_name", config.get("model_path") or str(model_path("qwen3_omni")))),
             "--batch-size", str(config.get("batch_size", 1)),
-            "--cache-dir", str(config.get("cache_dir") or metric_work_dir / "cache"),
             "--temperature", str(config.get("temperature", 0.0)),
             "--max-tokens", str(config.get("max_tokens", 512)),
         ]
+        if not _truthy_config(config.get("disable_cache", False)):
+            command.extend(["--cache-dir", str(config.get("cache_dir") or metric_work_dir / "cache")])
         if config.get("local_files_only", True):
             command.append("--local-files-only")
         if config.get("trust_remote_code", True):

@@ -207,7 +207,7 @@
       "batch_size": 1,
       "local_files_only": true,
       "trust_remote_code": true,
-      "cache_dir": "{cache:geval_audio_plausibility}",
+      "disable_cache": true,
       "note": "Criterion-wise reference-free LALM-as-a-judge G-Eval over generated audio plus text context."
     },
     "geval_audio_reference": {
@@ -221,7 +221,7 @@
       "batch_size": 1,
       "local_files_only": true,
       "trust_remote_code": true,
-      "cache_dir": "{cache:geval_audio_reference}",
+      "disable_cache": true,
       "note": "Criterion-wise reference-grounded LALM-as-a-judge G-Eval over generated audio plus text and paired references."
     },
     "prompt_adherence_clap_score": {

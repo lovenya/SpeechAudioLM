@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from evaluation.metrics.registry import get_metric_specs
-from evaluation.runner import EvalOptions, _dedicated_lalm_audio_rows, run_evaluation
+from evaluation.runner import EvalOptions, _dedicated_lalm_audio_rows, _dedicated_script_command, run_evaluation
 from scripts.run_geval_audio_qwen3_criterion import PROMPT_VERSIONS, build_prompt_record
 
 
@@ -140,6 +140,35 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             s2a_modality_record["audio_attachments"],
             [{"role": "generated_audio_to_evaluate", "path": "/tmp/environment.wav"}],
         )
+
+    def test_lalm_audio_disable_cache_omits_cache_argument(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            command = _dedicated_script_command(
+                "geval_audio_plausibility",
+                Path("python"),
+                Path("scripts/run_geval_audio_qwen3_criterion.py"),
+                root / "input.jsonl",
+                root / "output.jsonl",
+                root / "summary.json",
+                root / "work",
+                {"script_backend": "stub", "disable_cache": True},
+                self._options(root, ["geval_audio_plausibility"]),
+            )
+            self.assertNotIn("--cache-dir", command)
+
+            cached_command = _dedicated_script_command(
+                "geval_audio_plausibility",
+                Path("python"),
+                Path("scripts/run_geval_audio_qwen3_criterion.py"),
+                root / "input.jsonl",
+                root / "output.jsonl",
+                root / "summary.json",
+                root / "work",
+                {"script_backend": "stub"},
+                self._options(root, ["geval_audio_plausibility"]),
+            )
+            self.assertIn("--cache-dir", cached_command)
 
     def test_runner_executes_lalm_stub_and_preserves_audio_manifest_fields(self) -> None:
         metric = "geval_audio_plausibility"
