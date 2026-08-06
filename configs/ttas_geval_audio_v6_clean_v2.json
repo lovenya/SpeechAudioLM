@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "dataset": "ttas",
+  "dataset_version": "geval_audio_v6_clean_v2",
+  "source_split_config": "configs/ttas_dataset.json",
+  "source_result": {
+    "run_group": "geval_audio_v6_plausibility_20260707_0017",
+    "retry_run_group": "geval_audio_v6_plausibility_20260707_0017_resume_20260707_1010",
+    "merged_root_relative_to_results": "evals/shard_manifests/geval_audio_v6_plausibility/geval_audio_v6_plausibility_20260707_0017_resume_20260707_1010/merged",
+    "prompt_version": "geval_audio_plausibility_v6",
+    "scoring_policy_version": "geval_weighted_mean_v1_no_caps"
+  },
+  "exclusion_policy": {
+    "null_final_score": true,
+    "final_score_lte": 3.0,
+    "scenario_plausibility_lte": 2.0,
+    "target_modality_success_eq": 1.0
+  },
+  "outputs": {
+    "manifest_root": "data/manifests/clean_v2",
+    "report_root": "data/quality",
+    "eligibility_ledger": "ttas_geval_audio_v6_eligibility_v2.jsonl",
+    "summary_json": "ttas_geval_audio_v6_clean_v2_summary.json",
+    "summary_markdown": "ttas_geval_audio_v6_clean_v2_summary.md"
+  }
+}

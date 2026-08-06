@@ -29,6 +29,7 @@ __pycache__/
 *.orig
 
 # Large dataset and media artifacts
+data/manifests/clean_v2/
 *.wav
 *.mp3
 *.flac

@@ -26,6 +26,23 @@
       "val": "data/splits/ttas_val.jsonl",
       "test": "data/splits/ttas_test.jsonl"
     },
+    "training_manifests": {
+      "geval_audio_v6_clean_v2": {
+        "a2s": {
+          "train": "data/manifests/clean_v2/a2s/ttas_train.jsonl",
+          "val": "data/manifests/clean_v2/a2s/ttas_val.jsonl",
+          "test": "data/manifests/clean_v2/a2s/ttas_test.jsonl"
+        },
+        "s2a": {
+          "train": "data/manifests/clean_v2/s2a/ttas_train.jsonl",
+          "val": "data/manifests/clean_v2/s2a/ttas_val.jsonl",
+          "test": "data/manifests/clean_v2/s2a/ttas_test.jsonl"
+        },
+        "policy_config": "configs/ttas_geval_audio_v6_clean_v2.json",
+        "eligibility_ledger": "data/quality/ttas_geval_audio_v6_eligibility_v2.jsonl",
+        "summary": "data/quality/ttas_geval_audio_v6_clean_v2_summary.json"
+      }
+    },
     "enriched_manifests": {
       "audio_tags_panns_cnn14": {
         "train": "data/manifests/audio_tags/ttas_train_panns_cnn14.jsonl",

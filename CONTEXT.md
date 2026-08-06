@@ -74,8 +74,24 @@ test split:        data/splits/ttas_test.jsonl
 ```
 
 Known split counts from prior docs are train `18,226`, val `2,277`, test
-`2,277`, total `22,780`. Do not change manifests or splits without an explicit
-user decision.
+`2,277`, total `22,780`. The fixed split uses seed `1337`, an `80/10/10`
+ratio, and gender x bucketed-emotion stratification.
+
+The final training manifests are G-Eval audio v6 clean-v2, filtered independently
+by direction while preserving original split membership and row order:
+
+```text
+A2S: data/manifests/clean_v2/a2s/ttas_{train,val,test}.jsonl
+     counts: 17,596 / 2,206 / 2,197
+S2A: data/manifests/clean_v2/s2a/ttas_{train,val,test}.jsonl
+     counts: 15,033 / 1,887 / 1,878
+```
+
+Exclude a direction when its v6 result has a null or `<= 3` final score,
+scenario plausibility `<= 2`, or target-modality success `= 1`. See
+`docs/Geval_prompts/ttas_geval_audio_v6_dataset_audit.md` for provenance and
+audit artifacts. Do not change this policy or the source splits without an
+explicit user decision.
 
 ## Results And Eval Direction
 

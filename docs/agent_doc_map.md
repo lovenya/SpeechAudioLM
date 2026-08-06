@@ -47,6 +47,9 @@ Use this section to decide which document is authoritative before editing code o
   `configs/project_paths.json` before running commands.
 - `docs/Geval_prompts/geval_llm_prometheus_prompts.md`: keep. It is the
   human-readable rubric and scoring protocol for Prometheus LLM G-Eval.
+- `docs/Geval_prompts/ttas_geval_audio_v6_dataset_audit.md`: source of truth
+  for the final direction-specific training manifests, v6 filter policy,
+  counts, score-run provenance, and eligibility ledger.
 - `docs/nli_geval_schema_refactor.md`: keep. It is the merged schema note for
   NLI contradiction and Prometheus LLM G-Eval storage decisions.
 - `docs/setup_details/qwen3_asr_setup.md`: keep as historical debugging/migration

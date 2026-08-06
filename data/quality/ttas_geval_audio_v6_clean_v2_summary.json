@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "dataset_version": "geval_audio_v6_clean_v2",
+  "source_split_config": "configs/ttas_dataset.json",
+  "source_result_root": "/scratch/l/lovenya/salm_migration_clean/results/evals/shard_manifests/geval_audio_v6_plausibility/geval_audio_v6_plausibility_20260707_0017_resume_20260707_1010/merged",
+  "prompt_version": "geval_audio_plausibility_v6",
+  "scoring_policy_version": "geval_weighted_mean_v1_no_caps",
+  "exclusion_policy": {
+    "null_final_score": true,
+    "final_score_lte": 3.0,
+    "scenario_plausibility_lte": 2.0,
+    "target_modality_success_eq": 1.0
+  },
+  "directions": {
+    "a2s": {
+      "train": {
+        "source_rows": 18226,
+        "kept_rows": 17596,
+        "excluded_rows": 630,
+        "keep_percentage": 96.5434,
+        "exclusion_reason_counts": {
+          "final_score_lte_3": 84,
+          "null_final_score": 8,
+          "scenario_plausibility_lte_2": 608,
+          "target_modality_success_eq_1": 2
+        },
+        "manifest": "data/manifests/clean_v2/a2s/ttas_train.jsonl",
+        "sha256": "4660fa2dfcdc3ec4878b4b71fb848a73d868364da18d74ace2282173c92d5368"
+      },
+      "val": {
+        "source_rows": 2277,
+        "kept_rows": 2206,
+        "excluded_rows": 71,
+        "keep_percentage": 96.881862,
+        "exclusion_reason_counts": {
+          "final_score_lte_3": 10,
+          "scenario_plausibility_lte_2": 69
+        },
+        "manifest": "data/manifests/clean_v2/a2s/ttas_val.jsonl",
+        "sha256": "2381bdcd2a6fb4e461ab26fe1a33afd35bc9cad0252013f675598133534d4b97"
+      },
+      "test": {
+        "source_rows": 2277,
+        "kept_rows": 2197,
+        "excluded_rows": 80,
+        "keep_percentage": 96.486605,
+        "exclusion_reason_counts": {
+          "final_score_lte_3": 13,
+          "scenario_plausibility_lte_2": 79
+        },
+        "manifest": "data/manifests/clean_v2/a2s/ttas_test.jsonl",
+        "sha256": "6e5cf82ed24be36648e340ebf217a2fba4370bb3a0da4ad86054316043628d91"
+      }
+    },
+    "s2a": {
+      "train": {
+        "source_rows": 18226,
+        "kept_rows": 15033,
+        "excluded_rows": 3193,
+        "keep_percentage": 82.481071,
+        "exclusion_reason_counts": {
+          "final_score_lte_3": 1438,
+          "null_final_score": 228,
+          "scenario_plausibility_lte_2": 1613,
+          "target_modality_success_eq_1": 1491
+        },
+        "manifest": "data/manifests/clean_v2/s2a/ttas_train.jsonl",
+        "sha256": "0d6d6ecd00d6b00146416efc24f98c9aa6d51c6f9f64b23fa00cb921df725c0a"
+      },
+      "val": {
+        "source_rows": 2277,
+        "kept_rows": 1887,
+        "excluded_rows": 390,
+        "keep_percentage": 82.8722,
+        "exclusion_reason_counts": {
+          "final_score_lte_3": 158,
+          "null_final_score": 26,
+          "scenario_plausibility_lte_2": 199,
+          "target_modality_success_eq_1": 177
+        },
+        "manifest": "data/manifests/clean_v2/s2a/ttas_val.jsonl",
+        "sha256": "1bd11acc1c5fc15de7d9c8cbfb7b22827f4bd16b7c3aab3a6b7d0113218657a1"
+      },
+      "test": {
+        "source_rows": 2277,
+        "kept_rows": 1878,
+        "excluded_rows": 399,
+        "keep_percentage": 82.476943,
+        "exclusion_reason_counts": {
+          "final_score_lte_3": 181,
+          "null_final_score": 32,
+          "scenario_plausibility_lte_2": 189,
+          "target_modality_success_eq_1": 191
+        },
+        "manifest": "data/manifests/clean_v2/s2a/ttas_test.jsonl",
+        "sha256": "437cfb8fb69d6b23d56ec1706a7e3e85d3dde902497abda63720967c94bcd68c"
+      }
+    }
+  },
+  "totals": {
+    "a2s": {
+      "source_rows": 22780,
+      "kept_rows": 21999,
+      "excluded_rows": 781,
+      "keep_percentage": 96.571554
+    },
+    "s2a": {
+      "source_rows": 22780,
+      "kept_rows": 18798,
+      "excluded_rows": 3982,
+      "keep_percentage": 82.519754
+    }
+  },
+  "eligibility_ledger": "data/quality/ttas_geval_audio_v6_eligibility_v2.jsonl",
+  "eligibility_ledger_sha256": "339a51d596e238c094811bbc5079b3e0b64a211c3719eb3a36b4e2290d7ba8d8",
+  "summary_markdown": "data/quality/ttas_geval_audio_v6_clean_v2_summary.md"
+}

@@ -14,16 +14,21 @@ SpeechAudio LM is a research project for bidirectional generation between enviro
 The dataset is stored outside this git repository:
 
 ```text
-/project/rrg-csubakan/lovenya/datasets/ttas/extracted
+/scratch/l/lovenya/salm_migration_clean/datasets/ttas/extracted
 ```
 
 Current best clean manifest:
 
 ```text
-/project/rrg-csubakan/lovenya/datasets/ttas/extracted/ttas/22k_samples_clean_manual_meta_clean.jsonl
+/scratch/l/lovenya/salm_migration_clean/datasets/ttas/extracted/ttas/22k_samples_clean_manual_meta_clean.jsonl
 ```
 
 Small metadata artifacts are versioned in this repository:
+
+Final model-training inputs are the six direction-specific manifests under
+`data/manifests/clean_v2/{a2s,s2a}/`. See
+`docs/Geval_prompts/ttas_geval_audio_v6_dataset_audit.md` for the policy,
+counts, score provenance, and audit paths.
 
 - `data/manifests/ttas_clean_normalized.jsonl`: normalized canonical manifest with relative `audio_file` and `speech_file` paths.
 - `data/splits/ttas_train.jsonl`, `data/splits/ttas_val.jsonl`, `data/splits/ttas_test.jsonl`: fixed `80/10/10` split using seed `1337`.
@@ -33,8 +38,8 @@ Small metadata artifacts are versioned in this repository:
 Relative audio and speech paths should be resolved against the configured dataset root, for example:
 
 ```text
-/project/rrg-csubakan/lovenya/datasets/ttas/extracted/audio/11nhZxx4vr4.wav
-/project/rrg-csubakan/lovenya/datasets/ttas/extracted/speech/11nhZxx4vr4.wav
+/scratch/l/lovenya/salm_migration_clean/datasets/ttas/extracted/audio/11nhZxx4vr4.wav
+/scratch/l/lovenya/salm_migration_clean/datasets/ttas/extracted/speech/11nhZxx4vr4.wav
 ```
 
 Regenerate the metadata report and print a screenshot-friendly CLI summary:
