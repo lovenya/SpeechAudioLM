@@ -79,13 +79,13 @@
     "fad": {
       "backend": "audioldm_eval",
       "python": "{environment:audioldm_eval}/bin/python",
-      "model_name": "PANNs",
+      "model_name": "torchvggish-vggish",
       "model_path": null,
       "cache_dir": "{cache:audioldm_eval}",
       "runtime_home": "{cache:runtime_home}",
       "sample_rate": 16000,
       "backbone": "cnn14",
-      "minimum_valid_corpus_size": 2
+      "minimum_valid_corpus_size": 20
     },
     "kad": {
       "backend": "kadtk",
@@ -116,7 +116,7 @@
       "runtime_home": "{cache:runtime_home}",
       "sample_rate": 16000,
       "backbone": "cnn14",
-      "minimum_valid_corpus_size": 2
+      "minimum_valid_corpus_size": 20
     },
     "utmos": {
       "backend": "utmosv2",
