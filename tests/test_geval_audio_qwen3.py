@@ -18,7 +18,15 @@ from scripts.run_geval_audio_qwen3_criterion import (
 
 
 class GEvalLALMQwen3Test(unittest.TestCase):
-    def _options(self, root: Path, metrics: list[str], *, stage: str = "t2s", task: str = "T2S") -> EvalOptions:
+    def _options(
+        self,
+        root: Path,
+        metrics: list[str],
+        *,
+        stage: str = "t2s",
+        task: str = "T2S",
+        criteria: tuple[str, ...] | None = None,
+    ) -> EvalOptions:
         return EvalOptions(
             model="cascaded",
             task=task,
@@ -39,6 +47,7 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             device="cpu",
             command=["evaluate.py"],
             temporary=True,
+            criteria=criteria,
         )
 
     def test_audio_rows_include_generated_source_and_reference_audio(self) -> None:
@@ -92,12 +101,23 @@ class GEvalLALMQwen3Test(unittest.TestCase):
         )
         prompt = prompt_record["rendered_user_message"]
         self.assertEqual(prompt_record["prompt_version"], PROMPT_VERSIONS["plausibility"])
+        self.assertEqual(
+            prompt_record["prompt_version"],
+            "geval_audio_plausibility_v9_criterion_evidence_boundaries",
+        )
 
         self.assertIn("Clip 1 - INPUT SPEECH AUDIO (context): attached file input_audio_source.wav", prompt)
         self.assertIn("Clip 2 - OUTPUT ENVIRONMENTAL AUDIO TO EVALUATE: attached file output_audio_generated.wav", prompt)
         self.assertIn("output environmental audio should be an audio scene", prompt)
         self.assertIn("Criterion: input_speech_and_output_environmental_audio_grounded_scenario_plausibility", prompt)
         self.assertIn("Internal criterion id: scenario_plausibility", prompt)
+        self.assertIn("Required independent-listening procedure", prompt)
+        self.assertIn("Clip 1 evidence: ...; Clip 2 evidence: ...; Connection: ...", prompt)
+        self.assertIn("Do not let the content of either clip overwrite", prompt)
+        self.assertIn("inventory all salient audible evidence", prompt)
+        self.assertIn("Do not cherry-pick one vaguely compatible cue", prompt)
+        self.assertIn("Broad attribute overlap", prompt)
+        self.assertIn("share the same specific core situation", prompt)
         self.assertIn("Criterion boundary:", prompt)
         self.assertIn("form a believable, meaningfully connected shared situation", prompt)
         self.assertIn("Focus on two questions", prompt)
@@ -134,7 +154,10 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             generated_audio_file="/tmp/environment.wav",
         )
         s2a_modality = s2a_modality_record["rendered_user_message"]
-        self.assertEqual(s2a_modality_record["prompt_version"], "geval_audio_plausibility_v6")
+        self.assertEqual(
+            s2a_modality_record["prompt_version"],
+            "geval_audio_plausibility_v9_criterion_evidence_boundaries",
+        )
         self.assertIn(
             "Clip 1 - OUTPUT ENVIRONMENTAL AUDIO TO EVALUATE: attached file output_audio_environment.wav",
             s2a_modality,
@@ -147,6 +170,49 @@ class GEvalLALMQwen3Test(unittest.TestCase):
             s2a_modality_record["audio_attachments"],
             [{"role": "generated_audio_to_evaluate", "path": "/tmp/environment.wav"}],
         )
+
+        a2s_detail = build_prompt_record(
+            variant="plausibility",
+            direction="audio_to_speech",
+            criterion="controlled_detail",
+            source_audio_file="/tmp/source.wav",
+            generated_audio_file="/tmp/speech.wav",
+        )["rendered_user_message"]
+        self.assertIn("Required independent-evidence check", a2s_detail)
+        self.assertIn("distinguishing supported detail, reasonable inference", a2s_detail)
+        self.assertIn("Do not rescore overall scenario plausibility", a2s_detail)
+
+        a2s_delivery = build_prompt_record(
+            variant="plausibility",
+            direction="audio_to_speech",
+            criterion="expressive_delivery_fit",
+            source_audio_file="/tmp/source.wav",
+            generated_audio_file="/tmp/speech.wav",
+        )["rendered_user_message"]
+        self.assertIn("actually audible delivery cues", a2s_delivery)
+        self.assertIn("Judge audible delivery fit", a2s_delivery)
+
+        s2a_detail = build_prompt_record(
+            variant="plausibility",
+            direction="speech_to_audio",
+            criterion="controlled_detail",
+            source_audio_file="/tmp/speech.wav",
+            generated_audio_file="/tmp/environment.wav",
+        )["rendered_user_message"]
+        self.assertIn("inventory the audible events and layers", s2a_detail)
+        self.assertIn("unsupported acoustic detail", s2a_detail)
+
+        s2a_fit = build_prompt_record(
+            variant="plausibility",
+            direction="speech_to_audio",
+            criterion="contextual_acoustic_fit",
+            source_audio_file="/tmp/speech.wav",
+            generated_audio_file="/tmp/environment.wav",
+        )["rendered_user_message"]
+        self.assertIn("acoustic character actually audible", s2a_fit)
+        self.assertIn("not sound-source identity", s2a_fit)
+        self.assertNotIn("Required independent-evidence check", a2s_quality)
+        self.assertNotIn("Required independent-evidence check", s2a_modality)
 
     def test_lalm_audio_disable_cache_omits_cache_argument(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -176,6 +242,61 @@ class GEvalLALMQwen3Test(unittest.TestCase):
                 self._options(root, ["geval_audio_plausibility"]),
             )
             self.assertIn("--cache-dir", cached_command)
+
+            scenario_command = _dedicated_script_command(
+                "geval_audio_plausibility",
+                Path("python"),
+                Path("scripts/run_geval_audio_qwen3_criterion.py"),
+                root / "input.jsonl",
+                root / "output.jsonl",
+                root / "summary.json",
+                root / "work",
+                {"script_backend": "stub", "disable_cache": True},
+                self._options(
+                    root,
+                    ["geval_audio_plausibility"],
+                    criteria=("scenario_plausibility",),
+                ),
+            )
+            criteria_index = scenario_command.index("--criteria")
+            self.assertEqual(scenario_command[criteria_index + 1], "scenario_plausibility")
+
+    def test_audio_geval_can_select_only_scenario_plausibility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "generated.wav"
+            source_audio = root / "source.wav"
+            generated.write_bytes(b"RIFF....WAVE")
+            source_audio.write_bytes(b"RIFF....WAVE")
+            input_path = root / "input.jsonl"
+            output_path = root / "output.jsonl"
+            summary_path = root / "summary.json"
+            input_path.write_text(json.dumps({
+                "row_index": 0,
+                "sample_id": "sample",
+                "split": "test",
+                "direction": "audio_to_speech",
+                "generated_audio_file": str(generated),
+                "generated_audio_kind": "speech",
+                "source_audio_file": str(source_audio),
+            }) + "\n", encoding="utf-8")
+
+            run_geval(
+                input_path=input_path,
+                output_path=output_path,
+                summary_output=summary_path,
+                summary_csv_output=None,
+                judge=StubJudge(),
+                variant="plausibility",
+                cache_dir=None,
+                batch_size=1,
+                criteria=["scenario_plausibility"],
+            )
+
+            row = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(list(row["criteria"]), ["scenario_plausibility"])
+            self.assertEqual(row["criterion_weights"], {"scenario_plausibility": 1.0})
+            self.assertEqual(row["final_score"], 4.0)
 
     def test_audio_geval_resumes_from_partial_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
+import tempfile
 import hashlib
 import json
 import time
@@ -26,8 +28,8 @@ METRIC_IDS = {
     "reference_grounded": "geval_audio_reference",
 }
 PROMPT_VERSIONS = {
-    "plausibility": "geval_audio_plausibility_v6",
-    "reference_grounded": "geval_audio_reference_v6",
+    "plausibility": "geval_audio_plausibility_v9_criterion_evidence_boundaries",
+    "reference_grounded": "geval_audio_reference_v9_criterion_evidence_boundaries",
 }
 PROMPT_TEMPLATE_NAME = "geval_audio_end_to_end_direct_assessment_v1"
 PROMPT_TEMPLATE_TEXT = """###Task Description:
@@ -142,20 +144,34 @@ RUBRICS = {
 
 This criterion merges scenario plausibility and cross-modal grounding. The generated speech does not need to literally describe every sound, and it may add reasonable unstated context. It should still be motivated by the main audible events, acoustic setting, or situation in the input audio rather than being generic, unrelated, or only accidentally compatible.
 
+Required independent-listening procedure:
+1. Identify the core sound source, event, or situation in Clip 1 and inventory all salient audible evidence without using Clip 2 to guess, reinterpret, or fill in what Clip 1 contains.
+2. Identify the core meaning and situation actually spoken in Clip 2 without using Clip 1 to guess, reinterpret, or fill in what Clip 2 contains.
+3. Compare the core anchors and all salient evidence. Do not cherry-pick one vaguely compatible cue while ignoring a different core source, action, setting, or other conflicting audible events.
+4. Only then judge whether the independently identified evidence forms a grounded, believable shared situation.
+
+In the feedback, explicitly use this compact structure: "Clip 1 evidence: ...; Clip 2 evidence: ...; Connection: ...". Do not claim that a sound, event, object, action, or word is present unless it is clearly audible in that clip. If evidence is unclear, say it is uncertain. Do not let the content of either clip overwrite what is actually audible in the other clip.
+
+Merely being able to invent a broader setting in which two unrelated clips could co-occur is not grounding. An event suggested by one clip but absent from the other must not be treated as audible evidence. Broad attribute overlap such as loudness, urgency, outdoor ambience, motion, or a generic mechanical quality is not enough when the core sound source, action, or situation differs. If the relationship depends on imagined or unheard evidence, or on cherry-picking a weak shared attribute while ignoring the core mismatch, score 1 or 2. Use score 3 only when relevant audible evidence is genuinely ambiguous or the connection is indirect but supported.
+
 Use this grounding/plausibility guide:
 - High grounding + high plausibility: the speech is clearly motivated by the main heard scene and sounds like a natural human thing to say there.
 - High plausibility + weak grounding: the speech could be said somewhere, but it is generic or only loosely connected to the heard scene.
 - Weak plausibility + apparent grounding: the speech mentions or reacts to sounds, but the shared situation feels strained, unnatural, or dependent on too much hidden context.
 - Low grounding + low plausibility: the speech is unrelated, incoherent, or impossible to believe with the input scene.
 
-Score 1: The generated speech is unrelated to the input audio, or the pair forms an absurd, impossible, incoherent, or extremely unnatural situation.
-Score 2: The generated speech has only a weak connection to the input audio, or the shared situation is difficult to believe because of a major temporal, causal, pragmatic, or human-reaction mismatch.
-Score 3: The generated speech could occur with the heard scene, but the connection is generic, indirect, strained, underdeveloped, or dependent on substantial extra context.
-Score 4: The generated speech is clearly motivated by the heard scene and forms a plausible shared situation, with only minor genericness or a small reasonable assumption.
-Score 5: The generated speech feels like a very natural, specific, and believable human response to the main heard scene.""",
+Score 1: The independently heard speech is unrelated to or contradicts the independently heard input audio, or the pair forms an absurd, impossible, incoherent, or extremely unnatural situation.
+Score 2: The generated speech has only a weak connection to the input audio, the proposed connection depends on content that is not actually audible, or the shared situation has a major temporal, causal, pragmatic, or human-reaction mismatch.
+Score 3: The generated speech could occur with the heard scene, but the connection is generic, indirect, strained, underdeveloped, dependent on substantial extra context, or based mainly on broad shared attributes rather than the same core situation.
+Score 4: Specific evidence independently audible in both clips preserves the same core situation and supports a clearly motivated, plausible connection, with only a minor mismatch or small reasonable assumption.
+Score 5: The independently heard clips share the same specific core situation, their salient evidence coheres without important conflict, and the speech is a very natural, direct, and believable human response to the main heard scene.""",
     ("audio_to_speech", "controlled_detail"): """Evaluate whether the generated speech audio uses an appropriate amount of inferred detail: informative, focused on the main heard events, and not over-specific.
 
 The speech may infer reasonable context around the input audio because the task is one-to-many. Do not require the speech to mention only information directly present in the audio. A laugh can motivate a comment about a funny moment, and water splashing with children laughing can motivate a swimming or sunny-day remark. However, the speech should stay around the dominant auditory information, avoid chasing every small incidental sound, and avoid inventing highly specific unsupported backstory.
+
+Required independent-evidence check: First identify the main audible evidence in Clip 1 without using Clip 2 to fill it in. Separately identify what is actually spoken in Clip 2 without using Clip 1 to invent or reinterpret its words. Then judge whether Clip 2 uses an appropriate amount of detail around Clip 1's main evidence, distinguishing supported detail, reasonable inference, genericness, and unsupported over-specification.
+
+Criterion boundary: Do not rescore overall scenario plausibility here. Use a cross-clip mismatch only when it shows that the output misses the main evidence, focuses on the wrong details, or adds unsupported detail.
 
 Good detail uses the main sound world without overanalyzing it. For example, dominant car sounds can motivate speech about leaving early, loudness, a long ride, or revving, without needing to mention every faint bird, water, or laugh in the background. A laugh can support a line about a funny moment, but saying only "good joke" is too generic, while inventing and telling a long joke is over-detailed. Water splashing plus children laughing can support "Wow, the kids are enjoying swimming. The water's nice." A sunny-day inference can be acceptable, but adding a detailed Olympic-training backstory is over-invented even if it is scene-plausible. If most of the speech is well grounded and only one extra detail goes too far, reward the useful inferred content while deducting for that unnecessary detail.
 
@@ -186,6 +202,10 @@ Score 5: The generated speech audio is highly natural, clear, stable, human-like
 
 Focus on non-textual speech cues: emotion, prosody, tone, urgency, loudness, speaking pace, rhythm, hesitation, stress, surprise, fear, calmness, laughter, or other vocal expression. First listen to what the generated speech is saying, then judge whether its delivery fits that content and the input scene. Do not simply match loudness or energy to the input audio. A loud animal or busy environment can be paired with quieter speech if the words are trying to calm the animal or lower the noise. When the speech content or input scene clearly calls for emotion, urgency, stress, surprise, fear, amusement, authority, or another expressive stance, a flat or emotionally absent delivery should be penalized heavily. Robotic, unnatural, or machine-like speech should also score low here because it lacks usable human expressive character.
 
+Required independent-evidence check: First identify the input scene and its audible expressive demands from Clip 1 alone. Separately identify both the words and the actually audible delivery cues in Clip 2. Do not let the scene cause you to imagine emotion, urgency, prosody, or emphasis that is not audible in the generated speech, and do not infer the input scene from the speech before listening to Clip 1 independently.
+
+Criterion boundary: Judge audible delivery fit, not overall semantic grounding or scenario plausibility. A content mismatch matters here only when it changes what expressive delivery the independently heard words and scene call for.
+
 Score 1: The expressive delivery is completely inappropriate for the speech content and heard scene, is robotic or machine-like, or has no usable expressive character.
 Score 2: The delivery has a major mismatch or major absence of required emotion, prosody, urgency, loudness, pace, tone, or human expressiveness for the spoken content and scene.
 Score 3: The delivery is somewhat plausible, but feels flat, exaggerated, emotionally mismatched, robotic, or weakly adapted to the content and scene.
@@ -195,20 +215,34 @@ Score 5: The delivery strongly fits the spoken content and heard scene, with nat
 
 Focus on two questions. First, are the speech and generated audio situationally connected, rather than about unrelated things? The generated scene can contextualize, accompany, explain, or result from the utterance, and it may add reasonable unstated context. For example, speech about being late or needing to rush can plausibly connect to vehicle, street, or engine sounds. Second, is the resulting sound world physically and practically plausible as something that could happen in the real world? Do not penalize emotional contrast by itself: calm speech can occur in a loud or chaotic situation if the scenario makes sense. Penalize scenes that feel like an incoherent pile of unrelated events, such as incompatible hazards, locations, ceremonies, weapons, water, laughter, and music all competing without a plausible shared context.
 
+Required independent-listening procedure:
+1. Identify the core meaning and situation actually spoken in Clip 1 without using Clip 2 to guess, reinterpret, or fill in what Clip 1 contains.
+2. Identify the core sound source, event, or situation in Clip 2 and inventory all salient audible evidence without using Clip 1 to guess, reinterpret, or fill in what Clip 2 contains.
+3. Compare the core anchors and all salient evidence. Do not cherry-pick one vaguely compatible cue while ignoring a different core source, action, setting, or other conflicting audible events.
+4. Only then judge whether the independently identified evidence forms a grounded, believable shared situation.
+
+In the feedback, explicitly use this compact structure: "Clip 1 evidence: ...; Clip 2 evidence: ...; Connection: ...". Do not claim that a sound, event, object, action, or word is present unless it is clearly audible in that clip. If evidence is unclear, say it is uncertain. Do not let the content of either clip overwrite what is actually audible in the other clip.
+
+Merely being able to invent a broader setting in which two unrelated clips could co-occur is not grounding. An event suggested by the speech but absent from the generated audio must not be treated as audible evidence, and a sound in the generated audio must not rewrite what the speech says. Broad attribute overlap such as loudness, urgency, outdoor ambience, motion, or a generic mechanical quality is not enough when the core sound source, action, or situation differs. If the relationship depends on imagined or unheard evidence, or on cherry-picking a weak shared attribute while ignoring the core mismatch, score 1 or 2. Use score 3 only when relevant audible evidence is genuinely ambiguous or the connection is indirect but supported.
+
 Use this grounding/plausibility guide:
 - High grounding + high plausibility: the audio scene is clearly connected to the speech and forms a realistic sound-world situation.
 - High plausibility + weak grounding: the audio is a believable scene, but it is generic or only loosely connected to what was said.
 - Weak plausibility + apparent grounding: the audio includes sounds suggested by the speech, but the full scene feels strained, impractical, or dependent on too much hidden context.
 - Low grounding + low plausibility: the audio is unrelated, incoherent, physically implausible, or impossible to believe with the input speech.
 
-Score 1: The generated environmental audio is unrelated to the input speech, or the pair forms an absurd, impossible, incoherent, or extremely unnatural situation.
-Score 2: The generated audio scene has only a weak connection to the input speech, or the shared situation is difficult to believe because of a major temporal, causal, pragmatic, physical, or sound-world mismatch.
-Score 3: The generated audio scene could fit the input speech, but the connection is generic, indirect, strained, underdeveloped, or dependent on substantial extra context.
-Score 4: The generated audio scene is clearly motivated by the speech and forms a plausible shared situation, with only minor genericness or a small reasonable assumption.
-Score 5: The generated audio scene feels like a very natural, specific, and believable context, accompaniment, explanation, or consequence of the input speech.""",
+Score 1: The independently heard environmental audio is unrelated to or contradicts the independently heard input speech, or the pair forms an absurd, impossible, incoherent, or extremely unnatural situation.
+Score 2: The generated audio scene has only a weak connection to the input speech, the proposed connection depends on content that is not actually audible, or the shared situation has a major temporal, causal, pragmatic, physical, or sound-world mismatch.
+Score 3: The generated audio scene could fit the input speech, but the connection is generic, indirect, strained, underdeveloped, dependent on substantial extra context, or based mainly on broad shared attributes rather than the same core situation.
+Score 4: Specific evidence independently audible in both clips preserves the same core situation and supports a clearly motivated, plausible connection, with only a minor mismatch or small reasonable assumption.
+Score 5: The independently heard clips share the same specific core situation, their salient evidence coheres without important conflict, and the audio is a very natural, direct, and believable context, accompaniment, explanation, or consequence of the speech.""",
     ("speech_to_audio", "controlled_detail"): """Evaluate whether the generated environmental audio uses an appropriate amount of acoustic detail: enough to be useful and scene-like, but not overloaded with unnecessary events.
 
 Environmental audio outputs are allowed to be generic. A simple idling car engine, school-like ambience, church-like ambience, or mumbled human crowd can be a perfectly valid output if it fits the speech. Do not penalize a simple focused sound scene merely because it lacks many layers. Penalize uncontrolled over-detail when the clip piles on too many distinct, unsupported, or distracting events, such as a train whistle, people talking, glass falling, music, and animal sounds all competing in one short audio. A busy scene can have multiple sounds, but the details should still cohere as one plausible sound world rather than a checklist of unrelated effects.
+
+Required independent-evidence check: First identify what is actually spoken and minimally implied in Clip 1 without using Clip 2 to fill it in. Separately inventory the audible events and layers in Clip 2 without using the speech to imagine sounds that are absent. Then judge whether Clip 2 has an appropriate amount of acoustic detail for Clip 1, distinguishing useful scene detail, acceptable genericness, sparseness, and unsupported or distracting over-detail.
+
+Criterion boundary: Do not rescore overall scenario plausibility here. Use a cross-clip mismatch only when it shows that the output misses the basic sound world, is too generic to establish it, or adds unsupported acoustic detail.
 
 Score 1: The generated audio is almost empty/unusable, misses the basic sound world implied by the speech, or is wildly overcrowded with unrelated acoustic details.
 Score 2: The generated audio is mostly too sparse to establish a scene, or mostly too over-specific/overcrowded to feel controlled.
@@ -236,6 +270,10 @@ Score 5: The generated environmental audio is highly realistic, clear, coherent,
     ("speech_to_audio", "contextual_acoustic_fit"): """Evaluate whether the acoustic character of the generated environmental audio fits the heard input speech content and situation.
 
 Focus on acoustic cues: loudness, intensity, ambience, mood, tension, calmness, event timing, foreground/background balance, density, and soundscape energy. Do not simply match the speaker's vocal tone. Listen to what the speech says and what situation it implies, then judge whether the generated soundscape fits that content, intent, emotion, urgency, and pragmatic context.
+
+Required independent-evidence check: First identify the words, intent, and minimally implied situation in Clip 1 without using Clip 2 to reinterpret them. Separately identify only the acoustic character actually audible in Clip 2 without using the speech to imagine loudness, tension, ambience, timing, density, or events that are absent. Then compare those independently heard cues.
+
+Criterion boundary: Judge acoustic-character fit, not sound-source identity, overall grounding, or scenario plausibility. A different sound source can still score highly when its actually audible acoustic character fits the speech, while a nominally related source should score poorly when its acoustic character conflicts with the speech.
 
 A calm voice talking about music can reasonably be followed by energetic music if the words imply it. A calm voice saying someone needs to hurry can reasonably fit loud or urgent environmental audio. If the speech talks about an animal, the animal sound should fit the implied situation: "don't be scared" can fit fierce or hissing animal sounds, while a playful animal tone may be wrong if the words imply fear or danger. If the speech says a motor needs to be lower or something is too loud, the generated audio can still be loud because the content is about a loud scene.
 
@@ -612,10 +650,14 @@ def run_geval(
     max_samples: int | None = None,
     criterion_judgments_output: Path | None = None,
     resume_from_output: bool = False,
+    criteria: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     rows = _read_input_rows(input_path, max_samples=max_samples)
     cache_identity = getattr(judge, "cache_identity", judge.name)
-    states = [_initial_row_state(row, variant=variant, judge_name=judge.name) for row in rows]
+    states = [
+        _initial_row_state(row, variant=variant, judge_name=judge.name, criteria=criteria)
+        for row in rows
+    ]
     if resume_from_output:
         report = _merge_resume_states(
             states,
@@ -705,11 +747,29 @@ def run_geval(
     return summary
 
 
-def _initial_row_state(row: dict[str, Any], *, variant: str, judge_name: str) -> dict[str, Any]:
+def _initial_row_state(
+    row: dict[str, Any],
+    *,
+    variant: str,
+    judge_name: str,
+    criteria: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     direction = _required_str(row, "direction")
-    weights = CRITERION_WEIGHTS.get((variant, direction))
-    if weights is None:
+    all_weights = CRITERION_WEIGHTS.get((variant, direction))
+    if all_weights is None:
         raise ValueError(f"Unsupported variant/direction: {variant}/{direction}")
+    selected = tuple(criteria) if criteria else tuple(all_weights)
+    if not selected:
+        raise ValueError("At least one criterion must be selected")
+    if len(set(selected)) != len(selected):
+        raise ValueError(f"Duplicate criteria requested: {selected}")
+    unknown = [criterion for criterion in selected if criterion not in all_weights]
+    if unknown:
+        raise ValueError(
+            f"Unsupported criteria for {variant}/{direction}: {unknown}; "
+            f"choose from {list(all_weights)}"
+        )
+    weights = {criterion: all_weights[criterion] for criterion in selected}
     anchors = row.get("reference_anchors") if isinstance(row.get("reference_anchors"), list) else []
     missing_reference = variant == "reference_grounded" and not _valid_reference_anchors(anchors)
     state = {
@@ -1290,14 +1350,27 @@ def _write_cache(cache_dir: Path | None, prompt_hash: str, data: dict[str, Any])
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as dst:
-        for row in rows:
-            dst.write(json.dumps(row, ensure_ascii=False) + "\n")
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as dst:
+            for row in rows:
+                dst.write(json.dumps(row, ensure_ascii=False) + "\n")
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as dst:
+            dst.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _write_summary_csv(path: Path, summary: dict[str, Any]) -> None:
@@ -1332,6 +1405,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary-csv-output", type=Path, default=None)
     parser.add_argument("--criterion-judgments-output", type=Path, default=None)
     parser.add_argument("--variant", choices=sorted(METRIC_IDS), required=True)
+    parser.add_argument(
+        "--criteria",
+        nargs="+",
+        default=None,
+        help="Optional criterion subset. Defaults to every criterion for the selected variant and direction.",
+    )
     parser.add_argument("--cache-dir", type=Path, default=None)
     parser.add_argument("--resume-from-output", action="store_true", help="Reuse valid criterion results already present in --output before generating missing criteria.")
     parser.add_argument("--backend", choices=["transformers", "stub"], default="transformers")
@@ -1361,6 +1440,7 @@ def main() -> None:
         max_samples=args.max_samples,
         criterion_judgments_output=args.criterion_judgments_output,
         resume_from_output=args.resume_from_output,
+        criteria=args.criteria,
     )
 
 

@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="test", help="Dataset split. Defaults to test.")
     parser.add_argument("--manifest", default=None, help="Optional explicit baseline manifest path.")
     parser.add_argument("--metrics", required=True, help='Comma-separated metrics, or "all".')
+    parser.add_argument(
+        "--criteria",
+        default=None,
+        help="Optional comma-separated criterion subset for GEval Audio metrics, e.g. scenario_plausibility.",
+    )
     parser.add_argument("--dataset-config", default="configs/ttas_dataset.json")
     parser.add_argument("--metrics-config", default="configs/eval_metrics.json")
     parser.add_argument("--task-metric-map", default="configs/task_metric_map.json")
@@ -72,6 +77,9 @@ def main() -> None:
         if args.temporary:
             output_root = root_path("temporary_results_root") / "evals"
         metric_specs = get_metric_specs(selection.metric_names)
+        criteria = tuple(part.strip() for part in (args.criteria or "").split(",") if part.strip()) or None
+        if criteria and any(spec.name not in {"geval_audio_plausibility", "geval_audio_reference"} for spec in metric_specs):
+            raise EvaluationError("--criteria is currently supported only for GEval Audio metrics.")
         eval_run_id = args.eval_run_id or utc_timestamp()
         shared_options = dict(
             model=args.model,
@@ -93,6 +101,7 @@ def main() -> None:
             device=args.device,
             command=sys.argv,
             temporary=args.temporary,
+            criteria=criteria,
         )
         if args.dry_run:
             dry_runs = []

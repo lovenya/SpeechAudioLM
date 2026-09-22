@@ -33,9 +33,14 @@ def main() -> None:
     (log_root / "task.json").write_text(json.dumps(task, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     processes: list[tuple[dict[str, Any], subprocess.Popen[bytes], Any, Path]] = []
+    skipped_complete: list[dict[str, Any]] = []
     for worker in workers:
         gpu = int(worker["gpu"])
         output_parent = metric_output_parent(worker, args.output_root)
+        if args.allow_existing_outputs and existing_output_is_complete(worker, output_parent):
+            print(f"skip-complete label={worker['label']} output={output_parent}", flush=True)
+            skipped_complete.append({"label": worker["label"], "ok": True, "skipped_complete": True})
+            continue
         if output_parent.exists() and any(output_parent.iterdir()) and not args.allow_existing_outputs:
             raise SystemExit(f"error: refusing to launch because output already exists: {output_parent}")
         command = evaluate_command(worker, args)
@@ -53,7 +58,7 @@ def main() -> None:
         time.sleep(args.launch_stagger_seconds)
 
     failures = 0
-    results = []
+    results = list(skipped_complete)
     for worker, process, handle, log_path in processes:
         returncode = process.wait()
         handle.close()
@@ -99,6 +104,9 @@ def evaluate_command(worker: dict[str, Any], args: argparse.Namespace) -> list[s
     ]
     if worker.get("eval_run_id"):
         command.extend(["--eval-run-id", str(worker["eval_run_id"])])
+    criteria = worker.get("criteria")
+    if isinstance(criteria, list) and criteria:
+        command.extend(["--criteria", ",".join(str(item) for item in criteria)])
     return command
 
 
@@ -114,6 +122,21 @@ def metric_output_parent(worker: dict[str, Any], output_root: Path) -> Path:
         / str(worker["evaluated_run_id"])
         / str(worker["metric"])
     )
+
+
+def existing_output_is_complete(worker: dict[str, Any], output_parent: Path) -> bool:
+    """Return whether this exact immutable eval run already completed successfully."""
+    eval_run_id = worker.get("eval_run_id")
+    if not isinstance(eval_run_id, str) or not eval_run_id:
+        return False
+    summary_path = output_parent / eval_run_id / "summary.json"
+    if not summary_path.is_file():
+        return False
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return summary.get("status") == "complete"
 
 
 def quote(value: str) -> str:

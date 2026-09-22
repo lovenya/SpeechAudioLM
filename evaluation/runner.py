@@ -63,6 +63,7 @@ class EvalOptions:
     command: list[str]
     temporary: bool = False
     eval_run_id: str | None = None
+    criteria: tuple[str, ...] | None = None
 
 
 def run_evaluation(options: EvalOptions) -> dict[str, Path]:
@@ -194,6 +195,7 @@ def dry_run(options: EvalOptions) -> dict[str, Any]:
         "manifest": str(options.manifest_path),
         "output_dir": str(output_dir),
         "metrics": [spec.name for spec in options.metric_specs],
+        "criteria": list(options.criteria) if options.criteria else None,
         "temporary": options.temporary,
         "start_index": options.start_index if options.temporary else None,
         "max_samples": options.max_samples if options.temporary else None,
@@ -1052,6 +1054,8 @@ def _dedicated_script_command(
         ]
         if not _truthy_config(config.get("disable_cache", False)):
             command.extend(["--cache-dir", str(config.get("cache_dir") or metric_work_dir / "cache")])
+        if options.criteria:
+            command.extend(["--criteria", *options.criteria])
         if _truthy_config(config.get("resume_from_output", False)):
             command.append("--resume-from-output")
         if config.get("local_files_only", True):
@@ -1968,6 +1972,7 @@ def _inspect_document(
                 "requires_output_file": metric.requires_output_file,
                 "requires_hypothesis_text": metric.requires_hypothesis_text,
             },
+            "selected_criteria": list(options.criteria) if options.criteria else None,
         },
         "summary": {
             "status": summary.get("status"),
@@ -2019,6 +2024,7 @@ def _run_config(
             "split": options.split,
             "start_index": options.start_index if options.temporary else None,
             "max_samples": options.max_samples if options.temporary else None,
+            "selected_criteria": list(options.criteria) if options.criteria else None,
         },
         "metric": {
             "metric_id": metric.name,

@@ -1119,10 +1119,19 @@ Score 5: The generated audio caption is strongly compatible with the reference's
 ## GEval Audio
 
 > Historical prompt snapshot: the detailed text below records v4. The final
-> TTAS cleaning decision uses `geval_audio_plausibility_v6`; its executable
-> prompt source is `scripts/run_geval_audio_qwen3_criterion.py`, and exact
-> run provenance is recorded in
-> `docs/Geval_prompts/ttas_geval_audio_v6_dataset_audit.md`.
+> TTAS clean-v2 remains based on `geval_audio_plausibility_v6`; its provenance
+> is recorded in `docs/Geval_prompts/ttas_geval_audio_v6_dataset_audit.md`.
+> Scenario-plausibility v8 added independent clip evidence and core-anchor
+> comparison. Its full clean-v2 rerun completed on 2026-09-21. The current v9
+> executable adds criterion-specific independent-evidence checks to controlled
+> detail, A2S expressive-delivery fit, and S2A contextual-acoustic fit while
+> preserving their boundaries from scenario plausibility. Target-modality
+> success and perceptual audio quality remain output-only and unchanged. On the
+> 120-pair matched/mismatched diagnostic, v9 increased the separation for both
+> controlled-detail directions and A2S expressive delivery; S2A contextual
+> acoustic fit remained discriminative but its gap decreased slightly. The
+> authoritative executable source is
+> `scripts/run_geval_audio_qwen3_criterion.py`.
 
 - Evaluator version: `geval_audio_qwen3_criterion_v1`
 - Template: `geval_audio_end_to_end_direct_assessment_v1`
